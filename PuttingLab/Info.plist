@@ -41,5 +41,12 @@
     <string>PuttingLab reads motion data from your iPhone's sensors to detect your swing.</string>
     <key>ITSAppUsesNonExemptEncryption</key>
     <false/>
+    <!-- Expose the Documents folder (and its StrokeReplays sub-folder) to the
+         iOS Files app so testers can bulk-export captured stroke JSONs to
+         Drive/iCloud/email without tapping each one individually. -->
+    <key>UIFileSharingEnabled</key>
+    <true/>
+    <key>LSSupportsOpeningDocumentsInPlace</key>
+    <true/>
 </dict>
 </plist>

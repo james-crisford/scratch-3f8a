@@ -39,3 +39,19 @@ test.log
 *.p12
 *.mobileprovision
 ExportOptions/*-private.plist
+
+# Reference repos — cloned for local browsing only, not part of the build
+references/
+
+# Third-party skills (PolyForm Perimeter license — don't redistribute via this repo).
+# Re-install on a fresh clone via scripts/install-third-party-skills.sh.
+.claude/skills/core-motion/
+.claude/skills/swift-concurrency/
+.claude/skills/swift-testing/
+.claude/skills/swiftui-gestures/
+.claude/skills/swiftui-animation/
+.claude/skills/permissionkit/
+.claude/skills/swift-codable/
+.claude/skills/ios-accessibility/
+.claude/skills/app-store-review/
+.claude/skills/storekit/

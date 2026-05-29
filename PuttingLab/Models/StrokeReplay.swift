@@ -123,9 +123,12 @@ final class StrokeReplayStore: @unchecked Sendable {
         if let d = directory {
             self.directory = d
         } else {
-            let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            // Documents (not Application Support) so the iOS Files app can see it.
+            // Combined with UIFileSharingEnabled + LSSupportsOpeningDocumentsInPlace
+            // in Info.plist, this lets the tester bulk-export every JSON to Drive.
+            let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
                 ?? URL(fileURLWithPath: NSTemporaryDirectory())
-            self.directory = appSupport.appendingPathComponent("StrokeReplays", isDirectory: true)
+            self.directory = documents.appendingPathComponent("StrokeReplays", isDirectory: true)
         }
         try? FileManager.default.createDirectory(at: self.directory, withIntermediateDirectories: true)
     }

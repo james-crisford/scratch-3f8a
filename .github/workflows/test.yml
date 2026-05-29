@@ -3,8 +3,24 @@ name: Test
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'briefs/**'
+      - 'research_archive/**'
+      - '.gitignore'
+      - 'LICENSE'
+      - '.claude/**'
   pull_request:
     branches: [main]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'briefs/**'
+      - 'research_archive/**'
+      - '.gitignore'
+      - 'LICENSE'
+      - '.claude/**'
   workflow_dispatch:
     inputs:
       release:
@@ -12,6 +28,12 @@ on:
         type: boolean
         required: false
         default: false
+
+# Cancel any in-flight run on the same branch when a new push arrives.
+# Stops back-to-back commits from each spending a full 5-minute Mac slot.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:
@@ -44,6 +66,16 @@ jobs:
         run: |
           xcodegen generate --spec project.yml
           ls -la PuttingLab.xcodeproj
+
+      # Cache the Xcode build outputs keyed on source-file + project-config hash.
+      # First run: cold. Second+ run: ~45-60s off the build step.
+      - name: Cache DerivedData
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Developer/Xcode/DerivedData
+          key: deriveddata-${{ runner.os }}-${{ hashFiles('project.yml', 'PuttingLab/**/*.swift', 'PuttingLabTests/**/*.swift') }}
+          restore-keys: |
+            deriveddata-${{ runner.os }}-
 
       - name: Show simulators
         run: xcrun simctl list devices available | head -40
@@ -108,12 +140,57 @@ jobs:
           retention-days: 14
           if-no-files-found: warn
 
+      # Screenshot the app running on iPhone 16 simulator. MANUAL-ONLY.
+      # Boots the sim, installs the build, launches, captures the launch view.
+      # Useful for a quick visual sanity check before TestFlight is available.
+      - name: Capture launch screenshot
+        if: github.event_name == 'workflow_dispatch'
+        continue-on-error: true
+        run: |
+          set -e
+          SIM_ID=$(xcrun simctl list devices available | grep "iPhone 16 (" | head -1 | grep -E -o '[0-9A-F-]{36}')
+          echo "Using simulator: $SIM_ID"
+          xcrun simctl boot "$SIM_ID" 2>/dev/null || true
+          xcrun simctl bootstatus "$SIM_ID" -b
+          APP_PATH=$(find ~/Library/Developer/Xcode/DerivedData -name "PuttingLab.app" -path "*Debug-iphonesimulator*" | head -1)
+          if [ -z "$APP_PATH" ]; then
+            echo "No simulator .app found in DerivedData — building one"
+            xcodebuild build \
+              -project PuttingLab.xcodeproj \
+              -scheme PuttingLab \
+              -destination "platform=iOS Simulator,id=$SIM_ID" \
+              -configuration Debug \
+              CODE_SIGNING_ALLOWED=NO
+            APP_PATH=$(find ~/Library/Developer/Xcode/DerivedData -name "PuttingLab.app" -path "*Debug-iphonesimulator*" | head -1)
+          fi
+          echo "App path: $APP_PATH"
+          xcrun simctl install "$SIM_ID" "$APP_PATH"
+          BUNDLE_ID=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$APP_PATH/Info.plist")
+          echo "Bundle ID: $BUNDLE_ID"
+          xcrun simctl launch "$SIM_ID" "$BUNDLE_ID" || true
+          sleep 5
+          mkdir -p screenshots
+          xcrun simctl io "$SIM_ID" screenshot screenshots/launch.png
+          xcrun simctl status_bar "$SIM_ID" override --time "9:41" --batteryState charged --batteryLevel 100 || true
+          sleep 1
+          xcrun simctl io "$SIM_ID" screenshot screenshots/launch-clean.png
+          ls -la screenshots
+
+      - name: Upload screenshots
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: Screenshots
+          path: screenshots/
+          retention-days: 14
+          if-no-files-found: warn
+
       # Archive step — produces a generic .xcarchive for inspection.
-      # This is NOT signed for distribution; that needs Apple Developer credentials
-      # in GitHub secrets (DEVELOPMENT_TEAM, signing cert P12, provisioning profile).
-      # For now it just proves an iOS Device archive build succeeds.
+      # MANUAL-ONLY now (workflow_dispatch). Was running on every main push and
+      # adding ~1-2 min per push for no daily benefit. Trigger it from the Actions
+      # tab when you actually need to inspect an archive.
       - name: Archive (generic iOS, unsigned)
-        if: github.ref == 'refs/heads/main'
+        if: github.event_name == 'workflow_dispatch'
         continue-on-error: true
         run: |
           set -o pipefail
@@ -129,7 +206,7 @@ jobs:
             | tee archive.log
 
       - name: Upload xcarchive
-        if: always() && github.ref == 'refs/heads/main'
+        if: always() && github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v4
         with:
           name: PuttingLab.xcarchive
