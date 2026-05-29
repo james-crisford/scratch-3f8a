@@ -233,8 +233,8 @@ struct StatsAggregatorStreakTests {
 
     @Test("SessionStats Equatable")
     func equatable() {
-        let a = SessionStats(totalStrokes: 5, longestFeet: 10, closestPinFeetFromTarget: 1, bestTempoSeconds: 0.6, mostAccurateFaceAngleDeg: 1, todayStreak: 3)
-        let b = SessionStats(totalStrokes: 5, longestFeet: 10, closestPinFeetFromTarget: 1, bestTempoSeconds: 0.6, mostAccurateFaceAngleDeg: 1, todayStreak: 3)
+        let a = SessionStats(totalStrokes: 5, snappedStrokes: 0, longestFeet: 10, closestPinFeetFromTarget: 1, bestTempoSeconds: 0.6, mostAccurateFaceAngleDeg: 1, todayStreak: 3)
+        let b = SessionStats(totalStrokes: 5, snappedStrokes: 0, longestFeet: 10, closestPinFeetFromTarget: 1, bestTempoSeconds: 0.6, mostAccurateFaceAngleDeg: 1, todayStreak: 3)
         #expect(a == b)
     }
 }
