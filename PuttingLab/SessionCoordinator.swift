@@ -131,7 +131,6 @@ final class SessionCoordinator {
             currentLock = lock
             try? stroke.arm(with: lock)
             arkitBaselineYaw = arkit.attitudeYaw()
-            phase = .address
             phase = .ready
             readyEnteredAt = sample.timestamp
             strokeArkitPoses = []

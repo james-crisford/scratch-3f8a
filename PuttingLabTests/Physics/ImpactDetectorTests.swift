@@ -80,20 +80,31 @@ struct ImpactDetectorPullPushTests {
 @Suite("ImpactDetector — rejection paths")
 struct ImpactDetectorRejectionTests {
 
-    @Test("throws strokeTooShort on 150ms flick")
-    func tooShort() {
+    @Test("150ms flick → snapped to square with .strokeTooShort reason (spec §5.2)")
+    func tooShortSnaps() throws {
         let fixture = StrokeFixtures.flickShort(ms: 150)
-        #expect(throws: ImpactDetectorError.strokeTooShort) {
-            _ = try ImpactDetector().detect(in: fixture.window)
-        }
+        let r = try ImpactDetector().detect(in: fixture.window)
+        #expect(r.snappedToSquare)
+        #expect(r.snapReason == .strokeTooShort)
+        #expect(r.faceAngleRaw == 0)
+        #expect(r.confidence == 0)
     }
 
-    @Test("throws noClearPeak on zero-acceleration stream")
-    func zeroAccelThrows() {
+    @Test("zero-acceleration stream → snapped to square with .noClearPeak reason (spec §5.2)")
+    func zeroAccelSnaps() throws {
         let fixture = StrokeFixtures.zeroAccel()
-        #expect(throws: ImpactDetectorError.noClearPeak) {
-            _ = try ImpactDetector().detect(in: fixture.window)
-        }
+        let r = try ImpactDetector().detect(in: fixture.window)
+        #expect(r.snappedToSquare)
+        #expect(r.snapReason == .noClearPeak)
+        #expect(r.faceAngleRaw == 0)
+    }
+
+    @Test("clean stroke is NOT snapped")
+    func cleanStrokeNotSnapped() throws {
+        let fixture = StrokeFixtures.cleanStraight8ft()
+        let r = try ImpactDetector().detect(in: fixture.window)
+        #expect(!r.snappedToSquare)
+        #expect(r.snapReason == nil)
     }
 
     @Test("throws insufficientSamples on 2-sample window")

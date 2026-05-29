@@ -111,12 +111,12 @@ struct FaceAngleComputerARKitTests {
 @Suite("FaceAngleComputer — ARKit fallback")
 struct FaceAngleComputerFallbackTests {
 
-    @Test("ARKit lost mid-stroke → falls back to compass with .fallbackArkitLost origin")
+    @Test("ARKit lost >50% mid-stroke → falls back to compass with .fallbackArkitLost origin")
     func arkitLostFallsBack() {
         let fixture = StrokeFixtures.cleanStraight8ft()
         let computer = FaceAngleComputer()
         let poses: [ARPose] = [
-            ARPose(timestamp: 1.1, transform: yawTransformF(radians: 0), trackingState: .normal),
+            ARPose(timestamp: 1.1, transform: yawTransformF(radians: 0), trackingState: .limited(.initializing)),
             ARPose(timestamp: 1.2, transform: yawTransformF(radians: 0), trackingState: .limited(.excessiveMotion)),
             ARPose(timestamp: 1.3, transform: yawTransformF(radians: 0), trackingState: .normal),
         ]
@@ -130,6 +130,27 @@ struct FaceAngleComputerFallbackTests {
         )
         #expect(result.origin == .fallbackArkitLost)
         #expect(abs(result.degrees - 10.0) < 0.1)
+    }
+
+    @Test("ARKit lost on single sample (≤50%) → still uses ARKit (spec >50% threshold)")
+    func arkitSingleLostStaysClean() {
+        let fixture = StrokeFixtures.cleanStraight8ft()
+        let computer = FaceAngleComputer()
+        let poses: [ARPose] = [
+            ARPose(timestamp: 1.1, transform: yawTransformF(radians: 0), trackingState: .normal),
+            ARPose(timestamp: 1.2, transform: yawTransformF(radians: 0), trackingState: .limited(.excessiveMotion)),
+            ARPose(timestamp: 1.3, transform: yawTransformF(radians: 0), trackingState: .normal),
+        ]
+        let attitude = simd_quatd(ix: 0, iy: 0, iz: 0, r: 1)
+        let result = computer.compute(
+            window: fixture.window,
+            attitudeAtImpact: attitude,
+            impactTime: 1.3,
+            arkitPoses: poses,
+            arkitBaselineYaw: 0.0
+        )
+        // 2/3 normal = 66.7% > 50% → ARKit clean
+        #expect(result.origin == .arkit)
     }
 
     @Test("ARKit available but no baseline → fallback with .fallbackNoBaseline origin")

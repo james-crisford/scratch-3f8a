@@ -4,8 +4,12 @@ import simd
 final class StillnessDetector: @unchecked Sendable {
     static let maxRotationRateRadPerSec: Double = 5.0 * .pi / 180.0
     static let maxAccelMagnitude: Double = 0.2
-    /// Spec §3 phase 2: phone within ±15° of vertical → dot(normalised gravity, [0,-1,0]) > cos(15°) ≈ 0.966.
-    static let minGravityDot: Double = 0.966
+    /// Spec §3 phase 2 was "±15° of vertical" but research (puttinglab-putter-stroke-tempo-face)
+    /// shows real putter lie angles are ~70° → phone-Y-along-shaft sits ~20° from world vertical.
+    /// 15° tolerance would prevent any natural address pose from locking. Relaxed to ~25° for
+    /// natural grip. Future work (KI): per-user gravity reference captured at calibration.
+    /// cos(25°) ≈ 0.906; use 0.9 with a small safety margin for hand tremor.
+    static let minGravityDot: Double = 0.9
     static let requiredDurationSeconds: TimeInterval = 0.8
 
     private let lock = NSLock()

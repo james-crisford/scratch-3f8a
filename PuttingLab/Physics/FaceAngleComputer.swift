@@ -25,7 +25,9 @@ final class FaceAngleComputer: Sendable {
         arkitBaselineYaw: Double? = nil
     ) -> FaceAngleSource {
         let arkitAvailable = !arkitPoses.isEmpty
-        let arkitClean = arkitAvailable && arkitPoses.allSatisfy { $0.trackingState.isNormal }
+        // Spec §2.5: fallback when >50% of poses are non-.normal during the window.
+        let normalCount = arkitPoses.filter { $0.trackingState.isNormal }.count
+        let arkitClean = arkitAvailable && Double(normalCount) / Double(arkitPoses.count) > 0.5
 
         if arkitClean, let baseline = arkitBaselineYaw,
            let arkitYaw = arkitYawAt(impactTime, in: arkitPoses) {

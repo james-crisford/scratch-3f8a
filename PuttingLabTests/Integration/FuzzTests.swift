@@ -79,8 +79,8 @@ struct PathologicalInputTests {
         }
     }
 
-    @Test("all-NaN acceleration stream throws noClearPeak")
-    func nanAccelerationStream() {
+    @Test("all-NaN acceleration stream → snapped to square (noClearPeak)")
+    func nanAccelerationStream() throws {
         let lock = StillnessLock(yawTargetCompass: 0, gravity: SIMD3(0, -1, 0), lockedAt: 0)
         var samples: [MotionSample] = []
         for i in 0..<60 {
@@ -93,9 +93,8 @@ struct PathologicalInputTests {
             ))
         }
         let window = StrokeWindow(start: 0, end: 0.59, samples: samples, lock: lock)
-        #expect(throws: ImpactDetectorError.self) {
-            _ = try ImpactDetector().detect(in: window)
-        }
+        let r = try ImpactDetector().detect(in: window)
+        #expect(r.snappedToSquare)
     }
 
     @Test("billion-sample stream truncated to buffer cap doesn't crash detector")

@@ -174,18 +174,27 @@ struct StillnessDetectorBoundaryTests {
         #expect(!StillnessDetector.isStill(s))
     }
 
-    @Test("gravity dot 0.96 (just below spec 0.966 threshold) → not still")
-    func gravityAt0_96NotStill() {
+    @Test("gravity dot 0.96 → still (natural-grip 20° tilt should not block)")
+    func gravityAt0_96Still() {
         let g = SIMD3<Double>(sqrt(1 - 0.96 * 0.96), -0.96, 0)
         let s = sample(t: 0, rotation: .zero, accel: .zero, gravity: g)
-        #expect(!StillnessDetector.isStill(s))
+        #expect(StillnessDetector.isStill(s))
     }
 
-    @Test("gravity dot 0.97 (just above spec 0.966 threshold) → still")
-    func gravityAt0_97Still() {
-        let g = SIMD3<Double>(sqrt(1 - 0.97 * 0.97), -0.97, 0)
+    @Test("gravity dot 0.94 (natural 20° putter-grip tilt) → still")
+    func gravityAt0_94NaturalGripStill() {
+        // Putter shaft at ~70° lie angle → phone Y along shaft = ~20° from world vertical.
+        // dot(gravity, world-down) = cos(20°) ≈ 0.940. Must lock for natural addresses.
+        let g = SIMD3<Double>(sin(20.0 * .pi / 180.0), -cos(20.0 * .pi / 180.0), 0)
         let s = sample(t: 0, rotation: .zero, accel: .zero, gravity: g)
         #expect(StillnessDetector.isStill(s))
+    }
+
+    @Test("gravity dot 0.85 (well past 25° tolerance) → not still")
+    func gravityAt0_85NotStill() {
+        let g = SIMD3<Double>(sqrt(1 - 0.85 * 0.85), -0.85, 0)
+        let s = sample(t: 0, rotation: .zero, accel: .zero, gravity: g)
+        #expect(!StillnessDetector.isStill(s))
     }
 
     @Test("gravity dot just above 0.96 → still")

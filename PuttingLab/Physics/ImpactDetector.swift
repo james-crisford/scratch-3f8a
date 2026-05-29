@@ -20,12 +20,15 @@ final class ImpactDetector: Sendable {
         arkitPoses: [ARPose] = [],
         arkitBaselineYaw: Double? = nil
     ) throws -> ImpactResult {
-        guard window.duration + Self.fpTolerance >= Self.minStrokeDurationSeconds else {
-            throw ImpactDetectorError.strokeTooShort
-        }
         let samples = window.samples
         guard samples.count >= 3 else {
             throw ImpactDetectorError.insufficientSamples
+        }
+        guard window.duration + Self.fpTolerance >= Self.minStrokeDurationSeconds else {
+            return Self.snappedToSquare(
+                window: window,
+                reason: .strokeTooShort
+            )
         }
 
         let dt = inferDt(samples: samples)
@@ -51,26 +54,35 @@ final class ImpactDetector: Sendable {
         // mean acceleration ≈ 0 makes mean-based sign-correction unreliable. Instead, pick the
         // dominant velocity extremum; if it's negative, flip the velocity array so the impact
         // peak is positive.
+        // Restrict search to the smoothing-window interior: movingAverage leaves the first/last
+        // (window/2) samples unsmoothed, so they retain raw transients that could dominate.
+        let half = Self.smoothingWindow / 2
+        let searchLow = min(half, smoothed.count - 1)
+        let searchHigh = max(smoothed.count - half, searchLow + 1)
         var maxV = -Double.infinity
-        var maxIdx = 0
+        var maxIdx = searchLow
         var minV = Double.infinity
-        var minIdx = 0
-        for (i, v) in smoothed.enumerated() {
+        var minIdx = searchLow
+        for i in searchLow..<searchHigh {
+            let v = smoothed[i]
             guard v.isFinite else { continue }
             if v > maxV { maxV = v; maxIdx = i }
             if v < minV { minV = v; minIdx = i }
         }
         guard maxV.isFinite, minV.isFinite else {
-            throw ImpactDetectorError.noClearPeak
+            return Self.snappedToSquare(window: window, reason: .noClearPeak)
         }
 
+        // Pick later extremum (impact happens after backswing peak in a real putting stroke).
+        // Magnitude-ratio tiebreak only kicks in when one extremum dominates by >2× — useful
+        // for fully clamped data where the order may be flipped by noise.
         let useMax: Bool
-        if abs(maxV) > abs(minV) * 1.5 {
+        if abs(maxV) > abs(minV) * 2.0 {
             useMax = true
-        } else if abs(minV) > abs(maxV) * 1.5 {
+        } else if abs(minV) > abs(maxV) * 2.0 {
             useMax = false
         } else {
-            useMax = maxIdx >= minIdx
+            useMax = maxIdx > minIdx
         }
 
         var peakIdx: Int
@@ -89,7 +101,7 @@ final class ImpactDetector: Sendable {
             peakIdx < smoothed.count - 1,
             peakValue > 1e-9
         else {
-            throw ImpactDetectorError.noClearPeak
+            return Self.snappedToSquare(window: window, reason: .noClearPeak)
         }
 
         let offset = Self.parabolicPeak(
@@ -202,6 +214,19 @@ final class ImpactDetector: Sendable {
         let y = q.imag.y
         let z = q.imag.z
         return atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
+    }
+
+    static func snappedToSquare(window: StrokeWindow, reason: SnapReason) -> ImpactResult {
+        let midpoint = window.start + (window.end - window.start) / 2.0
+        return ImpactResult(
+            timestamp: midpoint,
+            peakVelocity: 0,
+            faceAngleRaw: 0,
+            attitudeAtImpact: simd_quatd(ix: 0, iy: 0, iz: 0, r: 1),
+            confidence: 0,
+            snappedToSquare: true,
+            snapReason: reason
+        )
     }
 
     static func wrapAngle(_ angle: Double) -> Double {
