@@ -51,6 +51,7 @@ targets:
         INFOPLIST_FILE: PuttingLab/Info.plist
         TARGETED_DEVICE_FAMILY: "1"
         CODE_SIGNING_ALLOWED: NO
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
 
   PuttingLabTests:
     type: bundle.unit-test
