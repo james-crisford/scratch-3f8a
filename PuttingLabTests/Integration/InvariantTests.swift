@@ -77,7 +77,7 @@ struct InvariantTests {
             // (rotation rad/s, accel m/s², gravity dot, expect_lock)
             (0.0, 0.0, 1.0, true),         // perfect still
             (0.05, 0.1, 0.99, true),       // within all thresholds
-            (0.087, 0.0, 1.0, false),      // 5°/s exactly = rejected (strict <)
+            (5.0 * .pi / 180.0, 0.0, 1.0, false),  // 5°/s exactly = rejected (strict <)
             (0.0, 0.2, 1.0, false),        // 0.2 m/s² = rejected
             (0.0, 0.0, 0.89, false),       // below gravity threshold
             (0.0, 0.0, 0.91, true),        // just above gravity threshold
