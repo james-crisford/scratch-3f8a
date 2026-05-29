@@ -4,7 +4,11 @@ import simd
 /// Codable wrapper for a captured stroke + its window + the resulting impact.
 /// Used to save real iPhone strokes from TestFlight to disk so we can replay them
 /// through the algorithm offline and debug. JSON-friendly.
-struct StrokeReplay: Codable, Sendable {
+///
+/// **Schema version 1** (2026-05-29). Future fields MUST be added via `decodeIfPresent`
+/// in `init(from:)` so v1 tester JSONs continue to deserialize forever.
+struct StrokeReplay: Sendable, Codable {
+    let schemaVersion: Int
     let capturedAt: Date
     let deviceModel: String
     let appVersion: String
@@ -15,7 +19,7 @@ struct StrokeReplay: Codable, Sendable {
     let result: SerializedImpactResult?
     let userNote: String?
 
-    struct SerializedSample: Codable, Sendable {
+    struct SerializedSample: Sendable, Codable {
         let timestamp: TimeInterval
         let rotationRate: [Double]    // [x, y, z]
         let userAcceleration: [Double]
@@ -37,6 +41,79 @@ struct StrokeReplay: Codable, Sendable {
         let snappedToSquare: Bool
         let snapReason: String?
     }
+
+    enum CodingKeys: String, CodingKey {
+        case schemaVersion, capturedAt, deviceModel, appVersion
+        case samples, lock, windowStart, windowEnd, result, userNote
+    }
+}
+
+// MARK: - Schema-versioned + bounds-checked decoders
+//
+// Backward-compat note: v1 tester JSONs do NOT carry `schemaVersion`. We decode it
+// with `decodeIfPresent ?? 1` so future additions can advance the version without
+// breaking old files on disk. The custom `init(from:)` here OVERRIDES the synthesized
+// decoder; the synthesized `encode(to:)` is preserved.
+extension StrokeReplay {
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.schemaVersion = try c.decodeIfPresent(Int.self, forKey: .schemaVersion) ?? 1
+        self.capturedAt = try c.decode(Date.self, forKey: .capturedAt)
+        self.deviceModel = try c.decode(String.self, forKey: .deviceModel)
+        self.appVersion = try c.decode(String.self, forKey: .appVersion)
+        self.samples = try c.decode([SerializedSample].self, forKey: .samples)
+        self.lock = try c.decode(SerializedLock.self, forKey: .lock)
+        self.windowStart = try c.decode(TimeInterval.self, forKey: .windowStart)
+        self.windowEnd = try c.decode(TimeInterval.self, forKey: .windowEnd)
+        self.result = try c.decodeIfPresent(SerializedImpactResult.self, forKey: .result)
+        self.userNote = try c.decodeIfPresent(String.self, forKey: .userNote)
+    }
+}
+
+extension StrokeReplay.SerializedSample {
+    enum SampleKeys: String, CodingKey {
+        case timestamp, rotationRate, userAcceleration, gravity, attitude
+    }
+
+    // Bounds-checked decoder. Index-out-of-range on truncated arrays would crash the
+    // ENTIRE batch load (e.g. when the tester opens History). Catching at decode time
+    // turns the bad sample into a single skipped file, not a process death.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: SampleKeys.self)
+        self.timestamp = try c.decode(TimeInterval.self, forKey: .timestamp)
+        let rot = try c.decode([Double].self, forKey: .rotationRate)
+        let acc = try c.decode([Double].self, forKey: .userAcceleration)
+        let grv = try c.decode([Double].self, forKey: .gravity)
+        let att = try c.decode([Double].self, forKey: .attitude)
+        guard rot.count == 3 else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .rotationRate, in: c,
+                debugDescription: "rotationRate must have 3 elements, got \(rot.count)"
+            )
+        }
+        guard acc.count == 3 else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .userAcceleration, in: c,
+                debugDescription: "userAcceleration must have 3 elements, got \(acc.count)"
+            )
+        }
+        guard grv.count == 3 else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .gravity, in: c,
+                debugDescription: "gravity must have 3 elements, got \(grv.count)"
+            )
+        }
+        guard att.count == 4 else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .attitude, in: c,
+                debugDescription: "attitude quaternion must have 4 elements, got \(att.count)"
+            )
+        }
+        self.rotationRate = rot
+        self.userAcceleration = acc
+        self.gravity = grv
+        self.attitude = att
+    }
 }
 
 extension StrokeReplay {
@@ -48,6 +125,7 @@ extension StrokeReplay {
         userNote: String? = nil,
         now: Date = Date()
     ) {
+        self.schemaVersion = 1
         self.capturedAt = now
         self.deviceModel = deviceModel
         self.appVersion = appVersion
@@ -142,7 +220,16 @@ final class StrokeReplayStore: @unchecked Sendable {
         let url = directory.appendingPathComponent(filename)
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        encoder.outputFormatting = [.sortedKeys]
+        // CoreMotion legitimately emits NaN/Inf during bad sensor fixes (e.g. magnetometer
+        // calibration glitches). Default JSON refuses these, throws EncodingError, and
+        // loses the stroke. Convert to string sentinels so the file is still written;
+        // the matching decoder strategy round-trips them back to NaN/Inf.
+        encoder.nonConformingFloatEncodingStrategy = .convertToString(
+            positiveInfinity: "+inf",
+            negativeInfinity: "-inf",
+            nan: "nan"
+        )
         let data = try encoder.encode(replay)
         try data.write(to: url, options: .atomic)
         return url
@@ -150,8 +237,22 @@ final class StrokeReplayStore: @unchecked Sendable {
 
     func load(from url: URL) throws -> StrokeReplay {
         let data = try Data(contentsOf: url)
+        // Hard size cap — a corrupted/malicious 100MB JSON would OOM on iPhone 12.
+        // 75 strokes × 200 samples × 6 doubles × ~16 chars JSON each ≈ ~1.5MB upper bound.
+        // 10MB gives ~6x headroom for future schema growth + pretty printing variations.
+        guard data.count <= 10 * 1024 * 1024 else {
+            throw NSError(
+                domain: "StrokeReplayStore", code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "Stroke replay too large (\(data.count) bytes)"]
+            )
+        }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
+        decoder.nonConformingFloatDecodingStrategy = .convertFromString(
+            positiveInfinity: "+inf",
+            negativeInfinity: "-inf",
+            nan: "nan"
+        )
         return try decoder.decode(StrokeReplay.self, from: data)
     }
 

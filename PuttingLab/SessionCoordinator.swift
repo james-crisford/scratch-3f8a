@@ -241,6 +241,12 @@ final class SessionCoordinator {
             stillness.reset()
             // Persist real-device strokes to disk for offline replay/debug. Tests pass
             // `replayStore: nil` to avoid filesystem writes.
+            //
+            // The encode + Data.write is detached off-MainActor to keep the UI smooth at
+            // 100Hz sample consumption — synchronous JSON encoding of a 200-sample window
+            // is ~5-15ms on an iPhone 12, enough to perceptibly jank the impact-result
+            // animation. Fire-and-forget: `ReplayHistoryView` lazily lists files when
+            // the user opens it, so no completion signal is needed here.
             if let store = replayStore {
                 let replay = StrokeReplay(
                     window: window,
@@ -248,7 +254,9 @@ final class SessionCoordinator {
                     deviceModel: Self.deviceModelString(),
                     appVersion: Self.appVersionString()
                 )
-                _ = try? store.save(replay)
+                Task.detached(priority: .utility) {
+                    _ = try? store.save(replay)
+                }
             }
         } catch {
             lastError = String(describing: error)

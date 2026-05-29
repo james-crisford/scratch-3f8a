@@ -36,9 +36,9 @@
         <string>UIInterfaceOrientationPortrait</string>
     </array>
     <key>NSCameraUsageDescription</key>
-    <string>PuttingLab uses the camera for AR tracking to anchor your putting line. We never record or upload images.</string>
+    <string>PuttingLab uses the rear camera (via ARKit world tracking) to measure which direction your phone is pointing while you putt. Camera images are processed on-device and are never recorded, saved, or uploaded.</string>
     <key>NSMotionUsageDescription</key>
-    <string>PuttingLab reads motion data from your iPhone's sensors to detect your swing.</string>
+    <string>PuttingLab reads your iPhone's gyroscope, accelerometer, and magnetometer to measure your putting stroke tempo, face angle, and impact. All motion data stays on your device.</string>
     <key>ITSAppUsesNonExemptEncryption</key>
     <false/>
     <!-- Expose the Documents folder (and its StrokeReplays sub-folder) to the

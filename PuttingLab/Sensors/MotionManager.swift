@@ -3,6 +3,7 @@ import CoreMotion
 
 enum MotionManagerError: Error, Equatable {
     case deviceMotionUnavailable
+    case motionPermissionDenied
     case alreadyRunning
     case notRunning
 }
@@ -46,6 +47,37 @@ final class MotionManager: MotionStreaming, @unchecked Sendable {
         return latest
     }
 
+    /// Pick the best available attitude reference frame. Real-device TestFlight is
+    /// likely to hit magnetometer interference (steel rebar, AirPods, MagSafe, fluorescents).
+    /// `.xMagneticNorthZVertical` requires a calibrated magnetometer; if unavailable we
+    /// fall back to `.xArbitraryCorrectedZVertical` (gyro-corrected, no compass), then
+    /// `.xArbitraryZVertical` (pure inertial). Yaw absolute reference is lost on fallback,
+    /// but the stroke window's relative yaw is still usable.
+    static func selectAttitudeFrame(
+        from available: CMAttitudeReferenceFrame
+    ) -> CMAttitudeReferenceFrame {
+        if available.contains(.xMagneticNorthZVertical) {
+            return .xMagneticNorthZVertical
+        }
+        if available.contains(.xArbitraryCorrectedZVertical) {
+            return .xArbitraryCorrectedZVertical
+        }
+        return .xArbitraryZVertical
+    }
+
+    /// True if the user has granted CoreMotion permission (or the prompt hasn't fired yet).
+    /// Apple's CMMotionManager `isDeviceMotionAvailable` reports HARDWARE availability,
+    /// NOT permission — a denied user gets `motion=nil` callbacks forever with no error.
+    /// `CMMotionActivityManager.authorizationStatus()` is the source of truth for the
+    /// motion-and-fitness permission that CoreMotion uses.
+    static func isMotionPermissionGranted() -> Bool {
+        let status = CMMotionActivityManager.authorizationStatus()
+        // .notDetermined = first launch, prompt will appear when sensors start. Allow.
+        // .authorized = granted. Allow.
+        // .denied / .restricted = block.
+        return status == .authorized || status == .notDetermined
+    }
+
     func start() throws -> AsyncStream<MotionSample> {
         lock.lock()
         if running {
@@ -55,6 +87,10 @@ final class MotionManager: MotionStreaming, @unchecked Sendable {
         guard manager.isDeviceMotionAvailable else {
             lock.unlock()
             throw MotionManagerError.deviceMotionUnavailable
+        }
+        guard Self.isMotionPermissionGranted() else {
+            lock.unlock()
+            throw MotionManagerError.motionPermissionDenied
         }
         running = true
         lock.unlock()
@@ -71,8 +107,12 @@ final class MotionManager: MotionStreaming, @unchecked Sendable {
         self.continuation = cont
         lock.unlock()
 
+        let frame = Self.selectAttitudeFrame(
+            from: CMMotionManager.availableAttitudeReferenceFrames()
+        )
+
         manager.startDeviceMotionUpdates(
-            using: .xMagneticNorthZVertical,
+            using: frame,
             to: queue
         ) { [weak self] motion, _ in
             guard let self, let motion else { return }

@@ -74,6 +74,11 @@ final class SensorDebugViewModel {
     }
 
     func start() {
+        // H4 guard: `.task { start() }` + scenePhase `.active → start()` can race on
+        // first appear, double-starting motion which throws `alreadyRunning` and stashes
+        // a spurious red error banner. Skip if already running.
+        if motion.isRunning { return }
+
         sampleCount = 0
         measuredHz = 0
         errorText = nil
@@ -307,14 +312,18 @@ struct SensorDebugView: View {
         }
         .onChange(of: scenePhase) { _, phase in
             // KI-12 / C5 finding: pause sensors when backgrounded; resume on return.
-            // Without this, ARKit + CoreMotion stay running across notification pulldown,
-            // app-switcher peeks, and lock screen — draining battery and leaving the
-            // coordinator in a stale state when the app returns.
+            // H1: gate stop on `.background` ONLY — `.inactive` fires on transient events
+            // (Control Center pull-down, incoming-call banner, app switcher peek). Stopping
+            // on `.inactive` killed sensors mid-stroke during testing because every
+            // notification reset the stillness window. The OS pauses the app's run loop on
+            // `.background` anyway, so the lost-coverage window is unchanged.
             switch phase {
             case .active:
                 viewModel.start()
-            case .inactive, .background:
+            case .background:
                 viewModel.stop()
+            case .inactive:
+                break  // transient — let sensors keep running
             @unknown default:
                 break
             }
