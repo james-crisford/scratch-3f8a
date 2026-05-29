@@ -383,7 +383,8 @@ fileprivate func makeCoordinator(
         readyTimeoutSeconds: readyTimeoutSeconds,
         rollTimeoutSeconds: rollTimeoutSeconds,
         onResult: onResult,
-        onLockHaptic: onLockHaptic
+        onLockHaptic: onLockHaptic,
+        replayStore: nil  // disable filesystem writes in tests
     )
 }
 

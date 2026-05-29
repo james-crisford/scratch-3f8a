@@ -14,7 +14,8 @@ struct MultiStrokeSessionTests {
             motion: NoopMotion(),
             arkit: FakeARTrackingManager(),
             rollTimeoutSeconds: 0.4,
-            onResult: { _ in resultCount += 1 }
+            onResult: { _ in resultCount += 1 },
+            replayStore: nil
         )
 
         let strokes: [SyntheticStroke] = [
@@ -67,7 +68,8 @@ struct MultiStrokeSessionTests {
             motion: NoopMotion(),
             arkit: FakeARTrackingManager(),
             rollTimeoutSeconds: 0.4,
-            onResult: { _ in }
+            onResult: { _ in },
+            replayStore: nil
         )
 
         var t: TimeInterval = 0
@@ -119,7 +121,8 @@ struct MultiStrokeSessionTests {
             motion: NoopMotion(),
             arkit: FakeARTrackingManager(),
             rollTimeoutSeconds: 0.4,
-            onResult: { _ in resultCount += 1 }
+            onResult: { _ in resultCount += 1 },
+            replayStore: nil
         )
 
         var t: TimeInterval = 0

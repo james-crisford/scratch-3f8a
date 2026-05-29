@@ -25,6 +25,7 @@ final class SessionCoordinator {
     private let impactDetector: ImpactDetector
     private let onResult: @MainActor (ImpactResult) -> Void
     private let onLockHaptic: @MainActor () -> Void
+    private let replayStore: StrokeReplayStore?
 
     private var currentLock: StillnessLock?
     private var readyEnteredAt: TimeInterval?
@@ -42,7 +43,8 @@ final class SessionCoordinator {
         readyTimeoutSeconds: TimeInterval = 15.0,
         rollTimeoutSeconds: TimeInterval = 3.0,
         onResult: @escaping @MainActor (ImpactResult) -> Void = { _ in },
-        onLockHaptic: @escaping @MainActor () -> Void = SessionCoordinator.defaultHaptic
+        onLockHaptic: @escaping @MainActor () -> Void = SessionCoordinator.defaultHaptic,
+        replayStore: StrokeReplayStore? = StrokeReplayStore.shared
     ) {
         self.motion = motion
         self.arkit = arkit
@@ -53,6 +55,7 @@ final class SessionCoordinator {
         self.rollTimeoutSeconds = rollTimeoutSeconds
         self.onResult = onResult
         self.onLockHaptic = onLockHaptic
+        self.replayStore = replayStore
     }
 
     @MainActor
@@ -60,6 +63,24 @@ final class SessionCoordinator {
         let gen = UIImpactFeedbackGenerator(style: .medium)
         gen.prepare()
         gen.impactOccurred()
+    }
+
+    static func deviceModelString() -> String {
+        var sysinfo = utsname()
+        uname(&sysinfo)
+        let raw = withUnsafePointer(to: &sysinfo.machine) {
+            $0.withMemoryRebound(to: CChar.self, capacity: Int(_SYS_NAMELEN)) {
+                String(validatingUTF8: $0) ?? "unknown"
+            }
+        }
+        return raw
+    }
+
+    static func appVersionString() -> String {
+        let info = Bundle.main.infoDictionary
+        let v = info?["CFBundleShortVersionString"] as? String ?? "?"
+        let b = info?["CFBundleVersion"] as? String ?? "?"
+        return "\(v) (\(b))"
     }
 
     func start() {
@@ -217,6 +238,17 @@ final class SessionCoordinator {
             phase = .roll
             rollEnteredAt = window.end
             stillness.reset()
+            // Persist real-device strokes to disk for offline replay/debug. Tests pass
+            // `replayStore: nil` to avoid filesystem writes.
+            if let store = replayStore {
+                let replay = StrokeReplay(
+                    window: window,
+                    result: result,
+                    deviceModel: Self.deviceModelString(),
+                    appVersion: Self.appVersionString()
+                )
+                _ = try? store.save(replay)
+            }
         } catch {
             lastError = String(describing: error)
             timeoutToArm()
