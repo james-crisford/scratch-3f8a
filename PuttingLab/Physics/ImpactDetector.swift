@@ -8,7 +8,18 @@ final class ImpactDetector: Sendable {
     static let smoothingWindow: Int = 5
     static let fpTolerance: TimeInterval = 1e-6
 
-    func detect(in window: StrokeWindow, arkitLost: Bool = false) throws -> ImpactResult {
+    let faceAngleComputer: FaceAngleComputer
+
+    init(faceAngleComputer: FaceAngleComputer = FaceAngleComputer()) {
+        self.faceAngleComputer = faceAngleComputer
+    }
+
+    func detect(
+        in window: StrokeWindow,
+        arkitLost: Bool = false,
+        arkitPoses: [ARPose] = [],
+        arkitBaselineYaw: Double? = nil
+    ) throws -> ImpactResult {
         guard window.duration + Self.fpTolerance >= Self.minStrokeDurationSeconds else {
             throw ImpactDetectorError.strokeTooShort
         }
@@ -68,8 +79,14 @@ final class ImpactDetector: Sendable {
             attitude = simd_slerp(samples[peakIdx].attitude, samples[prevIdx].attitude, -offset)
         }
 
-        let yawAtImpact = Self.yawFromQuaternion(attitude)
-        let faceAngleRaw = Self.wrapAngle(yawAtImpact - window.lock.yawTargetCompass)
+        let face = faceAngleComputer.compute(
+            window: window,
+            attitudeAtImpact: attitude,
+            impactTime: impactTime,
+            arkitPoses: arkitPoses,
+            arkitBaselineYaw: arkitBaselineYaw
+        )
+        let faceAngleRaw = face.radians
 
         var confidence = 1.0
         if arkitLost { confidence *= 0.4 }
