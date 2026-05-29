@@ -7,21 +7,33 @@ final class SensorDebugViewModel {
     var sampleCount: Int = 0
     var measuredHz: Double = 0
     var errorText: String?
+    var arkitYaw: Double?
+    var arkitState: ARTrackingState = .notAvailable
+    var arkitErrorText: String?
 
     private let motion: MotionStreaming
+    private let arkit: ARTracking
     private var startedAt: TimeInterval?
     private var firstSampleAt: TimeInterval?
     private var lastReportAt: TimeInterval?
     private var samplesSinceLastReport: Int = 0
+    private var arkitPollTask: Task<Void, Never>?
 
-    init(motion: MotionStreaming = MotionManager()) {
+    init(
+        motion: MotionStreaming = MotionManager(),
+        arkit: ARTracking = ARTrackingManager()
+    ) {
         self.motion = motion
+        self.arkit = arkit
     }
 
     func start() {
         sampleCount = 0
         measuredHz = 0
         errorText = nil
+        arkitErrorText = nil
+        arkitYaw = nil
+        arkitState = .notAvailable
         startedAt = SensorClock.now()
         firstSampleAt = nil
         lastReportAt = nil
@@ -36,10 +48,32 @@ final class SensorDebugViewModel {
         } catch {
             errorText = String(describing: error)
         }
+
+        do {
+            try arkit.start()
+            startARKitPolling()
+        } catch {
+            arkitErrorText = String(describing: error)
+        }
     }
 
     func stop() {
         motion.stop()
+        arkit.stop()
+        arkitPollTask?.cancel()
+        arkitPollTask = nil
+    }
+
+    private func startARKitPolling() {
+        arkitPollTask?.cancel()
+        let tracker = arkit
+        arkitPollTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                self?.arkitYaw = tracker.attitudeYaw()
+                self?.arkitState = tracker.trackingState
+                try? await Task.sleep(nanoseconds: 100_000_000)
+            }
+        }
     }
 
     private func handle(_ sample: MotionSample) {
@@ -91,6 +125,20 @@ struct SensorDebugView: View {
                 }
             }
 
+            VStack(alignment: .leading, spacing: 4) {
+                Text(Strings.sectionARKit).font(.headline)
+                row(Strings.rowARKitState, value: arkitStateLabel(viewModel.arkitState))
+                row(
+                    Strings.rowARKitYaw,
+                    value: viewModel.arkitYaw.map { String(format: "%+.3f rad", $0) } ?? "—"
+                )
+                if let err = viewModel.arkitErrorText {
+                    Text(err)
+                        .foregroundStyle(.orange)
+                        .font(.system(.caption, design: .monospaced))
+                }
+            }
+
             Spacer()
         }
         .padding()
@@ -128,6 +176,21 @@ struct SensorDebugView: View {
             Text(value)
         }
     }
+
+    private func arkitStateLabel(_ state: ARTrackingState) -> String {
+        switch state {
+        case .normal: return "normal"
+        case .notAvailable: return "n/a"
+        case .limited(let reason):
+            switch reason {
+            case .initializing: return "limited:init"
+            case .excessiveMotion: return "limited:motion"
+            case .insufficientFeatures: return "limited:features"
+            case .relocalizing: return "limited:reloc"
+            case .unknown: return "limited:?"
+            }
+        }
+    }
 }
 
 private enum Strings {
@@ -139,4 +202,7 @@ private enum Strings {
     static let rowAccel = "accel"
     static let rowGravity = "gravity"
     static let rowVertical = "vertical"
+    static let sectionARKit = "ARKit"
+    static let rowARKitState = "state"
+    static let rowARKitYaw = "yaw"
 }
