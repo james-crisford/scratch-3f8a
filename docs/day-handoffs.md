@@ -47,3 +47,48 @@
 ### Next day scope
 
 **Day 3 — Stillness detector.** Implement `StillnessDetector` consuming `MotionSample`s, emitting `StillnessLock` when 800 ms of `|rotationRate|<5°/s ∧ |userAccel|<0.2 m/s² ∧ dot(gravity, [0,-1,0])>0.96` holds. Snapshot compass yaw + ARKit yaw + gravity + lock time. 15+ tests including 799ms / 800ms boundary, spike resets, tilt resets, back-to-back locks. Wire into SensorDebugView with "Aimed ✓" badge + `UIImpactFeedbackGenerator(.medium)` haptic on lock.
+
+---
+
+## Day 3 — 2026-05-29 — Stillness detector
+
+### What was built
+
+- `PuttingLab/Models/StillnessLock.swift` — `{ yawTargetCompass: Double, gravity: SIMD3<Double>, lockedAt: TimeInterval }` Sendable + Equatable.
+- `PuttingLab/Models/MotionSample.swift` — added `compassYaw` computed property (ZYX yaw from quaternion attitude).
+- `PuttingLab/Sensors/StillnessDetector.swift` — stateful detector with `consume(_:) -> StillnessLock?`, `reset()`, `isAccumulating`, `hasEmittedLock`. Thresholds: 5°/s rotation, 0.2 m/s² accel, 0.96 gravity-dot, 800 ms window. NSLock-protected state. 1µs FP tolerance on the 800ms threshold (for robustness against CMDeviceMotion's seconds-since-boot timestamps, which lose ms-level precision at large magnitudes).
+- `PuttingLabTests/Sensors/StillnessDetectorTests.swift` — 29 tests across 5 suites:
+  - Lock behaviour (9): unlocked start, 800ms lock, 799ms no-lock, single emit while still, rotation/accel/tilt resets, back-to-back lock, `reset()` clears.
+  - Boundary (8): rotation at/under 5°/s, accel at/under 0.2 m/s², gravity well-below 0.96 / just above 0.96, zero-gravity rejected, NaN rejected.
+  - Snapshot integrity (3): preserves yaw exactly, preserves gravity vector, lockedAt = sample timestamp at fire.
+  - Concurrency / perf / memory (5): 10k samples <100ms, determinism across detectors, no retain cycle, 200 concurrent state reads, 100 reset cycles.
+  - `MotionSample.compassYaw` (4): identity, +π/4, −π/2, bounded sweep -179° to +179°.
+- `PuttingLab/UI/SensorDebugView.swift` — view model now takes `StillnessDetector` + `@MainActor onLockHaptic` closure (default fires `UIImpactFeedbackGenerator(.medium).impactOccurred()`). Consumes detector on every motion sample. View shows "Aimed ✓" (green) or "Aim — hold still" (gray) + `yaw₀` snapshot value when locked.
+
+### Tests passing
+
+- **83 tests green** on CI run 26613201849, commit `7050dd4`. 6m wall (test count is starting to dominate over build time — still well under 30s test runtime cap).
+
+### iPhone 13 device checklist (verify in morning)
+
+- [ ] Launch app, grant camera permission, watch ARKit go from `limited:init` → `normal`.
+- [ ] Hold phone vertically as if gripping a putter, screen toward you, back camera forward, then stay still for ~1 second.
+- [ ] Within ~800 ms of becoming still, "Aimed ✓" badge turns green AND you feel one medium haptic tap. `yaw₀ +X.XXX` appears showing the locked compass yaw.
+- [ ] Move/rotate the phone → badge goes back to "Aim — hold still" within one motion sample.
+- [ ] Hold still again → re-locks. Second haptic tap fires. New `yaw₀` value if you rotated since.
+- [ ] Tilt phone past ~15° from vertical → stillness does NOT engage (badge stays gray) even if hand is steady.
+- [ ] Walking with phone in pocket / hand-shake → never locks (rotation/accel above thresholds).
+- [ ] Sitting on a table flat → never locks (gravity dot vs (0,-1,0) is ~0, not vertical).
+- [ ] Lock-yaw display value matches the rotation of the phone around its vertical axis: pointing the back camera north gives one value, rotating ¼ turn right increases/decreases by ~π/2 (sign convention TBD vs ARKit yaw — they may differ; that's expected, FaceAngleComputer reconciles in Day 6).
+- [ ] App backgrounded then foregrounded → SensorDebugView re-arms cleanly. No stuck "Aimed ✓".
+- [ ] Memory + CPU stable over 60s session (Xcode Debug Navigator).
+
+### Notes
+
+- `StillnessDetector` is purely state-machine; it has no time source of its own — entirely driven by `sample.timestamp`. Means tests can drive it at any synthetic rate.
+- The 1µs FP tolerance: real CMDeviceMotion timestamps are `mach_absolute_time` in seconds since boot; at hour-long sessions, double-precision loses ms-level resolution. The tolerance is below the meaningful threshold of human "stillness" (5+ orders of magnitude smaller than 800ms) but ensures lock fires reliably.
+- Haptic is fired from the `@MainActor` ViewModel via injected closure. Tests can pass a counting stub. (Day 3 doesn't ship a haptic-count test — added if a regression appears.)
+
+### Next day scope
+
+**Day 4 — Stroke detector.** State machine `armed → starting → recording → ended` requiring a prior `StillnessLock`. Start on `|rotationRate| > 30°/s` sustained ≥50 ms (debounce flicks). End on `|rotationRate| < 30°/s` for 300 ms continuous OR 2 s hard cutoff from start. Captures all samples in window into `StrokeWindow { start, end, samples, lock }`. 15+ tests including detection-with-debounce, flick-rejection, return-to-stillness end, hard-cutoff end, arm-only-after-lock. Wire SensorDebugView badge: ARMED → STROKE → DONE.
