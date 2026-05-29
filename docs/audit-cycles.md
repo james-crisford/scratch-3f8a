@@ -96,3 +96,62 @@ Cycle 3: fresh auditors focused on whether C2 changes (snap-to-square return pat
 - Compass reference frame switch
 - Test circularity cleanup
 - CalibrationCoordinator surfaces snap-to-square as rejection
+
+---
+
+## Cycle 3 — 2026-05-29
+
+### Source of findings
+- 3 focused auditors (cross-module integration, sample-dispatch design, test quality) on Cycle 2 state (commit ed8d26d).
+- Cross-module audit flagged 10 issues — every C2 change had at least one downstream consumer not updated.
+
+### Findings addressed (5 critical)
+
+| # | Bug | File | Fix |
+|---|---|---|---|
+| C3-1 | MarioKartAssist doesn't check `snappedToSquare` → snapped strokes get misleading "Centre strike" cause instead of explanatory snap-cause | `Physics/MarioKartAssist.swift` | Added `bucket(from impact: ImpactResult)` overload that derives cause from `snapReason`. Causes: strokeTooShort→"Too quick to read", noClearPeak→"Couldn't find impact", arkitLost→"Camera lost tracking", peakSpeedTooLow→"Soft tap". |
+| C3-2 | CalibrationCoordinator silently rejects strokes → user sees `0/5` with no diagnostic | `Calibration/CalibrationCoordinator.swift` | Added `.stalled(consecutiveRejections, hint)` status, fires after 3 consecutive rejections. Valid stroke resets counter. UI can read status and surface hint. |
+| C3-3 | `SessionCoordinator` has no `lastSnapReason` — UI cannot tell why a result was Square | `SessionCoordinator.swift` | Added observable `lastSnapReason: SnapReason?`, set from `result.snapReason` in `completeStroke`. |
+| C3-4 | `DistanceModel.compute(0)` returns 0 ft confidently — UI would render "0 feet" next to "Square" | `Physics/DistanceModel.swift` | Added `isSuppressed: Bool` on `DistanceResult`, set when `peakSpeedMps < 0.05`. UI can render "—" instead. |
+| C3-5 | `StatsAggregator` lets snapped records (confidence=0, distance=0, faceAngle=0) pollute pin-distance and accuracy stats — a snapped stroke would beat real strokes for "closest" and "most accurate" | `Storage/StatsAggregator.swift` | Filter records by `confidence > 0` before computing pin/accuracy/tempo/longest. Report `snappedStrokes` count separately. Streak still counts all records. |
+
+### Test fixes (3 quality improvements)
+
+- **`meanTempoFromVariedDurations`** — replaces previously tautological `meanTempo` test that used 5 identical fixtures. Now uses [350, 500, 700, 850, 1100]ms and asserts true arithmetic mean.
+- **MarioKart negative boundaries** — added `justUnderMinusSix`, `atMinusSixBoundary`, `atMinusTwelveBoundary`, `atMinusTwentyBoundary` (4 new tests). Closes KI-15.
+- **`snapPropagatesToCoordinator`** — end-to-end test that feeds a zero-accel stroke through SessionCoordinator + ImpactDetector and asserts `phase == .roll`, `lastImpactResult.snappedToSquare == true`, `lastSnapReason == .noClearPeak`. Cross-module regression guard.
+- **`cleanStrokeNoSnapReason`** — positive regression: clean stroke does NOT set `lastSnapReason`.
+
+### Test additions for the 5 fixes
+
+- `MarioKartSnapIntegrationTests`: snapped-result causes (3 tests)
+- `CalibrationFlowTests.threeRejectionsStall`, `validStrokeResetsStall`
+- `DistanceModelBaseTests.zeroSpeedZeroDistance` (updated for isSuppressed), `nonZeroNotSuppressed`
+- `StatsAggregatorTests.snappedRecordsFiltered`
+
+Net: ~13 new tests.
+
+### Deferred (still in known-issues)
+
+- AsyncStream sample-dispatch refactor — designed, not yet shipped. Will land in Cycle 4 if budget allows.
+- Generator.swift:59 circularity — still calls `ImpactDetector.wrapAngle` in fixture. Test quality KI-11.
+- `pcaSignNegatedAccel` is still partially tautological — auditor noted `peakValue` is forced positive by `-minV`. Add separate timestamp-direction assertion in Cycle 4.
+- ARKit yaw sign convention (KI-1), velocity[0]=0 (KI-2), compass corruption (KI-4), 30°/s threshold (KI-5), 5/5 calibration brittleness (KI-6) — all pending real-device verification.
+- ARKit cold-start UX deadlock — needs UI design.
+- Backgrounding / scenePhase lifecycle — needs SwiftUI integration.
+- Lefty handedness — needs CalibrationProfile field + UX choice.
+
+### CI / outcome
+
+- Commits `556c968` → `1162975` (3 commits including 2 fixups for missing imports + Equatable struct field).
+- **306 tests green** in 46.9s. Test count went up by 13, runtime by ~21s (mostly from `snapPropagatesToCoordinator` end-to-end stream).
+- Build clean.
+
+### Verdict for TestFlight readiness
+
+After 3 cycles, the algorithmic core (ImpactDetector, SessionCoordinator, FaceAngleComputer, MarioKartAssist, DistanceModel, CalibrationCoordinator, StatsAggregator) handles the spec §5.2 snap-to-square contract end-to-end. Remaining work falls into three categories:
+1. **Sample-dispatch ordering** (Cycle 4): single AsyncStream refactor closes ~10 latent concurrency bugs.
+2. **Device verification items** (KI-1, KI-2, KI-4, KI-5, KI-6): need iPhone 13 in hand.
+3. **UX polish** (cold-start timeout, scenePhase, lefty handedness, calibration brittleness): design decisions James should make.
+
+Cycle 4 will attempt the AsyncStream refactor. If budget runs low, Cycle 3 state is shippable to TestFlight pending device verification of the 5 KI items.
