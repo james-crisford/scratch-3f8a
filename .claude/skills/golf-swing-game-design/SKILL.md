@@ -7,6 +7,69 @@ description: Golf physics, Mario Kart assist rules, calibration model, and game-
 
 This skill bundles the physics + game-feel knowledge from research reports #1, #2, #5 and the spec. Read this BEFORE touching anything in `Physics/MarioKartAssist.swift`, `Physics/DistanceModel.swift`, or the calibration code.
 
+## ⚠️ Known unknowns (pending device verification — do not codify)
+
+As of 2026-05-29, the following are ASSUMPTIONS in the code that have NOT been
+verified on a real iPhone. Tomorrow's TestFlight session is the verification
+event. Until then, do not present any of these as established truth, and do
+not propagate them into other systems:
+
+- **KI-1: pull/push sign convention** — code currently treats `faceAngleRaw < 0`
+  as "pull (for righty)". If Batch B/C data tomorrow shows the sign is flipped,
+  the convention in `MarioKartAssist.bucket()` flips with it. Both directions
+  must be cross-validated, not assumed.
+- **KI-2: velocity[0] = 0 baseline** in trapezoidal integration. Assumes the
+  stroke window starts from rest. If not, drift accumulates.
+- **KI-4: magnetometer corruption by ferromagnetic objects** (steel radiators
+  etc.) — paired Batch E will tell us how bad.
+- **KI-5: 25° stillness tolerance** for natural grip — may be too tight or too
+  loose, paired Batch F will tell us.
+- **KI-6: calibration profile brittleness** — if Batch A scatter is huge or
+  snap rate >50%, the 5-stroke onboarding is undersampling user variance.
+
+Until each KI has a VERIFIED/REFUTED verdict in `docs/device-verification-day-1.md`,
+treat them as live uncertainties.
+
+## Algorithmic deviations from the spec (logged 2026-05-29)
+
+The implementation diverges from the spec in 5 documented ways. These are
+INTENTIONAL — do not "fix" them back to the spec.
+
+1. **Trapezoidal vs right-endpoint Riemann integration** in `ImpactDetector` —
+   eliminates symmetric-profile ambiguity.
+2. **PCA principal axis seeded at `(1,1,1)/√3`**, not `(1,0,0)` — the spec
+   seed fails for pure-Y data.
+3. **1µs FP tolerance** on all time-window comparisons — robust to
+   seconds-since-boot timestamps.
+4. **Multiplicative confidence formula** in `MarioKartAssist` — not additive
+   as spec implies. Better behaviour at the edges.
+5. **ARKit baseline stored on `SessionCoordinator`**, not `StillnessLock` —
+   preserves the Day 3 contract.
+
+## Load-bearing patterns that look like overhead (do not remove)
+
+- **ARSession interruption handlers** in `ARTrackingManager` (`sessionWasInterrupted`
+  + `sessionInterruptionEnded`) — required for app-backgrounding survival, NOT
+  optional. Cycle 5 audit fixed this gap.
+- **AsyncStream with `.unbounded` buffering** for motion dispatch — preserves
+  sample order AND keeps the stillness window intact under bursty load.
+  Cycle 4 + Cycle 5 chose this; do not revert to closures or `.bufferingNewest(N)`.
+- **NSLock + `*Locked` private helpers** in `StrokeReplayStore` — NSLock is
+  NOT reentrant. The locked-helper pattern is what prevents the
+  `clear() → list()` deadlock the audit caught.
+
+## Validating algorithm changes (post-2026-05-30)
+
+Once real-device StrokeReplay JSONs exist in `research_archive/stroke-replays/`,
+any change to the physics/bucket/calibration code must:
+
+1. Be expressed as a passing Swift Testing case in `PuttingLabTests/`.
+2. Be replayed against the captured StrokeReplay corpus and produce the same
+   user-facing result (face direction, snap reason) within tolerance.
+3. If the replay output changes, surface that explicitly in the PR description.
+
+This is the closest thing we have to a regression test for sensor algorithms.
+
 ## The thesis (do not deviate)
 
 The goal is **a fun, believable, semi-realistic game — NOT a training aid.**
