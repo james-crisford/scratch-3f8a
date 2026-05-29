@@ -108,11 +108,11 @@ final class ARTrackingManager: NSObject, ARTracking, ARSessionDelegate, @uncheck
     }
 
     static func yaw(from transform: simd_float4x4) -> Double? {
-        let c0 = transform.columns.2
-        let fx = -c0.x
-        let fz = -c0.z
+        let z = transform.columns.2
+        let fx = -z.x
+        let fz = -z.z
         guard fx.isFinite, fz.isFinite else { return nil }
         if fx == 0 && fz == 0 { return nil }
-        return Double(atan2(fx, -fz))
+        return Double(atan2(-fx, -fz))
     }
 }
