@@ -135,3 +135,58 @@
 ### Next day scope
 
 **Day 5 — Impact detection (HARD).** The headline algorithm. PCA on `userAcceleration` to find swing-plane forward axis, integrate to velocity with linear drift correction, 5-point moving average, find peak, sub-sample parabolic interpolation for `impactTime`, quaternion slerp for attitude at impact, compute `faceAngleRaw` vs `lock.yawTargetCompass`, confidence score. New: `Physics/ImpactDetector.swift`, `Models/ImpactResult.swift`, `Fixtures/clean_straight_8ft.json` + `Fixtures/Generator.swift` parameterised synthesis. ≥15 tests including face_angle within ±2° of 0 on clean fixture, sub-sample interpolation accuracy, throws on <200ms stroke, confidence <0.5 when ARKit-lost flag set.
+
+---
+
+## Day 5 — 2026-05-29 — Impact detection (HARD)
+
+### What was built
+
+- `PuttingLab/Models/ImpactResult.swift` — `{ timestamp, peakVelocity, faceAngleRaw, attitudeAtImpact, confidence }` Sendable + Equatable + `faceAngleDegrees` computed property. `ImpactDetectorError` enum (`strokeTooShort`, `noClearPeak`, `emptyStream`, `insufficientSamples`).
+- `PuttingLab/Physics/ImpactDetector.swift` — full algorithm:
+  1. Stroke duration gate (≥200 ms).
+  2. PCA on `userAcceleration` → principal forward axis (power iteration from `(1,1,1)/√3`, robust to axis-aligned and degenerate inputs).
+  3. Project samples onto forward axis.
+  4. **Trapezoidal** velocity integration (chose trapezoidal over right-Riemann to eliminate ±0.5-sample peak ambiguity on symmetric profiles).
+  5. Linear drift correction (subtract `endV * i/(n-1)`).
+  6. 5-point moving-average smoothing.
+  7. Peak search with `peakValue > 1e-9` gate (rejects zero-acceleration streams).
+  8. Parabolic sub-sample interpolation, offset clamped to [-1, 1].
+  9. Quaternion `simd_slerp` between peak and neighbour for sub-sample attitude.
+  10. `yawFromQuaternion` (ZYX) → `faceAngleRaw = wrap(yawAtImpact − lock.yawTargetCompass)`.
+  11. Confidence: 1.0 base, × 0.4 if ARKit-lost, × 0.5 if peak velocity < 0.3 m/s, × 0.7 if duration < 250ms.
+- `PuttingLabTests/Fixtures/Generator.swift` — `SyntheticStroke` + `StrokeFixtures` enum:
+  - `synthesise(name, durationSeconds, peakVelocity, faceAngleDeg, …)` — base parameterised stroke. Uses sinusoidal velocity profile `v(t)=vmax·sin(πt/T)` (peak at `t=T/2`, smooth start/end, drift-friendly).
+  - Convenience factories: `cleanStraight8ft()`, `pull(deg:)`, `push(deg:)`, `flickShort(ms:)`, `cleanStraight(durationMs:peakVelocity:)`, `zeroAccel()`, `constantAccel()`. Adding a new fixture = one line.
+- `PuttingLabTests/Physics/ImpactDetectorTests.swift` — **35 tests** across 6 suites:
+  - Clean strokes (4): face angle ±2°, impact time ±5ms, peak velocity ±10%, confidence ≥0.9.
+  - Pull/push (4): pull_5°, pull_10°, push_5°, push_15° all within ±2°.
+  - Rejection (5): 150ms flick throws `strokeTooShort`, zero-accel throws `noClearPeak`, 2-sample throws `insufficientSamples`, ARKit-lost confidence <0.5, low peak vel halves confidence.
+  - Math helpers (13): `parabolicPeak` symmetric/asymmetric/flat/NaN, `movingAverage` smooths/identity-on-flat, `yawFromQuaternion` identity/Z-rot, `wrapAngle` 0/π/-π/3π/2.
+  - PCA (4): X-axis, Y-axis, empty, diagonal — all produce unit axis.
+  - Robustness (7): determinism, 1k detects <2s, scaling monotonicity, longer duration peak velocity, non-zero lock yaw subtraction, ImpactResult Equatable, faceAngleDegrees conversion.
+
+### Tests passing
+
+- **143 tests green** on CI run, commit `61b3fa5`. 4m54s wall, first push.
+
+### iPhone 13 device checklist (verify in morning)
+
+- [ ] Day 5 has no UI surface changes — verification is via the Day 7 SessionCoordinator wiring (deferred). For Day 5, no direct device check needed.
+- [ ] (After Day 7) The ImpactDetector will be wired into SessionCoordinator and produce a result every stroke. At that point, verify on-device:
+  - 5 straight putts in succession produce `faceAngleDegrees` between -3° and +3°.
+  - A deliberate pull (close face, ball goes left for righty) produces a negative value.
+  - A deliberate push produces a positive value.
+  - peakVelocity scales with how hard you swing.
+  - confidence is ≥0.9 for clean strokes, drops noticeably when phone is shaken aggressively during the stroke (ARKit-lost simulation).
+
+### Notes
+
+- Day 5 introduces a small algorithmic deviation from the brief's reference: **trapezoidal** integration instead of right-endpoint Riemann. Reason: the reference algorithm produced tied peak values for symmetric synthetic profiles, causing parabolic interp to return ±0.5 (clamped) and impact_time to drift by 5ms. Trapezoidal places the peak unambiguously and matches the continuous integral within FP precision. The reference code in the brief still works for real noisy strokes; trapezoidal is just more robust.
+- PCA was changed to start from `(1,1,1)/√3` (not `(1,0,0)`). Reason: the brief's reference starts at `(1,0,0)`, which is in the null space of any pure-Y-axis covariance matrix and fails to converge. The new start has nonzero projection onto any non-degenerate principal axis.
+- Confidence formula is multiplicative (not additive). Each penalty stacks. Calibration of exact factors is deferred to real-device testing.
+- The `clean_straight_8ft.json` file from the brief was NOT created — fixtures live in code via `StrokeFixtures.cleanStraight8ft()`. JSON serialization can be added later if external tooling needs it.
+
+### Next day scope
+
+**Day 6 — Face angle (ARKit + drift correction).** `Physics/FaceAngleComputer.swift` decides at stroke-end whether to use ARKit yaw (if `trackingState == .normal` throughout the stroke) or fall back to compass yaw. Update `ImpactDetector` to delegate face-angle computation to `FaceAngleComputer`. ≥15 tests: zero on straight, signed correctly (negative=pull), ARKit lost mid-stroke → compass fallback, ARKit clean → uses ARKit, both sources agree within 2° on synthetic stroke.
