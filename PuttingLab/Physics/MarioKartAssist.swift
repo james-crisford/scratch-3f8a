@@ -1,6 +1,6 @@
 import Foundation
 
-enum DirectionBucket: String, Sendable, Equatable {
+enum DirectionBucket: String, Sendable, Equatable, Codable {
     case square
     case slightPull
     case slightPush
