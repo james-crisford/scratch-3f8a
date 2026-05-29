@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import AVFoundation
 
 @MainActor
 @Observable
@@ -152,8 +153,9 @@ struct SensorDebugView: View {
     @AppStorage("hasSeenOnboarding") private var hasSeenOnboarding: Bool = false
 
     var body: some View {
-        ZStack {
+        ZStack(alignment: .top) {
             sensorBody
+            CameraPermissionBanner()
             if !hasSeenOnboarding {
                 OnboardingOverlay { hasSeenOnboarding = true }
             }
@@ -225,6 +227,18 @@ struct SensorDebugView: View {
             }
 
             Spacer()
+
+            HStack {
+                Text(versionString())
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button("Reset onboarding") {
+                    hasSeenOnboarding = false
+                }
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            }
         }
         .padding()
         .font(.system(.body, design: .monospaced))
@@ -296,6 +310,13 @@ struct SensorDebugView: View {
         }
     }
 
+    private func versionString() -> String {
+        let info = Bundle.main.infoDictionary
+        let version = info?["CFBundleShortVersionString"] as? String ?? "?"
+        let build = info?["CFBundleVersion"] as? String ?? "?"
+        return "v\(version) (\(build))"
+    }
+
     private func arkitStateLabel(_ state: ARTrackingState) -> String {
         switch state {
         case .normal: return "normal"
@@ -307,6 +328,50 @@ struct SensorDebugView: View {
             case .insufficientFeatures: return "limited:features"
             case .relocalizing: return "limited:reloc"
             case .unknown: return "limited:?"
+            }
+        }
+    }
+}
+
+private struct CameraPermissionBanner: View {
+    @State private var status: AVAuthorizationStatus = .notDetermined
+
+    var body: some View {
+        Group {
+            if status == .denied || status == .restricted {
+                VStack(spacing: 8) {
+                    Text("Camera access required")
+                        .font(.headline)
+                        .foregroundStyle(.white)
+                    Text("PuttingLab needs the camera for AR tracking. Open Settings to grant access.")
+                        .font(.subheadline)
+                        .foregroundStyle(.white.opacity(0.9))
+                        .multilineTextAlignment(.center)
+                    Button("Open Settings") {
+                        if let url = URL(string: UIApplication.openSettingsURLString) {
+                            UIApplication.shared.open(url)
+                        }
+                    }
+                    .padding(.horizontal, 24)
+                    .padding(.vertical, 10)
+                    .background(Color.white)
+                    .foregroundStyle(.red)
+                    .clipShape(Capsule())
+                }
+                .padding()
+                .frame(maxWidth: .infinity)
+                .background(Color.red)
+                .cornerRadius(12)
+                .padding(.horizontal, 12)
+                .padding(.top, 8)
+            }
+        }
+        .task {
+            status = AVCaptureDevice.authorizationStatus(for: .video)
+            // Trigger initial permission prompt if undetermined.
+            if status == .notDetermined {
+                _ = await AVCaptureDevice.requestAccess(for: .video)
+                status = AVCaptureDevice.authorizationStatus(for: .video)
             }
         }
     }

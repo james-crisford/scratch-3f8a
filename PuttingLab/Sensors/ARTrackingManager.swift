@@ -103,6 +103,29 @@ final class ARTrackingManager: NSObject, ARTracking, ARSessionDelegate, @uncheck
         lock.unlock()
     }
 
+    // KI-12 follow-up: handle ARSession interruption (app backgrounded, phone locked,
+    // another camera-using app activated). Without this the state stays whatever it was
+    // last and consumers can't tell tracking is gone.
+    func sessionWasInterrupted(_ session: ARSession) {
+        lock.lock()
+        state = .notAvailable
+        pose = nil
+        lock.unlock()
+    }
+
+    func sessionInterruptionEnded(_ session: ARSession) {
+        // Reset tracking when interruption ends so we get a clean baseline post-resume
+        // instead of a stale frame from before interruption.
+        if isRunning {
+            let config = ARWorldTrackingConfiguration()
+            config.planeDetection = []
+            config.frameSemantics = []
+            config.environmentTexturing = .none
+            config.isLightEstimationEnabled = false
+            session.run(config, options: [.resetTracking, .removeExistingAnchors])
+        }
+    }
+
     deinit {
         session.pause()
     }
