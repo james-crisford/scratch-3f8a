@@ -90,3 +90,32 @@ jobs:
             test.log
           retention-days: 14
           if-no-files-found: warn
+
+      # Archive step — produces a generic .xcarchive for inspection.
+      # This is NOT signed for distribution; that needs Apple Developer credentials
+      # in GitHub secrets (DEVELOPMENT_TEAM, signing cert P12, provisioning profile).
+      # For now it just proves an iOS Device archive build succeeds.
+      - name: Archive (generic iOS, unsigned)
+        if: github.ref == 'refs/heads/main'
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          xcodebuild archive \
+            -project PuttingLab.xcodeproj \
+            -scheme PuttingLab \
+            -archivePath build/PuttingLab.xcarchive \
+            -destination 'generic/platform=iOS' \
+            -configuration Release \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            | tee archive.log
+
+      - name: Upload xcarchive
+        if: always() && github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@v4
+        with:
+          name: PuttingLab.xcarchive
+          path: build/PuttingLab.xcarchive
+          retention-days: 14
+          if-no-files-found: warn

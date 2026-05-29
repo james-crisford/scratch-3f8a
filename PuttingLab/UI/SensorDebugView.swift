@@ -148,8 +148,19 @@ final class SensorDebugViewModel {
 
 struct SensorDebugView: View {
     @State private var viewModel = SensorDebugViewModel()
+    @Environment(\.scenePhase) private var scenePhase
+    @AppStorage("hasSeenOnboarding") private var hasSeenOnboarding: Bool = false
 
     var body: some View {
+        ZStack {
+            sensorBody
+            if !hasSeenOnboarding {
+                OnboardingOverlay { hasSeenOnboarding = true }
+            }
+        }
+    }
+
+    private var sensorBody: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text(Strings.debugTitle)
                 .font(.title2.bold())
@@ -223,6 +234,20 @@ struct SensorDebugView: View {
         .onDisappear {
             viewModel.stop()
         }
+        .onChange(of: scenePhase) { _, phase in
+            // KI-12 / C5 finding: pause sensors when backgrounded; resume on return.
+            // Without this, ARKit + CoreMotion stay running across notification pulldown,
+            // app-switcher peeks, and lock screen — draining battery and leaving the
+            // coordinator in a stale state when the app returns.
+            switch phase {
+            case .active:
+                viewModel.start()
+            case .inactive, .background:
+                viewModel.stop()
+            @unknown default:
+                break
+            }
+        }
     }
 
     private func metric(_ label: String, value: String) -> some View {
@@ -283,6 +308,56 @@ struct SensorDebugView: View {
             case .relocalizing: return "limited:reloc"
             case .unknown: return "limited:?"
             }
+        }
+    }
+}
+
+private struct OnboardingOverlay: View {
+    let onDismiss: () -> Void
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.92).ignoresSafeArea()
+            VStack(spacing: 20) {
+                Text("PuttingLab")
+                    .font(.system(size: 38, weight: .bold))
+                    .foregroundStyle(.white)
+                Text("Sensor harness build — TestFlight preview")
+                    .font(.headline)
+                    .foregroundStyle(.white.opacity(0.85))
+                    .multilineTextAlignment(.center)
+                VStack(alignment: .leading, spacing: 14) {
+                    bullet("1. Grant camera permission (needed for AR yaw)")
+                    bullet("2. Hold phone vertically, screen facing you")
+                    bullet("3. Stay still ~1s → \"Aimed ✓\" + a haptic tap")
+                    bullet("4. Make a putting motion → STROKE → DONE")
+                    bullet("5. Watch sensor numbers tick at ~100 Hz")
+                }
+                .foregroundStyle(.white)
+                .font(.system(.body, design: .rounded))
+                .padding(.horizontal, 24)
+                Text("Not the final game. Sensor + algorithm verification only.")
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(0.6))
+                    .multilineTextAlignment(.center)
+                    .padding(.top, 8)
+                Button(action: onDismiss) {
+                    Text("Got it — start putting")
+                        .font(.headline)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
+                        .background(Color.green)
+                        .foregroundStyle(.white)
+                        .clipShape(RoundedRectangle(cornerRadius: 14))
+                }
+                .padding(.horizontal, 32)
+                .padding(.top, 12)
+            }
+            .padding(32)
+        }
+    }
+    private func bullet(_ text: String) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Text(text).font(.system(.body, design: .rounded))
         }
     }
 }
