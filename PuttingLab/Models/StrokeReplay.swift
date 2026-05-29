@@ -154,6 +154,10 @@ final class StrokeReplayStore: @unchecked Sendable {
 
     func list() throws -> [URL] {
         lock.lock(); defer { lock.unlock() }
+        return try listLocked()
+    }
+
+    private func listLocked() throws -> [URL] {
         let urls = try FileManager.default.contentsOfDirectory(
             at: directory,
             includingPropertiesForKeys: [.creationDateKey],
@@ -162,9 +166,11 @@ final class StrokeReplayStore: @unchecked Sendable {
         return urls.filter { $0.pathExtension == "json" }.sorted { $0.lastPathComponent > $1.lastPathComponent }
     }
 
+    /// NOTE: NSLock is NOT reentrant. clear() previously called list() under its own lock
+    /// → deadlock. Use the locked-helper version instead.
     func clear() throws {
         lock.lock(); defer { lock.unlock() }
-        let urls = try list()
+        let urls = try listLocked()
         for u in urls {
             try FileManager.default.removeItem(at: u)
         }
