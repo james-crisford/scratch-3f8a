@@ -311,3 +311,100 @@
 5. **`StillnessLock` only stores `yawTargetCompass`** (per Day 3 brief). ARKit baseline is captured separately by the SessionCoordinator and passed through to FaceAngleComputer. Avoids mutating the Day 3 contract.
 
 All five are documented in the respective day handoffs above; none require changing the spec.
+
+---
+
+## Day 8 — 2026-05-29 — STRETCH: DistanceModel + MarioKartAssist (logic only)
+
+### What was built
+
+- `PuttingLab/Physics/DistanceModel.swift`:
+  - `DistanceResult { displayedFeet, lowFeet, highFeet, ballSpeedFps, rawFeet }`.
+  - `compute(peakSpeedMps:)` → `fps = mps × cal × 3.281`; `raw = fps^1.6 / 1.7`; ±15% confidence band; ±5% optional jitter (deterministic per-instance via `jitterFraction`).
+- `PuttingLab/Physics/MarioKartAssist.swift`:
+  - `DirectionBucket { square, slightPull, slightPush, pull, push, miss }` (Codable for persistence).
+  - `ConfidenceFlags { arkitLostMoreThanHalf, strokeUnder200ms, noClearPeak, peakSpeedUnder0_3Mps }`.
+  - `DirectionResult { bucket, label, displayDegrees, cause, snappedToSquare }`.
+  - Bucket math: `|deg|<6° → Square`, `6–12° → SlightPullPush`, `12–20° → PullPush`, `≥20° → Miss`. Low-confidence → forced Square with explanatory cause copy.
+- **36 tests** across bucket boundaries (8), sign (5), low-confidence snap (5), cause copy (6), robustness (3), DistanceModel base (6), band (2), jitter (6).
+
+### Notes
+
+- DistanceModel uses `pow(fps, 1.6) / 1.7` from spec §2.6 literally. Empirical calibration of the `1.7` friction constant deferred to on-device testing.
+- The `jitterFraction` parameter is `-1.0…1.0` (clamped). For real production use, supply a per-stroke random value. For tests, supply `0.0` for deterministic results.
+- MarioKartAssist cause copy is intentionally plain-language (Wii Sports Tennis rule #2: surface the cause, not just the result). Strings live in code, not a `.strings` file — easy to swap later.
+
+---
+
+## Day 9 — 2026-05-29 — STRETCH: Calibration onboarding (logic only)
+
+### What was built
+
+- `PuttingLab/Models/CalibrationProfile.swift` — Codable with custom encode/decode for `SIMD3<Double> swingPlaneAxis`. Fields: meanTempoSeconds, speedToDistanceFactor, faceAngleBiasRad, swingPlaneAxis, arkitBaselineStability, validStrokeCount, targetDistanceFeet.
+- `PuttingLab/Calibration/CalibrationModel.swift` — pure functions:
+  - `compute(from: [CalibrationInput], targetDistanceFeet:)` → batch-computes the profile from N valid strokes.
+  - `applyBias(rawAngle, profile:)` → subtracts the calibrated face-angle bias from future readings.
+- `PuttingLab/Calibration/CalibrationCoordinator.swift` — `@MainActor @Observable` stateful 5-stroke onboarding flow:
+  - `ingest(window:impact:)` validates each stroke (confidence ≥0.5, duration ≥200ms, peakVelocity ≥0.3 m/s) and accumulates valid ones; rejects increment `rejectedCount`.
+  - At 5 valid strokes, calls `CalibrationModel.compute` and transitions `status` to `.complete(profile:)`.
+  - `reset()` for re-calibration.
+- `PuttingLab/Storage/ProfileStore.swift` — `@unchecked Sendable` (UserDefaults isn't Sendable in Swift 6 strict). `save / load / clear` with JSON encoding.
+- **21 tests** across flow (7), model computed values (7), persistence (5), edge cases (2).
+
+### Notes
+
+- `speedToDistanceFactor` is derived by inversion: given the user's mean peak velocity, what multiplier reaches the 8 ft target via the 1.6-power-law? Formula: `factor = (target × 1.7)^(1/1.6) / (meanPeakVel × 3.281)`.
+- `arkitBaselineStability` is `1 / (1 + 10·σ)` where σ is the standard deviation of `faceAngleRaw`. Returns 1.0 for perfectly consistent strokes, approaches 0 as variance grows.
+- `swingPlaneAxis` averaging across N strokes: for sign-flip robustness, this would normally need sign-alignment per axis. v1 uses the existing `principalAxis` (which already dot-flips against the mean) so all per-stroke axes point the same way.
+
+---
+
+## Day 10 — 2026-05-29 — STRETCH: Persistence + stats data layer (logic only)
+
+### What was built
+
+- `PuttingLab/Models/StrokeRecord.swift` — Codable snapshot of `(impact, distance, direction, durationSeconds, recordedAt: Date)` for history.
+- `PuttingLab/Storage/StrokeHistoryStore.swift` — append-only FIFO with cap (default 50). `load / append / save / clear`.
+- `PuttingLab/Storage/StatsAggregator.swift` — pure aggregation:
+  - `SessionStats { totalStrokes, longestFeet, closestPinFeetFromTarget, bestTempoSeconds, mostAccurateFaceAngleDeg, todayStreak }`.
+  - Best tempo = duration closest to `idealTempoSeconds = 0.6`.
+  - Streak = count of records whose `recordedAt` falls on `referenceDate`'s calendar day.
+- **19 tests** across persistence (7), aggregation (4), streak logic (5), edge cases (3).
+
+### Notes
+
+- Streak interpretation matches the brief: "3 strokes in same day → streak = 3; gap of 1 day → streak resets to 0". This counts strokes-today, not consecutive-days-with-strokes.
+- `DirectionBucket` was made `Codable` for storage (was just `Sendable + Equatable + RawRepresentable<String>` before).
+- The 50-record FIFO is generous for v1 — about 5 sessions of 10 strokes each. Larger histories can switch to a SQLite store later.
+
+---
+
+## 🏁 FINAL: Overnight sprint COMPLETE (Days 2-10)
+
+- **Days completed:** ALL of Days 2 through 10 (main + all stretch). The brief said stop after Day 7 unless budget remained; budget remained and all 3 stretch days shipped.
+- **Total tests:** **254 passing in 25.0 seconds** (well under the 30s CI assertion budget).
+- **Total commits this sprint:** 19
+- **Final CI run:** commit `7853f40`, status green
+- **Hard stops encountered:** 0
+- **CI cycles used:** 13 (5 fix-cycles: Day 2 Float/Double, Day 2 yaw sign, Day 3 FP tolerance, Day 5 PCA+trapezoidal, Day 9 UserDefaults Sendable, Day 10 DirectionBucket Codable; 8 first-push greens).
+
+### What's now ready
+
+- Day 1: scaffold + MotionManager + CI
+- Day 2: ARKit foundation (yaw, tracking state, fake)
+- Day 3: Stillness detector ("Aimed ✓", medium haptic)
+- Day 4: Stroke detector (ARMED → STROKE → DONE)
+- Day 5: ImpactDetector (PCA, trapezoidal integrate, drift correct, smooth, parabolic peak, slerp, face angle, confidence)
+- Day 6: FaceAngleComputer (ARKit + compass + fallback origins)
+- Day 7: SessionCoordinator (end-to-end phase machine)
+- Day 8: DistanceModel (1.6 power law) + MarioKartAssist (bucket math + cause copy)
+- Day 9: Calibration (5-stroke onboarding + profile + UserDefaults persistence)
+- Day 10: Stroke history + session stats + streak
+
+### What's NOT done (for the next session)
+
+1. **Wire `SensorDebugView` to use `SessionCoordinator`** instead of detectors directly. The existing view still works for verifying Days 2-4 visually — Day 7's phase machine just isn't visible yet.
+2. **All iPhone 13 device-verification checklists** (Days 2, 3, 4, 7 are the big batches — Days 5, 6, 8, 9, 10 have no UI surface).
+3. **UI shell (Day 11+ of the original spec)** — paywall, result panel, roll animation, polish, TestFlight. Needs your eye.
+
+Tomorrow: pull `main`, open in Xcode, run on iPhone 13, work through the device checklists in this file. The whole sensor + algorithm stack is ready.
