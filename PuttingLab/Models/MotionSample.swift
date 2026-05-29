@@ -56,4 +56,12 @@ struct MotionSample: Sendable, Equatable {
         let downward = SIMD3<Double>(0, -1, 0)
         return simd_dot(simd_normalize(gravity), downward) > 0.96
     }
+
+    var compassYaw: Double {
+        let w = attitude.real
+        let x = attitude.imag.x
+        let y = attitude.imag.y
+        let z = attitude.imag.z
+        return atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
+    }
 }

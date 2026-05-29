@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 @MainActor
 @Observable
@@ -10,9 +11,13 @@ final class SensorDebugViewModel {
     var arkitYaw: Double?
     var arkitState: ARTrackingState = .notAvailable
     var arkitErrorText: String?
+    var stillnessLocked: Bool = false
+    var lastLock: StillnessLock?
 
     private let motion: MotionStreaming
     private let arkit: ARTracking
+    private let stillness: StillnessDetector
+    private let onLockHaptic: @MainActor () -> Void
     private var startedAt: TimeInterval?
     private var firstSampleAt: TimeInterval?
     private var lastReportAt: TimeInterval?
@@ -21,10 +26,21 @@ final class SensorDebugViewModel {
 
     init(
         motion: MotionStreaming = MotionManager(),
-        arkit: ARTracking = ARTrackingManager()
+        arkit: ARTracking = ARTrackingManager(),
+        stillness: StillnessDetector = StillnessDetector(),
+        onLockHaptic: @escaping @MainActor () -> Void = SensorDebugViewModel.defaultHaptic
     ) {
         self.motion = motion
         self.arkit = arkit
+        self.stillness = stillness
+        self.onLockHaptic = onLockHaptic
+    }
+
+    @MainActor
+    static func defaultHaptic() {
+        let gen = UIImpactFeedbackGenerator(style: .medium)
+        gen.prepare()
+        gen.impactOccurred()
     }
 
     func start() {
@@ -34,6 +50,9 @@ final class SensorDebugViewModel {
         arkitErrorText = nil
         arkitYaw = nil
         arkitState = .notAvailable
+        stillnessLocked = false
+        lastLock = nil
+        stillness.reset()
         startedAt = SensorClock.now()
         firstSampleAt = nil
         lastReportAt = nil
@@ -93,6 +112,14 @@ final class SensorDebugViewModel {
         } else {
             lastReportAt = now
         }
+
+        if let lock = stillness.consume(sample) {
+            stillnessLocked = true
+            lastLock = lock
+            onLockHaptic()
+        } else if !stillness.isAccumulating && stillnessLocked {
+            stillnessLocked = false
+        }
     }
 }
 
@@ -122,6 +149,18 @@ struct SensorDebugView: View {
                     rowVector(Strings.rowAccel, vec: s.userAcceleration)
                     rowVector(Strings.rowGravity, vec: s.gravity)
                     row(Strings.rowVertical, value: s.isVertical ? "yes" : "no")
+                }
+            }
+
+            HStack {
+                Text(viewModel.stillnessLocked ? Strings.aimedYes : Strings.aimedNo)
+                    .font(.headline)
+                    .foregroundStyle(viewModel.stillnessLocked ? .green : .secondary)
+                Spacer()
+                if let lock = viewModel.lastLock {
+                    Text(String(format: "yaw₀ %+.3f", lock.yawTargetCompass))
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.secondary)
                 }
             }
 
@@ -205,4 +244,6 @@ private enum Strings {
     static let sectionARKit = "ARKit"
     static let rowARKitState = "state"
     static let rowARKitYaw = "yaw"
+    static let aimedYes = "Aimed ✓"
+    static let aimedNo = "Aim — hold still"
 }
