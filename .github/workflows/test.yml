@@ -40,7 +40,7 @@ jobs:
           xcodebuild build \
             -project PuttingLab.xcodeproj \
             -scheme PuttingLab \
-            -destination 'platform=iOS Simulator,name=iPhone 16' \
+            -destination 'platform=iOS Simulator,OS=18.5,name=iPhone 16' \
             -configuration Debug \
             CODE_SIGNING_ALLOWED=NO \
             | tee build.log
@@ -51,7 +51,7 @@ jobs:
           xcodebuild test \
             -project PuttingLab.xcodeproj \
             -scheme PuttingLab \
-            -destination 'platform=iOS Simulator,name=iPhone 16' \
+            -destination 'platform=iOS Simulator,OS=18.5,name=iPhone 16' \
             -enableCodeCoverage YES \
             -resultBundlePath TestResults.xcresult \
             CODE_SIGNING_ALLOWED=NO \
