@@ -13,10 +13,13 @@ final class SensorDebugViewModel {
     var arkitErrorText: String?
     var stillnessLocked: Bool = false
     var lastLock: StillnessLock?
+    var strokePhase: StrokeDetectorPhase = .idle
+    var lastStrokeSampleCount: Int = 0
 
     private let motion: MotionStreaming
     private let arkit: ARTracking
     private let stillness: StillnessDetector
+    private let stroke: StrokeDetector
     private let onLockHaptic: @MainActor () -> Void
     private var startedAt: TimeInterval?
     private var firstSampleAt: TimeInterval?
@@ -28,11 +31,13 @@ final class SensorDebugViewModel {
         motion: MotionStreaming = MotionManager(),
         arkit: ARTracking = ARTrackingManager(),
         stillness: StillnessDetector = StillnessDetector(),
+        stroke: StrokeDetector = StrokeDetector(),
         onLockHaptic: @escaping @MainActor () -> Void = SensorDebugViewModel.defaultHaptic
     ) {
         self.motion = motion
         self.arkit = arkit
         self.stillness = stillness
+        self.stroke = stroke
         self.onLockHaptic = onLockHaptic
     }
 
@@ -53,6 +58,9 @@ final class SensorDebugViewModel {
         stillnessLocked = false
         lastLock = nil
         stillness.reset()
+        stroke.reset()
+        strokePhase = .idle
+        lastStrokeSampleCount = 0
         startedAt = SensorClock.now()
         firstSampleAt = nil
         lastReportAt = nil
@@ -117,8 +125,15 @@ final class SensorDebugViewModel {
             stillnessLocked = true
             lastLock = lock
             onLockHaptic()
+            try? stroke.arm(with: lock)
         } else if !stillness.isAccumulating && stillnessLocked {
             stillnessLocked = false
+        }
+
+        let window = stroke.consume(sample)
+        strokePhase = stroke.phase
+        if let w = window {
+            lastStrokeSampleCount = w.samples.count
         }
     }
 }
@@ -159,6 +174,18 @@ struct SensorDebugView: View {
                 Spacer()
                 if let lock = viewModel.lastLock {
                     Text(String(format: "yaw₀ %+.3f", lock.yawTargetCompass))
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            HStack {
+                Text(strokeBadgeLabel(viewModel.strokePhase))
+                    .font(.headline)
+                    .foregroundStyle(strokeBadgeColor(viewModel.strokePhase))
+                Spacer()
+                if viewModel.lastStrokeSampleCount > 0 {
+                    Text("\(viewModel.lastStrokeSampleCount) samples")
                         .font(.caption.monospaced())
                         .foregroundStyle(.secondary)
                 }
@@ -213,6 +240,26 @@ struct SensorDebugView: View {
             Text(label).foregroundStyle(.secondary)
             Spacer()
             Text(value)
+        }
+    }
+
+    private func strokeBadgeLabel(_ phase: StrokeDetectorPhase) -> String {
+        switch phase {
+        case .idle: return "stroke: idle"
+        case .armed: return "stroke: ARMED"
+        case .starting: return "stroke: starting…"
+        case .recording: return "stroke: STROKE"
+        case .ended: return "stroke: DONE"
+        }
+    }
+
+    private func strokeBadgeColor(_ phase: StrokeDetectorPhase) -> Color {
+        switch phase {
+        case .idle: return .secondary
+        case .armed: return .blue
+        case .starting: return .orange
+        case .recording: return .red
+        case .ended: return .green
         }
     }
 
