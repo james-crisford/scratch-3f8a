@@ -4,7 +4,7 @@ enum ProfileStoreError: Error, Equatable {
     case suiteUnavailable
 }
 
-final class ProfileStore: Sendable {
+final class ProfileStore: @unchecked Sendable {
     static let defaultKey = "CalibrationProfile_v1"
 
     let defaults: UserDefaults
