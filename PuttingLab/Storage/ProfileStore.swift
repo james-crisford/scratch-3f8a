@@ -27,9 +27,16 @@ final class ProfileStore: @unchecked Sendable {
         defaults.set(data, forKey: key)
     }
 
+    /// Loads the profile. Returns nil for genuinely-missing data AND for corrupted/old data
+    /// (e.g. v0.1 profile with renamed fields). Treating decode failures as "needs recalibration"
+    /// avoids upgrade-crashes that would otherwise lose the user mid-session.
     func load() throws -> CalibrationProfile? {
         guard let data = defaults.data(forKey: key) else { return nil }
-        return try JSONDecoder().decode(CalibrationProfile.self, from: data)
+        do {
+            return try JSONDecoder().decode(CalibrationProfile.self, from: data)
+        } catch is DecodingError {
+            return nil
+        }
     }
 
     func clear() {

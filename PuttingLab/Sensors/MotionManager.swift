@@ -19,7 +19,6 @@ protocol MotionStreaming: AnyObject, Sendable {
 
 final class MotionManager: MotionStreaming, @unchecked Sendable {
     static let targetSampleHz: Double = 100.0
-    static let streamBufferSize: Int = 16
 
     private let manager: CMMotionManager
     private let queue: OperationQueue
@@ -62,8 +61,11 @@ final class MotionManager: MotionStreaming, @unchecked Sendable {
 
         manager.deviceMotionUpdateInterval = 1.0 / Self.targetSampleHz
 
+        // .unbounded is correct here: the StillnessDetector's 800ms window must contain
+        // CONTIGUOUS samples — `.bufferingNewest(N)` would drop OLDEST samples on stall,
+        // breaking the window. At 100Hz × 80 bytes/sample, 1s of stall = 8KB. Trivial.
         let (stream, cont) = AsyncStream<MotionSample>.makeStream(
-            bufferingPolicy: .bufferingNewest(Self.streamBufferSize)
+            bufferingPolicy: .unbounded
         )
         lock.lock()
         self.continuation = cont

@@ -67,11 +67,14 @@ final class SensorDebugViewModel {
         lastReportAt = nil
         samplesSinceLastReport = 0
 
+        // Cancel any consumer task left over from a previous start() — view re-appearance
+        // via .task modifier can re-invoke start() without an intervening stop().
+        motionConsumerTask?.cancel()
+        motionConsumerTask = nil
         do {
             let stream = try motion.start()
             motionConsumerTask = Task { @MainActor [weak self] in
                 for await sample in stream {
-                    if Task.isCancelled { break }
                     self?.handle(sample)
                 }
             }

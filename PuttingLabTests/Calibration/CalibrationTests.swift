@@ -160,7 +160,9 @@ struct CalibrationModelTests {
 
     @Test("mean tempo across VARIED durations is the true arithmetic mean (C3 fix - no longer tautological)")
     func meanTempoFromVariedDurations() throws {
-        let durationsMs = [350, 500, 700, 850, 1100]
+        // 350+500+720+850+1100 = 3520, mean = 704 — guaranteed NOT to equal any fixture.
+        // A "return middle element" or "return median" bug would now fail the test.
+        let durationsMs = [350, 500, 720, 850, 1100]
         let inputs = try durationsMs.map { ms in
             try cleanCalibrationPair(durationSeconds: TimeInterval(ms) / 1000.0)
         }.map { CalibrationInput(window: $0.window, impact: $0.impact) }

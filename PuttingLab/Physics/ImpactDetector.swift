@@ -129,9 +129,16 @@ final class ImpactDetector: Sendable {
         )
         let faceAngleRaw = face.radians
 
+        // Spec §5.2 condition 4 + Wii Sports rule #1: peak speed below the meaningful
+        // putting envelope MUST snap to square — a "soft tap" is unreadable, not just low
+        // confidence. Previously this was only a confidence multiplier which let the result
+        // through as a confident-but-tiny reading.
+        if peakValue < Self.minPeakVelocityMps {
+            return Self.snappedToSquare(window: window, reason: .peakSpeedTooLow)
+        }
+
         var confidence = 1.0
         if arkitLost { confidence *= 0.4 }
-        if peakValue < Self.minPeakVelocityMps { confidence *= 0.5 }
         if window.duration < 0.250 { confidence *= 0.7 }
 
         return ImpactResult(

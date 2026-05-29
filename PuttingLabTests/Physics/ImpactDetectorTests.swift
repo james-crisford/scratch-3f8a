@@ -137,11 +137,12 @@ struct ImpactDetectorRejectionTests {
         #expect(result.confidence < 0.5)
     }
 
-    @Test("low peak velocity (< 0.3 m/s) halves confidence")
-    func lowPeakConfidence() throws {
+    @Test("low peak velocity (<0.3 m/s) → snapped to square with .peakSpeedTooLow (C5 fix, spec §5.2 #4)")
+    func lowPeakSnaps() throws {
         let fixture = StrokeFixtures.cleanStraight(durationMs: 600, peakVelocity: 0.2)
         let result = try ImpactDetector().detect(in: fixture.window)
-        #expect(result.confidence < 0.6)
+        #expect(result.snappedToSquare)
+        #expect(result.snapReason == .peakSpeedTooLow)
     }
 }
 

@@ -56,7 +56,12 @@ enum StrokeFixtures {
             samples: samples,
             lock: lock
         )
-        let expectedFace = ImpactDetector.wrapAngle(faceRad - lockYawCompass)
+        // Independent wrap math — DO NOT call production wrapAngle here, otherwise a sign
+        // or bounds bug in wrapAngle would silently match the expected truth.
+        var rawFace = faceRad - lockYawCompass
+        while rawFace > .pi { rawFace -= 2.0 * .pi }
+        while rawFace <= -.pi { rawFace += 2.0 * .pi }
+        let expectedFace = rawFace
         return SyntheticStroke(
             name: name,
             window: window,

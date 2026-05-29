@@ -48,9 +48,12 @@ final class FaceAngleComputer: Sendable {
     }
 
     private func arkitYawAt(_ time: TimeInterval, in poses: [ARPose]) -> Double? {
+        // Filter to .normal poses only — placeholder/.limited transforms (e.g.
+        // identity-matrix fallbacks captured when ARKit had no real pose) would otherwise
+        // be picked as "closest to impact time" and inject a yaw of 0 into the result.
         var bestYaw: Double?
         var bestDelta = Double.infinity
-        for p in poses {
+        for p in poses where p.trackingState.isNormal {
             let delta = abs(p.timestamp - time)
             if delta < bestDelta, let yaw = ARTrackingManager.yaw(from: p.transform) {
                 bestDelta = delta

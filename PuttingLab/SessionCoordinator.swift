@@ -64,11 +64,13 @@ final class SessionCoordinator {
 
     func start() {
         reset()
+        // Cancel any consumer task left over (re-entry guard).
+        consumerTask?.cancel()
+        consumerTask = nil
         do {
             let stream = try motion.start()
             consumerTask = Task { @MainActor [weak self] in
                 for await sample in stream {
-                    if Task.isCancelled { break }
                     self?.handle(sample)
                 }
             }

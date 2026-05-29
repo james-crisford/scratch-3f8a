@@ -39,5 +39,7 @@
     <string>PuttingLab uses the camera for AR tracking to anchor your putting line. We never record or upload images.</string>
     <key>NSMotionUsageDescription</key>
     <string>PuttingLab reads motion data from your iPhone's sensors to detect your swing.</string>
+    <key>ITSAppUsesNonExemptEncryption</key>
+    <false/>
 </dict>
 </plist>

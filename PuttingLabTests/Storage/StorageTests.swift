@@ -100,12 +100,28 @@ struct StrokeHistoryStoreTests {
 @Suite("StatsAggregator")
 struct StatsAggregatorTests {
 
-    @Test("empty records → zero stats")
+    @Test("empty records → nil-valued stats (no data)")
     func emptyStats() {
         let stats = StatsAggregator.aggregate([], referenceDate: Date(timeIntervalSince1970: 0))
         #expect(stats.totalStrokes == 0)
-        #expect(stats.longestFeet == 0)
+        #expect(stats.longestFeet == nil)
+        #expect(stats.closestPinFeetFromTarget == nil)
         #expect(stats.todayStreak == 0)
+    }
+
+    @Test("all-snapped session → nil pin/accuracy stats (C5 fix: was 0 reading as 'pin-perfect')")
+    func allSnappedSessionNilStats() {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        let records = [
+            makeRecord(distance: 0, at: now, confidence: 0),
+            makeRecord(distance: 0, at: now, confidence: 0),
+        ]
+        let stats = StatsAggregator.aggregate(records, referenceDate: now)
+        #expect(stats.totalStrokes == 2)
+        #expect(stats.snappedStrokes == 2)
+        #expect(stats.closestPinFeetFromTarget == nil)
+        #expect(stats.longestFeet == nil)
+        #expect(stats.mostAccurateFaceAngleDeg == nil)
     }
 
     @Test("longest distance reported correctly")
@@ -160,10 +176,10 @@ struct StatsAggregatorTests {
         #expect(stats.totalStrokes == 3)
         #expect(stats.snappedStrokes == 2)
         // closestPin should reflect the real stroke (|9.5 - 8| = 1.5), not the snapped 8.0.
-        #expect(abs(stats.closestPinFeetFromTarget - 1.5) < 1e-6)
+        #expect(abs((stats.closestPinFeetFromTarget ?? 0) - 1.5) < 1e-6)
         // mostAccurate should reflect the real stroke, not the snapped 0°.
         let expectedDeg = 0.10 * 180.0 / .pi
-        #expect(abs(stats.mostAccurateFaceAngleDeg - expectedDeg) < 0.01)
+        #expect(abs((stats.mostAccurateFaceAngleDeg ?? 0) - expectedDeg) < 0.01)
     }
 
     @Test("most accurate face angle = smallest absolute deg")
@@ -175,7 +191,8 @@ struct StatsAggregatorTests {
             makeRecord(distance: 8.0, faceAngleRad: 0.10, at: now),
         ]
         let stats = StatsAggregator.aggregate(records, referenceDate: now)
-        #expect(abs(stats.mostAccurateFaceAngleDeg - 0.03 * 180.0 / .pi) < 1e-6)
+        let expected = 0.03 * 180.0 / .pi
+        #expect(abs((stats.mostAccurateFaceAngleDeg ?? 0) - expected) < 1e-6)
     }
 }
 
@@ -238,6 +255,8 @@ struct StatsAggregatorStreakTests {
         #expect(a == b)
     }
 }
+
+// Snapped-records-filtered test needs updating: closest reads Optional now.
 
 // MARK: - Helpers
 
