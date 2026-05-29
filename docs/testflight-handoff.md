@@ -2,30 +2,42 @@
 
 ## Status
 
-Algorithmic core: **300+ tests green, 5 cycles of break-fix-break done.** Ready for first device contact.
+Algorithmic core: **311+ tests green, 5 cycles of break-fix-break done.** Ready for first device contact.
 
-Infrastructure: **3 showstoppers before App Store Connect upload will accept the IPA.** Your mate handles these from his Mac.
+Infrastructure: **1 showstopper + 1 sign-step left** before App Store Connect accepts the IPA. Most of the prep is now done.
 
-## Showstoppers (must do before first upload)
+## Already done (committed)
 
-### 1. App icon (Apple rejects builds without one)
-- Create `PuttingLab/Resources/Assets.xcassets/AppIcon.appiconset/Contents.json` + a 1024×1024 PNG
-- Add `Assets.xcassets` to `project.yml` `sources` for the PuttingLab target
-- Add `ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon` to target build settings
-- A placeholder icon is fine — solid color + "PL" works for TestFlight
+- ✅ **App icon stub** at `PuttingLab/Resources/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png` (placeholder green/PL — replace with real art when ready)
+- ✅ `Assets.xcassets` wired into `project.yml` with `ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon`
+- ✅ `Info.plist` has `ITSAppUsesNonExemptEncryption=false`
+- ✅ `PuttingLab/Resources/PrivacyInfo.xcprivacy` present (Apple requires since May 2024)
+- ✅ Camera + motion usage descriptions in Info.plist
+- ✅ scenePhase lifecycle: sensors pause on background, resume on foreground
+- ✅ ARSession interruption delegate handles backgrounding/lock screen cleanly
+- ✅ Camera-permission-denied banner with "Open Settings" deep-link
+- ✅ First-launch onboarding overlay so testers don't see raw vectors immediately
+- ✅ Version + reset-onboarding footer for easy tester feedback
+- ✅ CI workflow now produces an unsigned `.xcarchive` artifact on every push to main (run-wise sanity check; signing still needed for actual upload)
 
-### 2. Code signing
-- In `project.yml`, the PuttingLab target has `CODE_SIGNING_ALLOWED: NO` — REMOVE that line for the app target (keep on PuttingLabTests)
-- Your mate's Apple Developer Team ID goes in `DEVELOPMENT_TEAM`
-- Bundle ID `com.puttinglab.app` may already be taken — pick something like `com.YOURMATE.puttinglab` and register in his developer portal
+## Remaining for your mate
 
-### 3. Archive + upload from his Mac
-- Pull the repo on his Mac
+### 1. Code signing (REQUIRED)
+- In `project.yml`, the PuttingLab target has `CODE_SIGNING_ALLOWED: NO` — REMOVE that line for the app target (keep on PuttingLabTests).
+- Your mate's Apple Developer Team ID goes in `DEVELOPMENT_TEAM`.
+- Bundle ID `com.puttinglab.app` may already be taken — pick something like `com.<mate>.puttinglab` and register in his developer portal.
+
+### 2. Archive + upload from his Mac
+- Pull the repo on his Mac.
 - `xcodegen generate`
-- Open in Xcode 16
-- Product → Archive → Distribute App → App Store Connect → Upload
-- Wait ~10 min for TestFlight to process
-- Add you as Internal Tester via App Store Connect → TestFlight → People
+- Open in Xcode 16.
+- Product → Archive → Distribute App → App Store Connect → Upload.
+- Wait ~10 min for TestFlight to process.
+- Add you as Internal Tester via App Store Connect → TestFlight → People.
+
+### Optional (replace placeholder icon)
+- The committed icon is a green square with "PL" — fine for TestFlight, ugly for App Store.
+- Replace `Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png` with real art before App Store submission.
 
 ## Already done (committed to repo)
 
