@@ -36,7 +36,7 @@ final class StillnessDetector: @unchecked Sendable {
         }
 
         let elapsed = sample.timestamp - (stillSinceTimestamp ?? sample.timestamp)
-        guard elapsed >= Self.requiredDurationSeconds, !emitted else {
+        guard elapsed + 1e-6 >= Self.requiredDurationSeconds, !emitted else {
             return nil
         }
 
