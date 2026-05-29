@@ -336,4 +336,86 @@ struct ImpactDetectorRobustnessTests {
         let r = try ImpactDetector().detect(in: fixture.window)
         #expect(abs(r.faceAngleDegrees - (-10.0)) < 2.0)
     }
+
+    @Test("PCA sign robustness: negated acceleration still yields positive peakVelocity")
+    func pcaSignNegatedAccel() throws {
+        let baseline = StrokeFixtures.cleanStraight8ft()
+        let negSamples = baseline.window.samples.map { s in
+            MotionSample(
+                timestamp: s.timestamp,
+                rotationRate: s.rotationRate,
+                userAcceleration: -s.userAcceleration,
+                gravity: s.gravity,
+                attitude: s.attitude
+            )
+        }
+        let w = StrokeWindow(
+            start: baseline.window.start,
+            end: baseline.window.end,
+            samples: negSamples,
+            lock: baseline.window.lock
+        )
+        let r = try ImpactDetector().detect(in: w)
+        #expect(r.peakVelocity > 0.5)
+    }
+
+    @Test("PCA sign robustness: original and negated accel produce same peak velocity magnitude")
+    func pcaSignSymmetry() throws {
+        let baseline = StrokeFixtures.cleanStraight8ft()
+        let negSamples = baseline.window.samples.map { s in
+            MotionSample(
+                timestamp: s.timestamp,
+                rotationRate: s.rotationRate,
+                userAcceleration: -s.userAcceleration,
+                gravity: s.gravity,
+                attitude: s.attitude
+            )
+        }
+        let negWin = StrokeWindow(
+            start: baseline.window.start,
+            end: baseline.window.end,
+            samples: negSamples,
+            lock: baseline.window.lock
+        )
+        let original = try ImpactDetector().detect(in: baseline.window)
+        let negated = try ImpactDetector().detect(in: negWin)
+        let ratio = negated.peakVelocity / original.peakVelocity
+        #expect(ratio > 0.95 && ratio < 1.05)
+    }
+
+    @Test("PCA sign robustness: backswing-dominant accel doesn't get picked as forward")
+    func pcaIgnoresBackswingPeak() throws {
+        // Build a stroke where backswing has slightly more peak accel than forward,
+        // but forward direction is clearly the second half. This should still
+        // correctly find the forward peak.
+        let lock = StillnessLock(yawTargetCompass: 0, gravity: SIMD3(0, -1, 0), lockedAt: 0)
+        let n = 60
+        let dt = 0.01
+        var samples: [MotionSample] = []
+        let omega = Double.pi / 0.6
+        let amp = 1.0 * omega
+        for i in 0..<n {
+            let t = TimeInterval(i) * dt
+            // First half: gentle negative accel; second half: stronger positive.
+            // This simulates a slow takeaway and faster forward swing.
+            let a: Double
+            if t < 0.3 {
+                a = -amp * 0.6 * cos(omega * t)
+            } else {
+                a = amp * cos(omega * t)
+            }
+            samples.append(MotionSample(
+                timestamp: 1.0 + t,
+                rotationRate: SIMD3(2.0, 0, 0),
+                userAcceleration: SIMD3(a, 0, 0),
+                gravity: SIMD3(0, -1, 0),
+                attitude: simd_quatd(ix: 0, iy: 0, iz: 0, r: 1)
+            ))
+        }
+        let window = StrokeWindow(start: 1.0, end: 1.0 + Double(n - 1) * dt, samples: samples, lock: lock)
+        let r = try ImpactDetector().detect(in: window)
+        #expect(r.peakVelocity > 0)
+        // Impact should be in the second half (forward swing dominant)
+        #expect(r.timestamp > 1.25)
+    }
 }

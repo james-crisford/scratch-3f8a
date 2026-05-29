@@ -4,7 +4,8 @@ import simd
 final class StillnessDetector: @unchecked Sendable {
     static let maxRotationRateRadPerSec: Double = 5.0 * .pi / 180.0
     static let maxAccelMagnitude: Double = 0.2
-    static let minGravityDot: Double = 0.96
+    /// Spec §3 phase 2: phone within ±15° of vertical → dot(normalised gravity, [0,-1,0]) > cos(15°) ≈ 0.966.
+    static let minGravityDot: Double = 0.966
     static let requiredDurationSeconds: TimeInterval = 0.8
 
     private let lock = NSLock()

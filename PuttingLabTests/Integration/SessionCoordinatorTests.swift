@@ -185,6 +185,75 @@ struct SessionCoordinatorTimeoutTests {
 @Suite("SessionCoordinator — error & ARKit paths")
 struct SessionCoordinatorErrorTests {
 
+    @Test("haptic fires exactly once per stillness lock")
+    func hapticFiresOnLock() {
+        var hapticCount = 0
+        let c = makeCoordinator(onLockHaptic: { hapticCount += 1 })
+        for s in stillStream(count: 81, startT: 0) { c.handle(s) }
+        #expect(hapticCount == 1)
+    }
+
+    @Test("haptic fires again on re-address after stroke")
+    func hapticFiresOnReLock() {
+        var hapticCount = 0
+        let c = makeCoordinator(rollTimeoutSeconds: 0.5, onLockHaptic: { hapticCount += 1 })
+        let stream = fullSessionStream(
+            stillCount: 81,
+            strokeFixture: StrokeFixtures.cleanStraight8ft(),
+            quietCount: 35,
+            startTime: 0
+        )
+        for s in stream { c.handle(s) }
+        let countAfterFirst = hapticCount
+        let baseTime = stream.last!.timestamp
+        // Wait out the roll timeout
+        for i in 0..<80 {
+            c.handle(stillSample(t: baseTime + 0.01 + TimeInterval(i) * 0.01))
+        }
+        // Then another 81 still samples → second lock
+        var t = baseTime + 1.0
+        for s in stillStream(count: 81, startT: t) { c.handle(s); t = s.timestamp + 0.01 }
+        #expect(hapticCount == countAfterFirst + 1)
+    }
+
+    @Test("ARKit baseline is NOT captured while tracking state is .limited")
+    func arkitBaselineGatedOnNormal() {
+        let fake = FakeARTrackingManager()
+        try? fake.start()
+        // Inject a pose with .limited tracking state — should NOT be used as baseline.
+        fake.inject(pose: ARPose(
+            timestamp: 0,
+            transform: matrix_identity_float4x4,
+            trackingState: .limited(.initializing)
+        ))
+        let c = makeCoordinator(arkit: fake)
+        for s in stillStream(count: 90, startT: 0) { c.handle(s) }
+        // Lock should NOT have fired yet because ARKit is not .normal.
+        #expect(c.phase == .arm)
+    }
+
+    @Test("After ARKit reaches .normal, stillness lock proceeds")
+    func arkitNormalAllowsLock() {
+        let fake = FakeARTrackingManager()
+        try? fake.start()
+        fake.inject(pose: ARPose(
+            timestamp: 0,
+            transform: matrix_identity_float4x4,
+            trackingState: .limited(.initializing)
+        ))
+        let c = makeCoordinator(arkit: fake)
+        for s in stillStream(count: 50, startT: 0) { c.handle(s) }
+        #expect(c.phase == .arm)
+        // ARKit transitions to .normal
+        fake.inject(pose: ARPose(
+            timestamp: 0.5,
+            transform: matrix_identity_float4x4,
+            trackingState: .normal
+        ))
+        for s in stillStream(count: 90, startT: 0.5) { c.handle(s) }
+        #expect(c.phase == .ready)
+    }
+
     @Test("ARKit pose stream consumed → impact uses ARKit origin (face angle still correct)")
     func arkitPath() {
         let fake = FakeARTrackingManager()
@@ -270,14 +339,16 @@ fileprivate func makeCoordinator(
     arkit: ARTracking = FakeARTrackingManager(),
     readyTimeoutSeconds: TimeInterval = 15.0,
     rollTimeoutSeconds: TimeInterval = 3.0,
-    onResult: @escaping @MainActor (ImpactResult) -> Void = { _ in }
+    onResult: @escaping @MainActor (ImpactResult) -> Void = { _ in },
+    onLockHaptic: @escaping @MainActor () -> Void = { }
 ) -> SessionCoordinator {
     SessionCoordinator(
         motion: motion,
         arkit: arkit,
         readyTimeoutSeconds: readyTimeoutSeconds,
         rollTimeoutSeconds: rollTimeoutSeconds,
-        onResult: onResult
+        onResult: onResult,
+        onLockHaptic: onLockHaptic
     )
 }
 

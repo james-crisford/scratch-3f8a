@@ -1,5 +1,6 @@
 import Foundation
 import simd
+import UIKit
 
 @MainActor
 @Observable
@@ -22,6 +23,7 @@ final class SessionCoordinator {
     private let stroke: StrokeDetector
     private let impactDetector: ImpactDetector
     private let onResult: @MainActor (ImpactResult) -> Void
+    private let onLockHaptic: @MainActor () -> Void
 
     private var currentLock: StillnessLock?
     private var readyEnteredAt: TimeInterval?
@@ -37,7 +39,8 @@ final class SessionCoordinator {
         impactDetector: ImpactDetector = ImpactDetector(),
         readyTimeoutSeconds: TimeInterval = 15.0,
         rollTimeoutSeconds: TimeInterval = 3.0,
-        onResult: @escaping @MainActor (ImpactResult) -> Void = { _ in }
+        onResult: @escaping @MainActor (ImpactResult) -> Void = { _ in },
+        onLockHaptic: @escaping @MainActor () -> Void = SessionCoordinator.defaultHaptic
     ) {
         self.motion = motion
         self.arkit = arkit
@@ -47,6 +50,14 @@ final class SessionCoordinator {
         self.readyTimeoutSeconds = readyTimeoutSeconds
         self.rollTimeoutSeconds = rollTimeoutSeconds
         self.onResult = onResult
+        self.onLockHaptic = onLockHaptic
+    }
+
+    @MainActor
+    static func defaultHaptic() {
+        let gen = UIImpactFeedbackGenerator(style: .medium)
+        gen.prepare()
+        gen.impactOccurred()
     }
 
     func start() {
@@ -106,6 +117,16 @@ final class SessionCoordinator {
     }
 
     private func handleArm(_ sample: MotionSample) {
+        // Spec §2.5: ARKit baseline yaw must come from a .normal tracking frame.
+        // If ARKit exists but is .limited or .initializing, suppress lock firing
+        // (keep stillness reset so the 800ms clock starts from when ARKit goes .normal).
+        // If ARKit is genuinely .notAvailable (e.g. device doesn't support world tracking),
+        // proceed with compass-only baseline.
+        if isArKitDegraded() {
+            stillness.reset()
+            return
+        }
+
         if let lock = stillness.consume(sample) {
             currentLock = lock
             try? stroke.arm(with: lock)
@@ -115,6 +136,16 @@ final class SessionCoordinator {
             readyEnteredAt = sample.timestamp
             strokeArkitPoses = []
             captureArkitPose(at: sample.timestamp)
+            onLockHaptic()
+        }
+    }
+
+    private func isArKitDegraded() -> Bool {
+        switch arkit.trackingState {
+        case .normal, .notAvailable:
+            return false
+        case .limited:
+            return true
         }
     }
 
@@ -130,6 +161,7 @@ final class SessionCoordinator {
             arkitBaselineYaw = arkit.attitudeYaw()
             readyEnteredAt = sample.timestamp
             strokeArkitPoses = []
+            onLockHaptic()
         }
         captureArkitPose(at: sample.timestamp)
 

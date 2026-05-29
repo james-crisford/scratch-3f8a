@@ -44,18 +44,47 @@ final class ImpactDetector: Sendable {
             }
         }
 
-        let smoothed = Self.movingAverage(velocity, window: Self.smoothingWindow)
+        var smoothed = Self.movingAverage(velocity, window: Self.smoothingWindow)
 
-        var peakIdx = 0
-        var peakValue = -Double.infinity
+        // Sign-agnostic peak detection: find both extrema and choose the forward direction.
+        // The PCA axis sign is ambiguous (covariance is invariant under negation), and a stroke's
+        // mean acceleration ≈ 0 makes mean-based sign-correction unreliable. Instead, pick the
+        // dominant velocity extremum; if it's negative, flip the velocity array so the impact
+        // peak is positive.
+        var maxV = -Double.infinity
+        var maxIdx = 0
+        var minV = Double.infinity
+        var minIdx = 0
         for (i, v) in smoothed.enumerated() {
-            if v.isFinite && v > peakValue {
-                peakValue = v
-                peakIdx = i
-            }
+            guard v.isFinite else { continue }
+            if v > maxV { maxV = v; maxIdx = i }
+            if v < minV { minV = v; minIdx = i }
         }
+        guard maxV.isFinite, minV.isFinite else {
+            throw ImpactDetectorError.noClearPeak
+        }
+
+        let useMax: Bool
+        if abs(maxV) > abs(minV) * 1.5 {
+            useMax = true
+        } else if abs(minV) > abs(maxV) * 1.5 {
+            useMax = false
+        } else {
+            useMax = maxIdx >= minIdx
+        }
+
+        var peakIdx: Int
+        var peakValue: Double
+        if useMax {
+            peakIdx = maxIdx
+            peakValue = maxV
+        } else {
+            smoothed = smoothed.map { -$0 }
+            peakIdx = minIdx
+            peakValue = -minV
+        }
+
         guard
-            peakValue.isFinite,
             peakIdx > 0,
             peakIdx < smoothed.count - 1,
             peakValue > 1e-9
