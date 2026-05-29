@@ -181,6 +181,7 @@ struct SensorDebugView: View {
     @State private var viewModel = SensorDebugViewModel()
     @Environment(\.scenePhase) private var scenePhase
     @AppStorage("hasSeenOnboarding") private var hasSeenOnboarding: Bool = false
+    @State private var showHistory: Bool = false
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -281,6 +282,11 @@ struct SensorDebugView: View {
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                 Spacer()
+                Button("History") {
+                    showHistory = true
+                }
+                .font(.caption2)
+                .foregroundStyle(.secondary)
                 Button("Reset onboarding") {
                     hasSeenOnboarding = false
                 }
@@ -295,6 +301,9 @@ struct SensorDebugView: View {
         }
         .onDisappear {
             viewModel.stop()
+        }
+        .sheet(isPresented: $showHistory) {
+            ReplayHistoryView()
         }
         .onChange(of: scenePhase) { _, phase in
             // KI-12 / C5 finding: pause sensors when backgrounded; resume on return.

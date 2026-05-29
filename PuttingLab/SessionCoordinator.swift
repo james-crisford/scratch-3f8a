@@ -67,13 +67,14 @@ final class SessionCoordinator {
 
     static func deviceModelString() -> String {
         var sysinfo = utsname()
-        uname(&sysinfo)
-        let raw = withUnsafePointer(to: &sysinfo.machine) {
-            $0.withMemoryRebound(to: CChar.self, capacity: Int(_SYS_NAMELEN)) {
-                String(validatingUTF8: $0) ?? "unknown"
-            }
+        guard uname(&sysinfo) == 0 else { return "unknown" }
+        let mirror = Mirror(reflecting: sysinfo.machine)
+        let chars: String = mirror.children.reduce(into: "") { acc, child in
+            guard let v = child.value as? CChar, v != 0 else { return }
+            // bitPattern: safe round-trip even if Int8 were negative; ASCII is positive.
+            acc.append(Character(UnicodeScalar(UInt8(bitPattern: v))))
         }
-        return raw
+        return chars.isEmpty ? "unknown" : chars
     }
 
     static func appVersionString() -> String {
