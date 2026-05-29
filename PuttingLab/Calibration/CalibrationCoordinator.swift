@@ -1,0 +1,57 @@
+import Foundation
+
+enum CalibrationStatus: Sendable, Equatable {
+    case awaitingStrokes(collected: Int, required: Int)
+    case complete(profile: CalibrationProfile)
+}
+
+@MainActor
+@Observable
+final class CalibrationCoordinator {
+    let requiredStrokes: Int
+    let targetDistanceFeet: Double
+
+    var status: CalibrationStatus
+    var rejectedCount: Int = 0
+
+    private var inputs: [CalibrationInput] = []
+
+    init(requiredStrokes: Int = 5, targetDistanceFeet: Double = 8.0) {
+        self.requiredStrokes = requiredStrokes
+        self.targetDistanceFeet = targetDistanceFeet
+        self.status = .awaitingStrokes(collected: 0, required: requiredStrokes)
+    }
+
+    @discardableResult
+    func ingest(window: StrokeWindow, impact: ImpactResult) -> CalibrationStatus {
+        guard Self.isValid(impact: impact, window: window) else {
+            rejectedCount += 1
+            return status
+        }
+        inputs.append(CalibrationInput(window: window, impact: impact))
+
+        if inputs.count >= requiredStrokes {
+            let profile = CalibrationModel.compute(
+                from: inputs,
+                targetDistanceFeet: targetDistanceFeet
+            )
+            status = .complete(profile: profile)
+        } else {
+            status = .awaitingStrokes(collected: inputs.count, required: requiredStrokes)
+        }
+        return status
+    }
+
+    func reset() {
+        inputs.removeAll(keepingCapacity: true)
+        rejectedCount = 0
+        status = .awaitingStrokes(collected: 0, required: requiredStrokes)
+    }
+
+    static func isValid(impact: ImpactResult, window: StrokeWindow) -> Bool {
+        impact.confidence >= 0.5
+            && window.duration >= 0.2
+            && impact.peakVelocity >= 0.3
+            && impact.peakVelocity.isFinite
+    }
+}
