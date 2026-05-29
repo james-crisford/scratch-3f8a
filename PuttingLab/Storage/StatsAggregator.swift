@@ -2,6 +2,7 @@ import Foundation
 
 struct SessionStats: Sendable, Equatable {
     let totalStrokes: Int
+    let snappedStrokes: Int
     let longestFeet: Double
     let closestPinFeetFromTarget: Double
     let bestTempoSeconds: TimeInterval
@@ -22,6 +23,7 @@ enum StatsAggregator {
         guard !records.isEmpty else {
             return SessionStats(
                 totalStrokes: 0,
+                snappedStrokes: 0,
                 longestFeet: 0,
                 closestPinFeetFromTarget: 0,
                 bestTempoSeconds: 0,
@@ -30,15 +32,22 @@ enum StatsAggregator {
             )
         }
 
-        let longest = records.map { $0.distanceFeet }.max() ?? 0
-        let closest = records.map { abs($0.distanceFeet - targetFeet) }.min() ?? 0
-        let bestTempo = records.map { $0.strokeDurationSeconds }
+        // Snapped (confidence==0) strokes pollute pin-distance + accuracy stats
+        // (they'd register as "0 ft from pin" and "0° face angle"). Filter them out
+        // of value stats; report the count separately.
+        let real = records.filter { $0.confidence > 0 }
+        let snapped = records.count - real.count
+
+        let longest = real.map { $0.distanceFeet }.max() ?? 0
+        let closest = real.map { abs($0.distanceFeet - targetFeet) }.min() ?? 0
+        let bestTempo = real.map { $0.strokeDurationSeconds }
             .min(by: { abs($0 - Self.idealTempoSeconds) < abs($1 - Self.idealTempoSeconds) }) ?? 0
-        let mostAccurate = records.map { abs($0.faceAngleRaw * 180.0 / .pi) }.min() ?? 0
+        let mostAccurate = real.map { abs($0.faceAngleRaw * 180.0 / .pi) }.min() ?? 0
         let todayStreak = streak(records: records, referenceDate: referenceDate, calendar: calendar)
 
         return SessionStats(
             totalStrokes: records.count,
+            snappedStrokes: snapped,
             longestFeet: longest,
             closestPinFeetFromTarget: closest,
             bestTempoSeconds: bestTempo,

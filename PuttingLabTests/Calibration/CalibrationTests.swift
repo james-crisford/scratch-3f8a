@@ -100,6 +100,45 @@ struct CalibrationFlowTests {
         #expect(c.rejectedCount == 1)
     }
 
+    @Test("3 consecutive rejections triggers .stalled status with hint (C3 fix)")
+    func threeRejectionsStall() throws {
+        let c = CalibrationCoordinator()
+        let invalidWindow = StrokeFixtures.flickShort(ms: 150).window
+        let invalidImpact = ImpactResult(
+            timestamp: 0, peakVelocity: 0.1, faceAngleRaw: 0,
+            attitudeAtImpact: simd_quatd(ix: 0, iy: 0, iz: 0, r: 1), confidence: 0.2
+        )
+        for _ in 0..<3 {
+            c.ingest(window: invalidWindow, impact: invalidImpact)
+        }
+        if case .stalled(let count, let hint) = c.status {
+            #expect(count == 3)
+            #expect(!hint.isEmpty)
+        } else {
+            Issue.record("Expected .stalled status after 3 rejections, got \(c.status)")
+        }
+    }
+
+    @Test("a valid stroke resets the consecutive-rejection counter")
+    func validStrokeResetsStall() throws {
+        let c = CalibrationCoordinator()
+        let invalidWindow = StrokeFixtures.flickShort(ms: 150).window
+        let invalidImpact = ImpactResult(
+            timestamp: 0, peakVelocity: 0.1, faceAngleRaw: 0,
+            attitudeAtImpact: simd_quatd(ix: 0, iy: 0, iz: 0, r: 1), confidence: 0.2
+        )
+        for _ in 0..<2 {
+            c.ingest(window: invalidWindow, impact: invalidImpact)
+        }
+        let pair = try cleanCalibrationPair()
+        c.ingest(window: pair.window, impact: pair.impact)
+        // Now a 4th rejection should NOT immediately stall — counter reset by the valid stroke.
+        c.ingest(window: invalidWindow, impact: invalidImpact)
+        if case .stalled = c.status {
+            Issue.record("Should not be stalled — valid stroke reset the counter")
+        }
+    }
+
     @Test("low peak velocity impact rejected")
     func lowPeakRejected() throws {
         let c = CalibrationCoordinator()
@@ -119,14 +158,15 @@ struct CalibrationFlowTests {
 @Suite("CalibrationModel — computed values")
 struct CalibrationModelTests {
 
-    @Test("mean tempo from 5 fixtures matches fixture duration")
-    func meanTempo() throws {
-        let inputs = try (0..<5).map { _ in try cleanCalibrationPair() }.map {
-            CalibrationInput(window: $0.window, impact: $0.impact)
-        }
+    @Test("mean tempo across VARIED durations is the true arithmetic mean (C3 fix - no longer tautological)")
+    func meanTempoFromVariedDurations() throws {
+        let durationsMs = [350, 500, 700, 850, 1100]
+        let inputs = try durationsMs.map { ms in
+            try cleanCalibrationPair(durationSeconds: TimeInterval(ms) / 1000.0)
+        }.map { CalibrationInput(window: $0.window, impact: $0.impact) }
         let profile = CalibrationModel.compute(from: inputs, targetDistanceFeet: 8.0)
-        let expected = inputs.first!.window.duration
-        #expect(abs(profile.meanTempoSeconds - expected) < 1e-9)
+        let expectedMean = inputs.map { $0.window.duration }.reduce(0, +) / Double(inputs.count)
+        #expect(abs(profile.meanTempoSeconds - expectedMean) < 1e-6)
     }
 
     @Test("speedToDistanceFactor scales correctly: target 8ft, faster swing → smaller factor")

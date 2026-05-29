@@ -254,6 +254,41 @@ struct SessionCoordinatorErrorTests {
         #expect(c.phase == .ready)
     }
 
+    @Test("snapped stroke (zero accel = no clear peak) propagates through coordinator: phase=.roll + lastSnapReason set (C3 fix)")
+    func snapPropagatesToCoordinator() {
+        let c = makeCoordinator()
+        // Build a session stream where the "stroke" has zero acceleration — detector
+        // sees rotation crossing the stroke threshold but no clear velocity peak →
+        // snaps to square with .noClearPeak.
+        let stream = fullSessionStream(
+            stillCount: 81,
+            strokeFixture: StrokeFixtures.zeroAccel(),
+            quietCount: 35,
+            startTime: 0
+        )
+        for s in stream { c.handle(s) }
+        #expect(c.phase == .roll)
+        let r = c.lastImpactResult
+        #expect(r != nil)
+        #expect(r?.snappedToSquare == true)
+        #expect(c.lastSnapReason == .noClearPeak)
+    }
+
+    @Test("clean stroke does NOT populate lastSnapReason (positive regression)")
+    func cleanStrokeNoSnapReason() {
+        let c = makeCoordinator()
+        let stream = fullSessionStream(
+            stillCount: 81,
+            strokeFixture: StrokeFixtures.cleanStraight8ft(),
+            quietCount: 35,
+            startTime: 0
+        )
+        for s in stream { c.handle(s) }
+        #expect(c.phase == .roll)
+        #expect(c.lastImpactResult?.snappedToSquare == false)
+        #expect(c.lastSnapReason == nil)
+    }
+
     @Test("ARKit pose stream consumed → impact uses ARKit origin (face angle still correct)")
     func arkitPath() {
         let fake = FakeARTrackingManager()

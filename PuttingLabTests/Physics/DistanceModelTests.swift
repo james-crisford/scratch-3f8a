@@ -12,11 +12,18 @@ struct DistanceModelBaseTests {
         #expect(r.displayedFeet > 3.0 && r.displayedFeet < 15.0)
     }
 
-    @Test("0 m/s peak → 0 distance")
+    @Test("0 m/s peak → 0 distance + isSuppressed=true (C3 fix)")
     func zeroSpeedZeroDistance() {
         let r = DistanceModel().compute(peakSpeedMps: 0.0)
         #expect(r.displayedFeet == 0)
         #expect(r.ballSpeedFps == 0)
+        #expect(r.isSuppressed)
+    }
+
+    @Test("non-zero peak velocity → isSuppressed=false")
+    func nonZeroNotSuppressed() {
+        let r = DistanceModel().compute(peakSpeedMps: 1.0)
+        #expect(!r.isSuppressed)
     }
 
     @Test("negative peak velocity clamped to 0")

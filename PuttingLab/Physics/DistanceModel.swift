@@ -6,6 +6,23 @@ struct DistanceResult: Sendable, Equatable {
     let highFeet: Double
     let ballSpeedFps: Double
     let rawFeet: Double
+    let isSuppressed: Bool
+
+    init(
+        displayedFeet: Double,
+        lowFeet: Double,
+        highFeet: Double,
+        ballSpeedFps: Double,
+        rawFeet: Double,
+        isSuppressed: Bool = false
+    ) {
+        self.displayedFeet = displayedFeet
+        self.lowFeet = lowFeet
+        self.highFeet = highFeet
+        self.ballSpeedFps = ballSpeedFps
+        self.rawFeet = rawFeet
+        self.isSuppressed = isSuppressed
+    }
 }
 
 /// Empirical putt-roll model from Marquardt 2007 / Holmes 1991 / Pelz: distance scales
@@ -39,12 +56,14 @@ final class DistanceModel: Sendable {
         let raw = (fps * fps) * stimp / Self.decelerationConstant
         let jitter = jitterFraction * Self.jitterAmplitude
         let displayed = raw * (1.0 + jitter)
+        let suppressed = safeSpeed < 0.05  // snap-to-square or no-meaningful-velocity result
         return DistanceResult(
             displayedFeet: displayed,
             lowFeet: displayed * (1.0 - Self.bandFactor),
             highFeet: displayed * (1.0 + Self.bandFactor),
             ballSpeedFps: fps,
-            rawFeet: raw
+            rawFeet: raw,
+            isSuppressed: suppressed
         )
     }
 }

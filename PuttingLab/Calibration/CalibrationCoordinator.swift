@@ -2,6 +2,7 @@ import Foundation
 
 enum CalibrationStatus: Sendable, Equatable {
     case awaitingStrokes(collected: Int, required: Int)
+    case stalled(consecutiveRejections: Int, hint: String)
     case complete(profile: CalibrationProfile)
 }
 
@@ -15,6 +16,9 @@ final class CalibrationCoordinator {
     var rejectedCount: Int = 0
 
     private var inputs: [CalibrationInput] = []
+    private var consecutiveRejections: Int = 0
+    static let stallThreshold: Int = 3
+    static let stalledHint: String = "Couldn't read your last few strokes. Try a smoother arc and keep the phone vertical."
 
     init(requiredStrokes: Int = 5, targetDistanceFeet: Double = 8.0) {
         self.requiredStrokes = requiredStrokes
@@ -26,8 +30,13 @@ final class CalibrationCoordinator {
     func ingest(window: StrokeWindow, impact: ImpactResult) -> CalibrationStatus {
         guard Self.isValid(impact: impact, window: window) else {
             rejectedCount += 1
+            consecutiveRejections += 1
+            if consecutiveRejections >= Self.stallThreshold {
+                status = .stalled(consecutiveRejections: consecutiveRejections, hint: Self.stalledHint)
+            }
             return status
         }
+        consecutiveRejections = 0
         inputs.append(CalibrationInput(window: window, impact: impact))
 
         if inputs.count >= requiredStrokes {
@@ -45,6 +54,7 @@ final class CalibrationCoordinator {
     func reset() {
         inputs.removeAll(keepingCapacity: true)
         rejectedCount = 0
+        consecutiveRejections = 0
         status = .awaitingStrokes(collected: 0, required: requiredStrokes)
     }
 

@@ -40,6 +40,38 @@ final class MarioKartAssist: Sendable {
     static let slightThresholdDeg: Double = 12.0
     static let pushPullThresholdDeg: Double = 20.0
 
+    /// Snap-aware overload that derives flags from a snapped `ImpactResult` (preferred call site
+    /// for consumers receiving an `ImpactResult` directly — ensures the spec §5.2 snap-to-square
+    /// cause string is surfaced instead of the generic "Centre strike" copy.
+    func bucket(from impact: ImpactResult, flags: ConfidenceFlags = .none) -> DirectionResult {
+        if impact.snappedToSquare {
+            let cause = causeForSnapReason(impact.snapReason)
+            return DirectionResult(
+                bucket: .square,
+                label: "Square",
+                displayDegrees: 0,
+                cause: cause,
+                snappedToSquare: true
+            )
+        }
+        return bucket(faceAngleDeg: impact.faceAngleDegrees, flags: flags)
+    }
+
+    private func causeForSnapReason(_ reason: SnapReason?) -> String {
+        switch reason {
+        case .strokeTooShort:
+            return "Too quick to read — slow it down a touch."
+        case .noClearPeak:
+            return "Couldn't find impact — try a smoother arc."
+        case .arkitLost:
+            return "Camera lost tracking — calling it Square to be safe."
+        case .peakSpeedTooLow:
+            return "Soft tap — not enough swing speed to read."
+        case .none:
+            return "Low confidence — calling it Square."
+        }
+    }
+
     func bucket(faceAngleDeg: Double, flags: ConfidenceFlags = .none) -> DirectionResult {
         if flags.anyLow {
             return DirectionResult(

@@ -9,6 +9,7 @@ final class SessionCoordinator {
     var phase: PhaseState = .arm
     var lastImpactResult: ImpactResult?
     var lastFaceOrigin: FaceAngleSource.Origin?
+    var lastSnapReason: SnapReason?
     var lastError: String?
     var motionErrorText: String?
     var arkitErrorText: String?
@@ -204,6 +205,7 @@ final class SessionCoordinator {
                 arkitBaselineYaw: arkitBaselineYaw
             )
             lastImpactResult = result
+            lastSnapReason = result.snapReason
             onResult(result)
             phase = .roll
             rollEnteredAt = window.end

@@ -2,6 +2,59 @@ import Testing
 import Foundation
 @testable import PuttingLab
 
+@Suite("MarioKartAssist — snap-to-square integration (C3 fix)")
+struct MarioKartSnapIntegrationTests {
+
+    @Test("bucket(from: snapped ImpactResult) returns Square with snap-specific cause")
+    func snappedResultGetsSnapCause() {
+        let snapped = ImpactResult(
+            timestamp: 1.3,
+            peakVelocity: 0,
+            faceAngleRaw: 0,
+            attitudeAtImpact: simd_quatd(ix: 0, iy: 0, iz: 0, r: 1),
+            confidence: 0,
+            snappedToSquare: true,
+            snapReason: .strokeTooShort
+        )
+        let r = MarioKartAssist().bucket(from: snapped)
+        #expect(r.bucket == .square)
+        #expect(r.snappedToSquare)
+        #expect(r.cause.lowercased().contains("quick"))
+    }
+
+    @Test("bucket(from: clean ImpactResult with deg=0) returns Square with normal cause")
+    func cleanZeroGetsCentreCause() {
+        let clean = ImpactResult(
+            timestamp: 1.3,
+            peakVelocity: 1.0,
+            faceAngleRaw: 0,
+            attitudeAtImpact: simd_quatd(ix: 0, iy: 0, iz: 0, r: 1),
+            confidence: 1.0,
+            snappedToSquare: false,
+            snapReason: nil
+        )
+        let r = MarioKartAssist().bucket(from: clean)
+        #expect(r.bucket == .square)
+        #expect(!r.snappedToSquare)
+        #expect(r.cause.lowercased().contains("centre") || r.cause.lowercased().contains("target"))
+    }
+
+    @Test("each snap reason maps to a distinct cause string")
+    func snapReasonsHaveDistinctCauses() {
+        let reasons: [SnapReason] = [.strokeTooShort, .noClearPeak, .arkitLost, .peakSpeedTooLow]
+        var causes: Set<String> = []
+        for reason in reasons {
+            let impact = ImpactResult(
+                timestamp: 0, peakVelocity: 0, faceAngleRaw: 0,
+                attitudeAtImpact: simd_quatd(ix: 0, iy: 0, iz: 0, r: 1),
+                confidence: 0, snappedToSquare: true, snapReason: reason
+            )
+            causes.insert(MarioKartAssist().bucket(from: impact).cause)
+        }
+        #expect(causes.count == 4)
+    }
+}
+
 @Suite("MarioKartAssist — bucket boundaries")
 struct MarioKartBucketTests {
 
@@ -51,6 +104,30 @@ struct MarioKartBucketTests {
     @Test("25° → miss")
     func twentyFiveMiss() {
         let r = MarioKartAssist().bucket(faceAngleDeg: 25.0)
+        #expect(r.bucket == .miss)
+    }
+
+    @Test("just under -6° → Square (negative boundary)")
+    func justUnderMinusSix() {
+        let r = MarioKartAssist().bucket(faceAngleDeg: -5.9)
+        #expect(r.bucket == .square)
+    }
+
+    @Test("exactly -6° → slightPull (negative boundary)")
+    func atMinusSixBoundary() {
+        let r = MarioKartAssist().bucket(faceAngleDeg: -6.0)
+        #expect(r.bucket == .slightPull)
+    }
+
+    @Test("exactly -12° → pull (negative boundary)")
+    func atMinusTwelveBoundary() {
+        let r = MarioKartAssist().bucket(faceAngleDeg: -12.0)
+        #expect(r.bucket == .pull)
+    }
+
+    @Test("exactly -20° → miss (negative boundary)")
+    func atMinusTwentyBoundary() {
+        let r = MarioKartAssist().bucket(faceAngleDeg: -20.0)
         #expect(r.bucket == .miss)
     }
 }

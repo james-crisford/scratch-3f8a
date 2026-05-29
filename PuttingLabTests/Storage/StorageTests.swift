@@ -144,6 +144,28 @@ struct StatsAggregatorTests {
         #expect(stats.bestTempoSeconds == 0.65)
     }
 
+    @Test("snapped records (confidence==0) filtered out of pin/accuracy stats (C3 fix)")
+    func snappedRecordsFiltered() {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        let realStroke = makeRecord(distance: 9.5, faceAngleRad: 0.10, at: now, confidence: 0.95)
+        // Snapped strokes: distance 0 (would be "8ft from pin = better than realStroke's 1.5ft"),
+        // faceAngleRaw 0 (would be "0° = better than realStroke's ~5.7°").
+        let snapped1 = makeRecord(distance: 0, faceAngleRad: 0, at: now, confidence: 0)
+        let snapped2 = makeRecord(distance: 0, faceAngleRad: 0, at: now, confidence: 0)
+        let stats = StatsAggregator.aggregate(
+            [realStroke, snapped1, snapped2],
+            targetFeet: 8.0,
+            referenceDate: now
+        )
+        #expect(stats.totalStrokes == 3)
+        #expect(stats.snappedStrokes == 2)
+        // closestPin should reflect the real stroke (|9.5 - 8| = 1.5), not the snapped 8.0.
+        #expect(abs(stats.closestPinFeetFromTarget - 1.5) < 1e-6)
+        // mostAccurate should reflect the real stroke, not the snapped 0°.
+        let expectedDeg = 0.10 * 180.0 / .pi
+        #expect(abs(stats.mostAccurateFaceAngleDeg - expectedDeg) < 0.01)
+    }
+
     @Test("most accurate face angle = smallest absolute deg")
     func mostAccurate() {
         let now = Date(timeIntervalSince1970: 1_700_000_000)
@@ -228,14 +250,15 @@ fileprivate func makeRecord(
     distance: Double,
     duration: TimeInterval = 0.6,
     faceAngleRad: Double = 0.0,
-    at date: Date = Date(timeIntervalSince1970: 0)
+    at date: Date = Date(timeIntervalSince1970: 0),
+    confidence: Double = 0.95
 ) -> StrokeRecord {
     StrokeRecord(
         recordedAt: date,
         impactTimestamp: 0,
         peakVelocity: 1.0,
         faceAngleRaw: faceAngleRad,
-        confidence: 0.95,
+        confidence: confidence,
         distanceFeet: distance,
         strokeDurationSeconds: duration,
         directionBucket: .square
