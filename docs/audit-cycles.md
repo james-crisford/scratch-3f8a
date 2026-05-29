@@ -155,3 +155,38 @@ After 3 cycles, the algorithmic core (ImpactDetector, SessionCoordinator, FaceAn
 3. **UX polish** (cold-start timeout, scenePhase, lefty handedness, calibration brittleness): design decisions James should make.
 
 Cycle 4 will attempt the AsyncStream refactor. If budget runs low, Cycle 3 state is shippable to TestFlight pending device verification of the 5 KI items.
+
+---
+
+## Cycle 4 — 2026-05-29
+
+### Source of findings
+- Audit B (sample-dispatch deep-dive) from Cycle 3 — provided concrete refactor design.
+- Cycle 1 + Cycle 2 concurrency audits both flagged the ordering issue but deferred the fix.
+
+### Findings addressed (1 critical refactor, closes ~10 latent bugs)
+
+| # | Bug | File | Fix |
+|---|---|---|---|
+| C4-1 | `Task { @MainActor in self?.handle(sample) }` per CMDeviceMotion callback does NOT preserve enqueue order. Closes: (a) timestamp-stateful detector corruption from reordered samples, (b) `stillSinceTimestamp` rollback, (c) TOCTOU between `isArKitDegraded()` check and `attitudeYaw()` call, (d) `stop()`/handler race, (e) `timeoutToArm` mid-flight sample corruption, (f) `phase` smashing | `Sensors/MotionManager.swift`, `SessionCoordinator.swift`, `UI/SensorDebugView.swift`, test fakes | `MotionStreaming.start()` now returns `AsyncStream<MotionSample>` with `.bufferingNewest(16)` policy. Consumer is a single `Task { @MainActor for await sample in stream { handle(sample) } }` with cancellation propagation. Production order is preserved (CMMotionManager's `OperationQueue` is serial → `continuation.yield()` is FIFO from a single producer). |
+
+### Migration details
+
+- `MotionStreaming` protocol now requires `Sendable` (was `AnyObject`).
+- `MotionManager.start()` returns the stream, captures continuation in protected state, yields under lock guard.
+- `MotionManager.stop()` sets `running=false`, calls `stopDeviceMotionUpdates()`, then `continuation.finish()`. Stop ordering prevents late samples.
+- `SessionCoordinator.start()` spawns one consumer Task; `stop()` cancels it. `handle()` remains the test entry point — tests bypass the stream entirely.
+- `SensorDebugView` mirrors the same pattern.
+- Test fakes (`NoopMotion` in two test files) now return an `AsyncStream` that immediately finishes (since tests drive samples via `handle(_:)` directly).
+- `MotionManagerTests` updated to discard the returned stream and use `start() as AsyncStream<MotionSample>` for `#expect(throws:)` blocks.
+
+### CI / outcome
+
+- Commit `62d91e7` — **306 tests green in 13.1s** (faster than Cycle 3's 46.9s; the variance was a slow CI worker).
+- Zero regressions. The refactor is invisible to existing tests because they drive `handle()` directly.
+
+### Verdict
+
+Cycle 4 successfully landed the single refactor that the auditors flagged as closing the largest number of latent bugs. The motion pipeline is now ordered, cancellation-safe, and `@unchecked Sendable` no longer hides actual concurrency issues (it's now a single-producer FIFO under a lock guard).
+
+Remaining work is all device-verification or UI design — see `docs/break-fix-break-final.md` for the TestFlight readiness summary.
