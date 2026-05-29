@@ -17,7 +17,7 @@ jobs:
   test:
     name: Build and test (iOS Simulator)
     runs-on: macos-15
-    timeout-minutes: 25
+    timeout-minutes: 15
 
     steps:
       - name: Checkout
@@ -60,16 +60,27 @@ jobs:
             | tee build.log
 
       - name: Run unit tests
+        timeout-minutes: 8
         run: |
           set -o pipefail
+          # Test-execution-time-allowance prevents individual tests from hanging.
+          # Outer timeout-minutes prevents xcodebuild post-test cleanup from hanging.
           xcodebuild test \
             -project PuttingLab.xcodeproj \
             -scheme PuttingLab \
             -destination 'platform=iOS Simulator,OS=18.5,name=iPhone 16' \
             -enableCodeCoverage YES \
             -resultBundlePath TestResults.xcresult \
+            -test-timeouts-enabled YES \
+            -maximum-test-execution-time-allowance 30 \
             CODE_SIGNING_ALLOWED=NO \
             | tee test.log
+
+      - name: Shut down simulators (prevent hung process)
+        if: always()
+        run: |
+          xcrun simctl shutdown all || true
+          killall -9 com.apple.CoreSimulator.CoreSimulatorService || true
 
       - name: Summarise test results
         if: always()
