@@ -44,13 +44,53 @@ struct MotionManagerTests {
         manager.stop()
     }
 
-    @Test("uses xMagneticNorthZVertical reference frame")
-    func usesMagneticNorthFrame() throws {
+    @Test("picks a supported attitude reference frame from the fallback chain")
+    func usesValidAttitudeFrame() throws {
+        // Post-2026-05-30 hardening: MotionManager no longer hardcodes .xMagneticNorthZVertical.
+        // It walks CMMotionManager.availableAttitudeReferenceFrames() and picks the best
+        // available, falling back to .xArbitraryCorrectedZVertical → .xArbitraryZVertical
+        // when the magnetometer isn't trustworthy (steel rebar, AirPods, MagSafe at the
+        // tester's venue). On the simulator the picked frame depends on the host runtime;
+        // we just assert SOME valid frame was selected.
         let mock = FakeCMMotionManager(deviceMotionAvailable: true)
         let manager = MotionManager(manager: mock)
         _ = try manager.start()
-        #expect(mock.lastReferenceFrame == .xMagneticNorthZVertical)
+        let frame = mock.lastReferenceFrame
+        #expect(frame != nil)
+        if let f = frame {
+            let valid: [CMAttitudeReferenceFrame] = [
+                .xMagneticNorthZVertical,
+                .xArbitraryCorrectedZVertical,
+                .xArbitraryZVertical
+            ]
+            #expect(valid.contains(f))
+        }
         manager.stop()
+    }
+
+    @Test("selectAttitudeFrame picks magnetic-north when available")
+    func selectsMagneticWhenAvailable() {
+        let all: CMAttitudeReferenceFrame = [
+            .xMagneticNorthZVertical,
+            .xArbitraryCorrectedZVertical,
+            .xArbitraryZVertical
+        ]
+        #expect(MotionManager.selectAttitudeFrame(from: all) == .xMagneticNorthZVertical)
+    }
+
+    @Test("selectAttitudeFrame falls back to xArbitraryCorrected when no magnetic-north")
+    func fallsBackToCorrected() {
+        let some: CMAttitudeReferenceFrame = [
+            .xArbitraryCorrectedZVertical,
+            .xArbitraryZVertical
+        ]
+        #expect(MotionManager.selectAttitudeFrame(from: some) == .xArbitraryCorrectedZVertical)
+    }
+
+    @Test("selectAttitudeFrame final fallback is xArbitrary")
+    func finalFallback() {
+        let only: CMAttitudeReferenceFrame = [.xArbitraryZVertical]
+        #expect(MotionManager.selectAttitudeFrame(from: only) == .xArbitraryZVertical)
     }
 
     @Test("stop is idempotent and returns to stopped state")
