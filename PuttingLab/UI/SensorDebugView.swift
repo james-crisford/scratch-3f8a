@@ -26,6 +26,7 @@ final class SensorDebugViewModel {
     private var lastReportAt: TimeInterval?
     private var samplesSinceLastReport: Int = 0
     private var arkitPollTask: Task<Void, Never>?
+    private var motionConsumerTask: Task<Void, Never>?
 
     init(
         motion: MotionStreaming = MotionManager(),
@@ -67,8 +68,10 @@ final class SensorDebugViewModel {
         samplesSinceLastReport = 0
 
         do {
-            try motion.start { [weak self] sample in
-                Task { @MainActor in
+            let stream = try motion.start()
+            motionConsumerTask = Task { @MainActor [weak self] in
+                for await sample in stream {
+                    if Task.isCancelled { break }
                     self?.handle(sample)
                 }
             }
@@ -89,6 +92,8 @@ final class SensorDebugViewModel {
         arkit.stop()
         arkitPollTask?.cancel()
         arkitPollTask = nil
+        motionConsumerTask?.cancel()
+        motionConsumerTask = nil
     }
 
     private func startARKitPolling() {

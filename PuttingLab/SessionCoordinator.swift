@@ -31,6 +31,7 @@ final class SessionCoordinator {
     private var rollEnteredAt: TimeInterval?
     private var arkitBaselineYaw: Double?
     private var strokeArkitPoses: [ARPose] = []
+    private var consumerTask: Task<Void, Never>?
 
     init(
         motion: MotionStreaming = MotionManager(),
@@ -64,8 +65,10 @@ final class SessionCoordinator {
     func start() {
         reset()
         do {
-            try motion.start { [weak self] sample in
-                Task { @MainActor in
+            let stream = try motion.start()
+            consumerTask = Task { @MainActor [weak self] in
+                for await sample in stream {
+                    if Task.isCancelled { break }
                     self?.handle(sample)
                 }
             }
@@ -82,6 +85,8 @@ final class SessionCoordinator {
     func stop() {
         motion.stop()
         arkit.stop()
+        consumerTask?.cancel()
+        consumerTask = nil
     }
 
     func reset() {

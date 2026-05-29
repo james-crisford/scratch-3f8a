@@ -19,7 +19,7 @@ struct MotionManagerTests {
         let mock = FakeCMMotionManager(deviceMotionAvailable: false)
         let manager = MotionManager(manager: mock)
         #expect(throws: MotionManagerError.deviceMotionUnavailable) {
-            try manager.start { _ in }
+            _ = try manager.start() as AsyncStream<MotionSample>
         }
         #expect(!manager.isRunning)
     }
@@ -28,9 +28,9 @@ struct MotionManagerTests {
     func throwsOnDoubleStart() throws {
         let mock = FakeCMMotionManager(deviceMotionAvailable: true)
         let manager = MotionManager(manager: mock)
-        try manager.start { _ in }
+        _ = try manager.start()
         #expect(throws: MotionManagerError.alreadyRunning) {
-            try manager.start { _ in }
+            _ = try manager.start() as AsyncStream<MotionSample>
         }
         manager.stop()
     }
@@ -39,7 +39,7 @@ struct MotionManagerTests {
     func configuresHundredHz() throws {
         let mock = FakeCMMotionManager(deviceMotionAvailable: true)
         let manager = MotionManager(manager: mock)
-        try manager.start { _ in }
+        _ = try manager.start()
         #expect(abs(mock.deviceMotionUpdateInterval - 0.01) < 1e-9)
         manager.stop()
     }
@@ -48,7 +48,7 @@ struct MotionManagerTests {
     func usesMagneticNorthFrame() throws {
         let mock = FakeCMMotionManager(deviceMotionAvailable: true)
         let manager = MotionManager(manager: mock)
-        try manager.start { _ in }
+        _ = try manager.start()
         #expect(mock.lastReferenceFrame == .xMagneticNorthZVertical)
         manager.stop()
     }
@@ -57,7 +57,7 @@ struct MotionManagerTests {
     func stopIsIdempotent() throws {
         let mock = FakeCMMotionManager(deviceMotionAvailable: true)
         let manager = MotionManager(manager: mock)
-        try manager.start { _ in }
+        _ = try manager.start()
         manager.stop()
         manager.stop()
         #expect(!manager.isRunning)
@@ -67,9 +67,9 @@ struct MotionManagerTests {
     func restartAfterStop() throws {
         let mock = FakeCMMotionManager(deviceMotionAvailable: true)
         let manager = MotionManager(manager: mock)
-        try manager.start { _ in }
+        _ = try manager.start()
         manager.stop()
-        try manager.start { _ in }
+        _ = try manager.start()
         #expect(manager.isRunning)
         manager.stop()
     }

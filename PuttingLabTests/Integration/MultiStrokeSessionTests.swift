@@ -165,7 +165,12 @@ struct MultiStrokeSessionTests {
 fileprivate final class NoopMotion: MotionStreaming, @unchecked Sendable {
     var isRunning: Bool = false
     var latestSample: MotionSample?
-    func start(handler: @escaping @Sendable (MotionSample) -> Void) throws { isRunning = true }
+    func start() throws -> AsyncStream<MotionSample> {
+        isRunning = true
+        return AsyncStream<MotionSample> { continuation in
+            continuation.finish()
+        }
+    }
     func stop() { isRunning = false }
 }
 
