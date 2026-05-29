@@ -167,9 +167,9 @@ struct StillnessDetectorBoundaryTests {
         #expect(StillnessDetector.isStill(s))
     }
 
-    @Test("gravity dot well below 0.966 → not still")
+    @Test("gravity dot well below 0.9 → not still")
     func gravityWellBelowThresholdRejected() {
-        let g = SIMD3<Double>(sqrt(1 - 0.95 * 0.95), -0.95, 0)
+        let g = SIMD3<Double>(sqrt(1 - 0.8 * 0.8), -0.8, 0)
         let s = sample(t: 0, rotation: .zero, accel: .zero, gravity: g)
         #expect(!StillnessDetector.isStill(s))
     }
