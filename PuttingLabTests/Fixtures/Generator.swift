@@ -125,4 +125,36 @@ enum StrokeFixtures {
     static func zeroAccel(durationMs: Int = 600) -> SyntheticStroke {
         constantAccel(durationMs: durationMs, accel: 0.0)
     }
+
+    /// Marquardt 2007 SAM PuttLab empirical values (PGA Tour, n=99).
+    /// Impact speed 1.51 m/s, downswing 317 ms, face open 0.3° at impact.
+    /// See research_archive/puttinglab-putter-stroke-tempo-face-2026-05-29.md
+    static func tourProDownswing(faceAngleDeg: Double = 0.3) -> SyntheticStroke {
+        synthesise(
+            name: "tour_pro_downswing",
+            durationSeconds: 0.317,
+            peakVelocity: 1.51,
+            faceAngleDeg: faceAngleDeg
+        )
+    }
+
+    /// Realistic full putting stroke (backswing + downswing + follow-through ≈ 1100 ms).
+    static func tourProFullStroke(faceAngleDeg: Double = 0.3) -> SyntheticStroke {
+        synthesise(
+            name: "tour_pro_full",
+            durationSeconds: 0.820,
+            peakVelocity: 1.51,
+            faceAngleDeg: faceAngleDeg
+        )
+    }
+
+    /// Amateur recreational putt — slower, less consistent, wider face deviation.
+    static func amateurStroke(durationMs: Int = 900, peakVelocity: Double = 1.0, faceAngleDeg: Double = 2.5) -> SyntheticStroke {
+        synthesise(
+            name: "amateur_\(durationMs)ms",
+            durationSeconds: TimeInterval(durationMs) / 1000.0,
+            peakVelocity: peakVelocity,
+            faceAngleDeg: faceAngleDeg
+        )
+    }
 }

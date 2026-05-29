@@ -8,24 +8,35 @@ struct DistanceResult: Sendable, Equatable {
     let rawFeet: Double
 }
 
+/// Empirical putt-roll model from Marquardt 2007 / Holmes 1991 / Pelz: distance scales
+/// as ball_speed² × Stimp / decelerationConstant. Stimp 10 ≈ medium residential green.
+/// Friction constant 19.7 ft/s² is derived from Holmes' empirical capture-speed work.
+/// See research_archive/puttinglab-putt-roll-physics-2026-05-29.md for sources.
 final class DistanceModel: Sendable {
-    static let frictionConstant: Double = 1.7
+    static let decelerationConstant: Double = 19.7
+    static let defaultStimp: Double = 10.0
     static let mpsToFps: Double = 3.281
     static let bandFactor: Double = 0.15
     static let jitterAmplitude: Double = 0.05
 
     let speedCalibrationFactor: Double
+    let stimp: Double
     let jitterFraction: Double
 
-    init(speedCalibrationFactor: Double = 1.0, jitterFraction: Double = 0.0) {
+    init(
+        speedCalibrationFactor: Double = 1.0,
+        stimp: Double = DistanceModel.defaultStimp,
+        jitterFraction: Double = 0.0
+    ) {
         self.speedCalibrationFactor = speedCalibrationFactor
+        self.stimp = max(1.0, stimp)
         self.jitterFraction = max(-1.0, min(1.0, jitterFraction))
     }
 
     func compute(peakSpeedMps: Double) -> DistanceResult {
         let safeSpeed = max(0, peakSpeedMps)
         let fps = safeSpeed * speedCalibrationFactor * Self.mpsToFps
-        let raw = pow(fps, 1.6) / Self.frictionConstant
+        let raw = (fps * fps) * stimp / Self.decelerationConstant
         let jitter = jitterFraction * Self.jitterAmplitude
         let displayed = raw * (1.0 + jitter)
         return DistanceResult(

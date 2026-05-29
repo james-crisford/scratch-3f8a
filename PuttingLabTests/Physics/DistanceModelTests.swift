@@ -25,23 +25,39 @@ struct DistanceModelBaseTests {
         #expect(r.displayedFeet == 0)
     }
 
-    @Test("doubling peak velocity ≈ 3× distance (1.6 power law)")
+    @Test("doubling peak velocity → 4× distance (quadratic per empirical putt physics)")
     func powerLawScaling() {
         let m = DistanceModel()
         let a = m.compute(peakSpeedMps: 1.0)
         let b = m.compute(peakSpeedMps: 2.0)
         let ratio = b.displayedFeet / a.displayedFeet
-        #expect(ratio > 2.9 && ratio < 3.1)
+        #expect(ratio > 3.95 && ratio < 4.05)
     }
 
-    @Test("calibration factor 2 → ~3× distance vs factor 1")
+    @Test("calibration factor 2 → 4× distance vs factor 1 (quadratic)")
     func calibrationScales() {
         let m1 = DistanceModel(speedCalibrationFactor: 1.0)
         let m2 = DistanceModel(speedCalibrationFactor: 2.0)
         let r1 = m1.compute(peakSpeedMps: 1.0)
         let r2 = m2.compute(peakSpeedMps: 1.0)
         let ratio = r2.displayedFeet / r1.displayedFeet
-        #expect(ratio > 2.9 && ratio < 3.1)
+        #expect(ratio > 3.95 && ratio < 4.05)
+    }
+
+    @Test("Stimp scaling: 2× Stimp → 2× distance (linear in green speed)")
+    func stimpScalesLinearly() {
+        let slow = DistanceModel(stimp: 6.0)
+        let fast = DistanceModel(stimp: 12.0)
+        let rSlow = slow.compute(peakSpeedMps: 1.5)
+        let rFast = fast.compute(peakSpeedMps: 1.5)
+        let ratio = rFast.displayedFeet / rSlow.displayedFeet
+        #expect(ratio > 1.95 && ratio < 2.05)
+    }
+
+    @Test("empirical putter impact (1.51 m/s, Stimp 10) → 8-12 ft (matches Marquardt SAM data)")
+    func empiricalPutterImpact() {
+        let r = DistanceModel().compute(peakSpeedMps: 1.51)
+        #expect(r.displayedFeet > 8.0 && r.displayedFeet < 14.0)
     }
 
     @Test("ball speed conversion: 1 m/s → 3.281 fps")

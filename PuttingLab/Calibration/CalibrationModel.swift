@@ -21,7 +21,7 @@ enum CalibrationModel {
 
         let factor: Double
         if meanPeakVel > 1e-9, targetDistanceFeet > 0 {
-            let requiredFps = pow(targetDistanceFeet * DistanceModel.frictionConstant, 1.0 / 1.6)
+            let requiredFps = sqrt(targetDistanceFeet * DistanceModel.decelerationConstant / DistanceModel.defaultStimp)
             factor = requiredFps / (meanPeakVel * DistanceModel.mpsToFps)
         } else {
             factor = 1.0
