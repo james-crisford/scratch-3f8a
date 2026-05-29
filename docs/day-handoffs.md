@@ -190,3 +190,40 @@
 ### Next day scope
 
 **Day 6 — Face angle (ARKit + drift correction).** `Physics/FaceAngleComputer.swift` decides at stroke-end whether to use ARKit yaw (if `trackingState == .normal` throughout the stroke) or fall back to compass yaw. Update `ImpactDetector` to delegate face-angle computation to `FaceAngleComputer`. ≥15 tests: zero on straight, signed correctly (negative=pull), ARKit lost mid-stroke → compass fallback, ARKit clean → uses ARKit, both sources agree within 2° on synthetic stroke.
+
+---
+
+## Day 6 — 2026-05-29 — FaceAngleComputer (ARKit + compass fallback)
+
+### What was built
+
+- `PuttingLab/Physics/FaceAngleComputer.swift` — Sendable computer that decides between ARKit yaw and compass yaw per stroke.
+  - `FaceAngleSource { radians, origin }` with `Origin: { .arkit / .compass / .fallbackArkitLost / .fallbackNoBaseline }`.
+  - `compute(window:attitudeAtImpact:impactTime:arkitPoses:arkitBaselineYaw:)` returns the source.
+  - Rules: uses ARKit only if `arkitPoses` non-empty, ALL poses `.normal`, AND `arkitBaselineYaw` provided. Otherwise falls back to compass with explanatory origin.
+  - ARKit yaw at impact = pose closest to `impactTime` (linear scan, ties broken by encounter order).
+- `PuttingLab/Physics/ImpactDetector.swift` — now holds a `let faceAngleComputer: FaceAngleComputer` and delegates the face-angle computation. New optional params on `detect`: `arkitPoses: [ARPose]`, `arkitBaselineYaw: Double?`. Default `[]` and `nil` preserve Day 5's pure-compass behaviour for backwards compat.
+- `PuttingLabTests/Physics/FaceAngleComputerTests.swift` — **15 tests** across 4 suites:
+  - Compass fallback (4): zero on straight, pull negative, push positive, degrees conversion.
+  - ARKit primary (3): clean ARKit used, closest pose selected, non-zero baseline subtraction.
+  - ARKit fallback (4): lost mid-stroke → `.fallbackArkitLost`, no baseline → `.fallbackNoBaseline`, empty poses → `.compass`, `.limited(.initializing)` treated as lost.
+  - Agreement & integration (4): ARKit + compass agree within 2°, determinism, ImpactDetector integration (clean & lost), backwards-compat (no poses ↔ Day 5 behaviour).
+
+### Tests passing
+
+- **158 tests green** on CI run, commit `2dae5f6`. 2m59s, first push.
+
+### iPhone 13 device checklist (verify in morning)
+
+- [ ] Day 6 has no UI surface changes. Verification deferred to Day 7 when SessionCoordinator surfaces `FaceAngleSource.origin` in console output.
+- [ ] After Day 7, on-device verification: make putts in good lighting (ARKit normal) — confirm `.arkit` origin and the value is close to the same putt taken with phone covered momentarily (which forces ARKit-lost → `.fallbackArkitLost`).
+
+### Notes
+
+- The brief expected an extra "drift correction" pass on ARKit data over time. v1 doesn't need it: at address pose, we re-lock both ARKit and compass; during the 0.6s stroke, drift is bounded to <1°. If empirical data shows drift problems, FaceAngleComputer is where to add a `arkitDriftRate` correction.
+- `FaceAngleSource.Origin` is what the UI / coordinator inspects to render the "confidence label" — e.g., `.compass` means "compass-only, slightly higher uncertainty band on the displayed face angle" (the Mario-Kart assist logic in Day 8 may snap to Square when origin is fallback).
+- `arkitBaselineYaw` is supplied by the caller (SessionCoordinator). It comes from the ARKit pose captured at the moment the `StillnessLock` fired. Not stored in StillnessLock to avoid mutating the Day 3 contract.
+
+### Next day scope
+
+**Day 7 — End-to-end SessionCoordinator (no UI yet).** Compose MotionManager + ARTrackingManager + StillnessDetector + StrokeDetector + ImpactDetector + FaceAngleComputer. Phase state machine (ARM → ADDRESS → READY → STROKE → IMPACT → ROLL). `@MainActor @Observable`. New: `SessionCoordinator.swift`, `Models/PhaseState.swift`. Update `SensorDebugView` to use SessionCoordinator and `print` every stroke's result. ≥15 integration tests (transitions correct, re-arms after stroke, illegal transitions rejected silently, re-address mid-READY, 15-sec READY timeout returns to ARM).
