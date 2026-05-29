@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import simd
 @testable import PuttingLab
 
 @Suite("MarioKartAssist — snap-to-square integration (C3 fix)")
