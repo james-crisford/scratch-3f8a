@@ -111,4 +111,4 @@ Don't read these every turn. Read the relevant skill instead — they distill th
 
 ---
 
-*Last updated: 2026-05-29. Project status: pre-build. v1 spec locked, skills installed, awaiting goal-prompt assembly + day-1 kickoff.*
+*Last updated: 2026-05-29 evening. Day 1 SHIPPED — 19/19 tests green on CI. Days 2-7 overnight sprint scoped in `briefs/build-days-2-to-7.md` with stretch goals through Day 10. Repo at github.com/james-crisford/PuttingLab. CI: macos-15 + Xcode 16.x auto-pick + iOS Simulator OS=18.5 iPhone 16. Git remote authed via Git Credential Manager.*
