@@ -92,3 +92,46 @@
 ### Next day scope
 
 **Day 4 — Stroke detector.** State machine `armed → starting → recording → ended` requiring a prior `StillnessLock`. Start on `|rotationRate| > 30°/s` sustained ≥50 ms (debounce flicks). End on `|rotationRate| < 30°/s` for 300 ms continuous OR 2 s hard cutoff from start. Captures all samples in window into `StrokeWindow { start, end, samples, lock }`. 15+ tests including detection-with-debounce, flick-rejection, return-to-stillness end, hard-cutoff end, arm-only-after-lock. Wire SensorDebugView badge: ARMED → STROKE → DONE.
+
+---
+
+## Day 4 — 2026-05-29 — Stroke detector
+
+### What was built
+
+- `PuttingLab/Models/StrokeWindow.swift` — `{ start, end, samples, lock }` Sendable + `duration` computed property + `StrokeDetectorPhase` enum (`idle / armed / starting / recording / ended`).
+- `PuttingLab/Sensors/StrokeDetector.swift` — state machine with `arm(with: StillnessLock) throws`, `consume(_:) -> StrokeWindow?`, `reset()`, `phase`, `sampleCount`. Thresholds: 30°/s (strict `>`), 50ms start-sustain debounce, 300ms quiet-window end, 2s hard cutoff. 1µs FP tolerance on all time comparisons (same robustness logic as Day 3). NSLock-protected internal state.
+- `PuttingLabTests/Sensors/StrokeDetectorTests.swift` — 25 tests across 4 suites:
+  - Arm + idle (7): starts idle, idle consume noop, arm from idle / from ended, arm-while-starting throws, arm-while-recording throws, reset returns idle.
+  - Start detection (4): 50ms → recording, flick (40ms then dip) rejected and buffer cleared, boundary 30°/s exact (not above), boundary just-above starts.
+  - End detection (7): 300ms quiet ends, 2s hard cutoff ends, 290ms quiet does NOT end, window captures samples + correct lock, window.start = first-above-threshold timestamp, brief quiet that resumes does NOT end, .ended ignores further input.
+  - Robustness (7): determinism, performance (10k samples <200ms), no retain cycle, 200 concurrent reads, NaN rotation ignored, 100 reset cycles.
+- `PuttingLab/UI/SensorDebugView.swift` — view model now owns a `StrokeDetector`; on every stillness lock, calls `try? stroke.arm(with: lock)`. On every sample, feeds `stroke.consume(sample)` and surfaces `strokePhase` + `lastStrokeSampleCount`. View shows colour-coded badge: idle=gray, ARMED=blue, starting=orange, STROKE=red, DONE=green.
+
+### Tests passing
+
+- **108 tests green** on CI run 26613363... (`1b0a272`). 3m19s wall, first push.
+
+### iPhone 13 device checklist (verify in morning)
+
+- [ ] After ARKit + stillness lock fires ("Aimed ✓"), the stroke badge turns blue and reads "stroke: ARMED".
+- [ ] Make a deliberate putting motion (rotate phone briskly through ~30° of yaw over ~500–800ms). Badge goes `ARMED → starting… → STROKE (red) → DONE (green)`.
+- [ ] Quick flick or finger twitch under 50ms above 30°/s does NOT advance the badge past `starting…` and falls back to ARMED.
+- [ ] After DONE, on next stillness re-engagement the badge cycles back to ARMED. (Implementation: stillness lock auto re-arms the stroke detector.)
+- [ ] During recording, the `samples` count tracks the number of captured frames (should be ~30–80 for a real putt at 100 Hz).
+- [ ] Make a deliberately slow drift (under 30°/s the whole way): never advances past ARMED.
+- [ ] Make a stroke and then immediately keep moving the phone (no return to still) for >2 s: DONE badge appears (hard cutoff). `samples` should be ~200.
+- [ ] Phone held still for >2 minutes never spuriously enters starting/recording.
+- [ ] App backgrounded → foregrounded: badge resets cleanly via `viewModel.start()`.
+- [ ] Memory / CPU stable; no leaks after 10 consecutive strokes.
+
+### Notes
+
+- The detector is decoupled from the haptic / Aimed UI — it's a pure state machine driven by `MotionSample` timestamps. Means the same instance can be used in coordinator code (Day 7), in simulation tests (Day 7+), and in fixtures (Day 5+).
+- `arm()` from `.starting` or `.recording` throws — the UI's `try? stroke.arm(...)` swallows that, but in coordinator code (Day 7) we'll handle it explicitly.
+- Sample buffer uses `removeAll(keepingCapacity: true)` to avoid heap churn across multiple strokes per session.
+- Day 5 introduces `Fixtures/` — many of the test helpers in StrokeDetectorTests.swift (`spinSample`, `testLock`, `simulateStrokeAndEnd`) will move into the fixture generator on Day 5.
+
+### Next day scope
+
+**Day 5 — Impact detection (HARD).** The headline algorithm. PCA on `userAcceleration` to find swing-plane forward axis, integrate to velocity with linear drift correction, 5-point moving average, find peak, sub-sample parabolic interpolation for `impactTime`, quaternion slerp for attitude at impact, compute `faceAngleRaw` vs `lock.yawTargetCompass`, confidence score. New: `Physics/ImpactDetector.swift`, `Models/ImpactResult.swift`, `Fixtures/clean_straight_8ft.json` + `Fixtures/Generator.swift` parameterised synthesis. ≥15 tests including face_angle within ±2° of 0 on clean fixture, sub-sample interpolation accuracy, throws on <200ms stroke, confidence <0.5 when ARKit-lost flag set.
