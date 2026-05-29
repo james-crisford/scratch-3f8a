@@ -11,7 +11,7 @@ jobs:
   test:
     name: Build and test (iOS Simulator)
     runs-on: macos-15
-    timeout-minutes: 20
+    timeout-minutes: 25
 
     steps:
       - name: Checkout
@@ -19,23 +19,24 @@ jobs:
 
       - name: Select Xcode 16
         run: |
-          sudo xcode-select -s /Applications/Xcode_16.0.app
+          sudo xcode-select -s /Applications/Xcode_16.0.app || sudo xcode-select -s /Applications/Xcode.app
           xcodebuild -version
           swift --version
 
-      - name: Generate Xcode project if missing
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project from project.yml
         run: |
-          if [ ! -d "PuttingLab.xcodeproj" ]; then
-            echo "::error::PuttingLab.xcodeproj not committed yet — first Mac setup pending."
-            echo "Run MAC_SETUP.md steps 1-5 once on a Mac, commit the .xcodeproj, then push."
-            exit 78
-          fi
+          xcodegen generate --spec project.yml
+          ls -la PuttingLab.xcodeproj
 
       - name: Show simulators
-        run: xcrun simctl list devices available
+        run: xcrun simctl list devices available | head -40
 
       - name: Build for iPhone 15 Simulator
         run: |
+          set -o pipefail
           xcodebuild build \
             -project PuttingLab.xcodeproj \
             -scheme PuttingLab \
@@ -43,10 +44,10 @@ jobs:
             -configuration Debug \
             CODE_SIGNING_ALLOWED=NO \
             | tee build.log
-          test ${PIPESTATUS[0]} -eq 0
 
       - name: Run unit tests
         run: |
+          set -o pipefail
           xcodebuild test \
             -project PuttingLab.xcodeproj \
             -scheme PuttingLab \
@@ -55,22 +56,12 @@ jobs:
             -resultBundlePath TestResults.xcresult \
             CODE_SIGNING_ALLOWED=NO \
             | tee test.log
-          test ${PIPESTATUS[0]} -eq 0
 
       - name: Summarise test results
         if: always()
         run: |
-          if [ -d TestResults.xcresult ]; then
-            xcrun xcresulttool get --legacy --format json --path TestResults.xcresult \
-              | python3 -c "
-import json, sys
-data = json.load(sys.stdin)
-metrics = data.get('metrics', {})
-print('Tests run:', metrics.get('testsCount', {}).get('_value', '?'))
-print('Tests failed:', metrics.get('testsFailedCount', {}).get('_value', '0'))
-print('Tests skipped:', metrics.get('testsSkippedCount', {}).get('_value', '0'))
-"
-          fi
+          echo "=== Test summary ==="
+          grep -E "(Test Suite|Test Case|passed|failed|TEST FAILED|TEST SUCCEEDED|Executed)" test.log | tail -50 || echo "(no test.log)"
 
       - name: Upload test result bundle
         if: always()
@@ -79,3 +70,15 @@ print('Tests skipped:', metrics.get('testsSkippedCount', {}).get('_value', '0'))
           name: TestResults
           path: TestResults.xcresult
           retention-days: 14
+          if-no-files-found: warn
+
+      - name: Upload build/test logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs
+          path: |
+            build.log
+            test.log
+          retention-days: 14
+          if-no-files-found: warn
