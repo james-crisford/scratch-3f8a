@@ -40,12 +40,37 @@ Hunt: is the product actually wanted? Read `golfer-jtbd` + `competitor-intel`. F
 - Is "no physical ball" a feature or a fatal limitation? Does Wii Golf precedent generalise?
 
 ### 2. Technical killer
-Hunt: does the algorithm actually work on a real iPhone?
-- Read the 15 deferred device-verification issues. How many will fail and require fundamental rework?
-- Magnetometer corruption (research-confirmed) — what if compass yaw drifts 20° during the stroke and ARKit also fails indoors? Is the fallback fallback acceptable?
-- 100Hz IMU + ARKit on iPhone 13 thermal-throttles after 10 minutes of camera-on use. What happens to user experience?
-- The sin(πt/T) synthetic stroke model — does it actually predict real human putting motion? Cite Marquardt 2007 SAM data vs the synthetic.
-- TestFlight feedback says "feels wrong, can't tell why" — what's the iteration loop look like?
+Hunt: is the fundamental tech actually capable of delivering ±2° face angle and believable distance on iPhone hardware, or is this premise broken?
+
+Read: `docs/known-issues.md`, `research_archive/puttinglab-high-speed-imu-bounds-2026-05-29.md`, `research_archive/puttinglab-putter-stroke-tempo-face-2026-05-29.md`, `research_archive/golfgo-research-1-imu-swing-physics-2026-05-28.md`, `research_archive/golfgo-research-4-arkit-realitykit-feasibility-2026-05-28.md`, `research_archive/golfgo-research-5-multisensor-swing-detection-2026-05-29.md`.
+
+Then attack on five fronts:
+
+A. **Is the sensor stack adequate?**
+- iPhone CMDeviceMotion caps at 100 Hz; Marquardt SAM PuttLab samples at 1000 Hz. Forward swing is ~317 ms. At 100 Hz you get ~32 samples to capture impact — is that enough for ±2° face angle resolution given sin/cos quantization?
+- ARKit fast-motion drops to `.limited(.excessiveMotion)` at wrist rotations >30°/s. Putt rotations <90°/s, but indoor lighting + steel furniture + featureless walls all degrade tracking. Cite the research's ARKit drift envelope.
+- Magnetometer-based attitude reference (`xMagneticNorthZVertical`) is corrupted by steel putter shafts and any metal indoors. Switching to `xArbitraryZVertical` removes the absolute reference. Is the resulting baseline stability good enough for ±2°?
+
+B. **Does the Wii Sports analogy hold?**
+- Wii Remote had an IR sensor bar (absolute pointing reference), an accelerometer, AND the user wasn't trying to extract ±2° angular precision — they were estimating buckets.
+- iPhone has no IR sensor bar. ARKit replaces it but only with line-of-sight to visual features. What's the failure rate vs Wii's IR-bar architecture?
+- Wii Golf measured swing tempo + raw direction; PuttingLab claims face angle PLUS distance PLUS confidence. Is the precision claim 3× harder than what Wii actually delivered?
+
+C. **Compare to what professional putting trackers actually use.**
+- SAM PuttLab: ultrasonic positioning + 1000 Hz IMU mounted on a real putter. £3,000. ±0.1° face angle.
+- Phigolf: real putter sensor + Bluetooth to phone. £200. ±2° claimed but published reviews say worse.
+- HackMotion (HACKMOTION wrist sensor): IMU on the wrist, claims ±1° on club face proxy.
+- These all use HARDWARE attached to the user or club. PuttingLab claims phone-only ±2°. What's the assumption that lets it match dedicated hardware?
+
+D. **First-time-user failure mode.**
+- User opens app, points camera at carpet (no features), grips phone in lead hand, makes a stroke. ARKit never reaches `.normal` → no ARKit baseline → compass-only path → magnetometer-corrupted result. The "Aimed ✓" lock never fires because their natural grip tilts the phone 20° from vertical (KI-5). They make 3 strokes, get 3 snap-to-square "Couldn't read" results. Probability of uninstall = ?
+- The deferred KI-1 (pull/push sign convention) — what if it's not just a sign flip but a coordinate frame error that requires re-deriving the whole math?
+
+E. **Thermal + battery reality.**
+- 100 Hz CoreMotion + ARKit world tracking + SwiftUI rendering = how many minutes before iPhone 13 thermal-throttles to 60 Hz? At 60 Hz, integration accuracy degrades. Does the algorithm need a "you're too hot, take a break" UI?
+- 30 min of continuous practice — battery cost?
+
+For each front, end with a "what would change my mind" — specifically: what empirical evidence (which iPhone test, which measurement) would falsify the kill argument. The author cannot proceed without those tests passing.
 
 ### 3. Business killer
 Hunt: does the unit economics work?
