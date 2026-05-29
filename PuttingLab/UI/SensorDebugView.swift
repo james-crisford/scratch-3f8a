@@ -16,11 +16,15 @@ final class SensorDebugViewModel {
     var lastLock: StillnessLock?
     var strokePhase: StrokeDetectorPhase = .idle
     var lastStrokeSampleCount: Int = 0
+    var lastImpactResult: ImpactResult?
+    var lastSnapReason: SnapReason?
+    var coordinatorPhase: PhaseState = .arm
 
     private let motion: MotionStreaming
     private let arkit: ARTracking
     private let stillness: StillnessDetector
     private let stroke: StrokeDetector
+    private let coordinator: SessionCoordinator
     private let onLockHaptic: @MainActor () -> Void
     private var startedAt: TimeInterval?
     private var firstSampleAt: TimeInterval?
@@ -41,6 +45,25 @@ final class SensorDebugViewModel {
         self.stillness = stillness
         self.stroke = stroke
         self.onLockHaptic = onLockHaptic
+        // SessionCoordinator runs in parallel using the same arkit instance so the on-device
+        // view can show real impact results, phase, and snap reasons — not just sensor-debug
+        // numbers. Uses NoopMotion because the view model manages the motion stream itself
+        // and forwards samples to coordinator.handle() in handle(_:).
+        self.coordinator = SessionCoordinator(
+            motion: SensorDebugViewModel.NoopMotion(),
+            arkit: arkit,
+            onLockHaptic: onLockHaptic
+        )
+    }
+
+    fileprivate final class NoopMotion: MotionStreaming, @unchecked Sendable {
+        var isRunning: Bool = false
+        var latestSample: MotionSample?
+        func start() throws -> AsyncStream<MotionSample> {
+            isRunning = true
+            return AsyncStream<MotionSample> { $0.finish() }
+        }
+        func stop() { isRunning = false }
     }
 
     @MainActor
@@ -144,6 +167,13 @@ final class SensorDebugViewModel {
         if let w = window {
             lastStrokeSampleCount = w.samples.count
         }
+
+        // Forward the same sample to the SessionCoordinator so the on-device view shows
+        // the full algorithm output (impact result, snap reason, phase machine).
+        coordinator.handle(sample)
+        lastImpactResult = coordinator.lastImpactResult
+        lastSnapReason = coordinator.lastSnapReason
+        coordinatorPhase = coordinator.phase
     }
 }
 
@@ -209,6 +239,24 @@ struct SensorDebugView: View {
                     Text("\(viewModel.lastStrokeSampleCount) samples")
                         .font(.caption.monospaced())
                         .foregroundStyle(.secondary)
+                }
+            }
+
+            if let r = viewModel.lastImpactResult {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Impact result")
+                        .font(.headline)
+                        .foregroundStyle(.purple)
+                    if r.snappedToSquare {
+                        row("face", value: "Square (snapped)")
+                        if let reason = r.snapReason {
+                            row("reason", value: String(describing: reason))
+                        }
+                    } else {
+                        row("face", value: String(format: "%+.2f°", r.faceAngleDegrees))
+                    }
+                    row("peak vel", value: String(format: "%.2f m/s", r.peakVelocity))
+                    row("confidence", value: String(format: "%.2f", r.confidence))
                 }
             }
 
