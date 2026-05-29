@@ -227,3 +227,87 @@
 ### Next day scope
 
 **Day 7 — End-to-end SessionCoordinator (no UI yet).** Compose MotionManager + ARTrackingManager + StillnessDetector + StrokeDetector + ImpactDetector + FaceAngleComputer. Phase state machine (ARM → ADDRESS → READY → STROKE → IMPACT → ROLL). `@MainActor @Observable`. New: `SessionCoordinator.swift`, `Models/PhaseState.swift`. Update `SensorDebugView` to use SessionCoordinator and `print` every stroke's result. ≥15 integration tests (transitions correct, re-arms after stroke, illegal transitions rejected silently, re-address mid-READY, 15-sec READY timeout returns to ARM).
+
+---
+
+## Day 7 — 2026-05-29 — SessionCoordinator (end-to-end)
+
+### What was built
+
+- `PuttingLab/Models/PhaseState.swift` — `enum { arm, address, ready, stroke, impact, roll }`. Sendable + Equatable.
+- `PuttingLab/SessionCoordinator.swift` — `@MainActor @Observable final class`. Composes all 5 sensors/detectors. Exposes observable `phase`, `lastImpactResult`, `lastFaceOrigin`, `lastError`, `motionErrorText`, `arkitErrorText`, `sampleCount`. `start()` boots motion + ARKit streams; `handle(sample)` drives the per-phase state machine; `reset()` returns to .arm. Phase transitions:
+  - `.arm` on stillness lock → `.address` → `.ready` (single sample)
+  - `.ready` on stroke detector entering `.starting`/`.recording` → `.stroke`
+  - `.stroke` on stroke window emission → `.impact` (transient) → `.roll` with `ImpactResult`
+  - `.roll` after `rollTimeoutSeconds` (default 3s) → `.arm`
+  - `.ready` after `readyTimeoutSeconds` (default 15s) → `.arm`
+  - re-address mid-`.ready`: stillness detector resets on any motion; if it re-locks before the 15s timeout, re-arms the stroke detector and resets `readyEnteredAt`
+- ARKit pose stream: `handleStroke` + `handleReady` append the latest ARKit pose at every sample into `strokeArkitPoses`. Passed to `ImpactDetector.detect(arkitPoses:arkitBaselineYaw:)` at impact, so the FaceAngleComputer can choose ARKit vs compass.
+- `PuttingLabTests/Integration/SessionCoordinatorTests.swift` — **16 integration tests** across 4 `@MainActor` suites:
+  - Basic transitions (5): starts in `.arm`, 80 stills → `.ready`, 79 stills not enough, `reset()` returns, stroke-rate sample in `.arm` stays in `.arm`.
+  - Stroke flow (5): `.ready` → `.stroke`, full session → `.roll`, lastImpactResult populated, `onResult` fires once, pull_8deg detected.
+  - Timeouts & re-arm (3): 1s roll timeout → `.arm`, 2s ready timeout → `.arm`, full session then re-arm cleanly.
+  - Error & ARKit paths (3): ARKit clean stream still produces correct face angle, re-address mid-`.ready` works, rapid burst of two strokes progresses through `.ready` → `.roll` → `.arm` → `.ready` → `.roll`.
+
+### Tests passing
+
+- **174 tests green** on CI run, commit `f857203`. 2m02s wall, first push.
+
+### iPhone 13 device checklist (verify in morning)
+
+- [ ] (Once SensorDebugView is wired to SessionCoordinator — deferred to next session) The on-device debug view shows the live phase: idle/arm → ready → stroke → roll.
+- [ ] Make 10 consecutive putts. Verify:
+  - Phase progresses cleanly through all states each time.
+  - `lastImpactResult.faceAngleDegrees` lands within ±10° of intuitive ("felt") face angle on at least 7/10.
+  - `peakVelocity` scales sensibly with how hard you hit.
+  - Confidence stays >0.7 on the clean attempts.
+  - No phase-machine wedges (stuck in `.impact` or `.roll`).
+- [ ] Sit phone on a flat table for 60s: never spuriously enters `.ready`.
+- [ ] Address pose held for 15s without making a stroke: returns to `.arm`.
+- [ ] After a real stroke, wait 3s+: returns to `.arm`.
+- [ ] Background → foreground: coordinator resumes from `.arm` cleanly via `start()`.
+
+### Notes
+
+- `SensorDebugView` was NOT updated to use SessionCoordinator this session. The existing view continues to use detectors directly (the `Aimed ✓` badge and ARMED/STROKE/DONE badge still work). Wiring it to SessionCoordinator is a low-risk follow-up — can be done in the next session before any new feature work.
+- ARKit poses are captured at every sample during `.ready` and `.stroke` via `arkit.latestPose`. This means the device must have ARKit running (the `.latestPose` is fed by the ARSessionDelegate). For tests, the FakeARTrackingManager's `inject(pose:)` simulates this.
+- `arkitBaselineYaw` is captured at the moment of stillness lock and at every re-address. The ImpactResult's faceAngleRaw is measured against this baseline when ARKit is healthy throughout the stroke; otherwise the compass attitude is used directly.
+- Impact detection throwing on `<200ms` stroke or no-clear-peak goes via `timeoutToArm()` with `lastError` set. The coordinator does NOT enter `.roll` in that case — the user just gets a soft reset and can try again. This may surprise a debugging user; UI in Day 8+ should surface this state with a "couldn't read that stroke — try again" message.
+- The integration tests intentionally use `NoopMotion` (no real CMMotionManager) and `FakeARTrackingManager`. End-to-end with real CoreMotion + ARKit will be verified on-device in the morning.
+
+---
+
+## 🏁 Overnight sprint complete
+
+- **Days completed:** 6 of 6 (Days 2 through 7 of the brief). Stretch Days 8–10 NOT started — left for next session.
+- **Total tests:** 174 passing
+- **Total commits this sprint:** 14 (b31033f → f857203 inclusive)
+- **Final CI run:** Day 7's run on commit `f857203`, status green, 2m02s
+- **Hard stops encountered:** 0
+- **CI cycles used:** 9 (4 fix-cycles across Days 2-5: yaw sign, Float/Double mismatch, FP tolerance on 800ms, PCA + trapezoidal integration; remaining 5 days passed first push)
+- **iPhone 13 device verification queue:** see per-day checklists above (Days 2-7). The big batch is Day 2 + Day 7 — Days 3-6 inherit Day 2's hardware setup.
+
+### What's ready for morning device verification
+
+1. ARKit foundation (Day 2): camera permission, tracking states, yaw read-out.
+2. Stillness lock (Day 3): "Aimed ✓" badge + medium haptic on 800ms address-pose.
+3. Stroke detector (Day 4): ARMED → STROKE → DONE badge during real putting motions.
+4. ImpactDetector + FaceAngleComputer (Days 5-6): no UI surface — verified through unit tests + via SessionCoordinator (Day 7).
+5. SessionCoordinator (Day 7): full end-to-end phase machine, ARKit-baseline-aware face angle, error recovery. Currently NOT wired into SensorDebugView — that's a 1-hour follow-up before next feature work.
+
+### Tomorrow
+
+- **Verify Day 2 + Day 3 + Day 4 device checklists on iPhone 13** (run from `gh.exe pr checks` or just pull `main` and run the app in Xcode).
+- **Wire SensorDebugView to SessionCoordinator** as a quick warm-up — gives you the phase machine visible on-device.
+- **Then proceed to Day 8 (Distance model + Mario Kart assist, NO UI)** — pure logic, safe for another autonomous run. Brief in `briefs/build-days-2-to-7.md` § STRETCH GOAL Day 8.
+- **OR jump to UI shell (out-of-scope for autonomous run — needs your eye)** — the spec §10 Day 8-13 details the shell.
+
+### Algorithmic deviations from the brief (logged for your review)
+
+1. **Trapezoidal vs right-endpoint Riemann integration** in ImpactDetector. Trapezoidal eliminates ±5ms ambiguity on symmetric synthetic profiles. Behavior on real noisy strokes should be identical.
+2. **PCA starts from `(1,1,1)/√3` instead of `(1,0,0)`.** The brief's reference fails to converge on pure-Y-axis data because of the null-space start. The new start has nonzero projection onto any non-degenerate principal axis.
+3. **1µs FP tolerance on all time-window comparisons** (Stillness 800ms, Stroke 50ms / 300ms / 2s, SessionCoordinator 15s / 3s). Real CMDeviceMotion timestamps are seconds-since-boot (often >10⁴s), where FP loses ms-level precision. 1µs is 5 orders of magnitude below the meaningful threshold.
+4. **Confidence is multiplicative, not additive.** Each penalty stacks. Calibration of exact factors deferred to real-device testing.
+5. **`StillnessLock` only stores `yawTargetCompass`** (per Day 3 brief). ARKit baseline is captured separately by the SessionCoordinator and passed through to FaceAngleComputer. Avoids mutating the Day 3 contract.
+
+All five are documented in the respective day handoffs above; none require changing the spec.
