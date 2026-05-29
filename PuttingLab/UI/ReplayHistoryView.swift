@@ -24,10 +24,14 @@ struct ReplayHistoryView: View {
                     }
                     ToolbarItem(placement: .primaryAction) {
                         Menu {
-                            Button("Refresh", systemImage: "arrow.clockwise") { reload() }
-                            Button("Clear all", systemImage: "trash", role: .destructive) {
+                            Button { reload() } label: {
+                                Label("Refresh", systemImage: "arrow.clockwise")
+                            }
+                            Button(role: .destructive) {
                                 try? store.clear()
                                 reload()
+                            } label: {
+                                Label("Clear all", systemImage: "trash")
                             }
                         } label: {
                             Image(systemName: "ellipsis.circle")
