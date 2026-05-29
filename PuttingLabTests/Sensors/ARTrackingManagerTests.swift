@@ -45,7 +45,7 @@ struct ARTrackingYawMathTests {
     @Test("yaw output bounded to (-π, π]")
     func yawBounded() {
         for deg in stride(from: -179.0, through: 179.0, by: 17.0) {
-            let t = yawTransform(radians: deg * .pi / 180.0)
+            let t = yawTransform(radians: Float(deg * .pi / 180.0))
             let y = ARTrackingManager.yaw(from: t)!
             #expect(y > -.pi - 1e-5 && y <= .pi + 1e-5)
         }
