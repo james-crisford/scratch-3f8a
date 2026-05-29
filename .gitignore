@@ -1,0 +1,38 @@
+# Xcode
+build/
+DerivedData/
+*.xcuserstate
+*.xcuserdatad/
+xcuserdata/
+xcshareddata/
+*.xcworkspace/contents.xcworkspacedata.bak
+*.moved-aside
+
+# Swift Package Manager
+.build/
+Packages/
+*.xcodeproj/project.xcworkspace/xcuserdata/
+*.xcodeproj/xcuserdata/
+
+# CocoaPods (not used, defensive)
+Pods/
+
+# macOS
+.DS_Store
+*.swp
+
+# Test results
+TestResults.xcresult/
+*.xccovreport
+*.xccovarchive
+build.log
+test.log
+
+# IDE
+.vscode/
+.idea/
+
+# Credentials / secrets
+*.p12
+*.mobileprovision
+ExportOptions/*-private.plist
