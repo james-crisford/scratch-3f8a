@@ -190,3 +190,69 @@ Cycle 4 will attempt the AsyncStream refactor. If budget runs low, Cycle 3 state
 Cycle 4 successfully landed the single refactor that the auditors flagged as closing the largest number of latent bugs. The motion pipeline is now ordered, cancellation-safe, and `@unchecked Sendable` no longer hides actual concurrency issues (it's now a single-producer FIFO under a lock guard).
 
 Remaining work is all device-verification or UI design — see `docs/break-fix-break-final.md` for the TestFlight readiness summary.
+
+---
+
+## Cycle 5 — 2026-05-29 (FINAL)
+
+### Source of findings
+- 5 fresh adversarial auditors (AsyncStream post-C4 review, full algorithm sweep, test quality follow-up, untested-corners hunt, TestFlight readiness)
+- ~50 findings returned across the 5 auditors. Triaged to critical and TestFlight-blocking only.
+
+### Findings addressed (9 critical fixes)
+
+| # | Bug | File | Fix |
+|---|---|---|---|
+| C5-1 | Spec §5.2 condition 4 violation: peak speed <0.3 m/s only multiplied confidence instead of snapping. Violates Wii Sports rule #1 ("err square when uncertain") — a confident "0.2 m/s tap" stroke was passing through. | `Physics/ImpactDetector.swift` | Replaced the confidence multiplier with a snap-to-square return using `SnapReason.peakSpeedTooLow`. Existing test `lowPeakConfidence` rewritten as `lowPeakSnaps`. |
+| C5-2 | AsyncStream `.bufferingNewest(16)` drops OLDEST samples on consumer stall — but the 800ms stillness window needs CONTIGUOUS samples and the START of the window is the oldest. Thermal throttle or ARKit cold-start could break lock detection. | `Sensors/MotionManager.swift` | Switched to `.unbounded`. At 100Hz × 80 bytes = trivial memory cost even for multi-second stalls. |
+| C5-3 | `SensorDebugView.start()` and `SessionCoordinator.start()` could be re-invoked (SwiftUI `.task` modifier re-runs on view re-appearance) without cancelling the existing consumer task → task leak and duplicate handlers. | `UI/SensorDebugView.swift`, `SessionCoordinator.swift` | Both `start()` methods now cancel any existing consumer task before spawning a new one. |
+| C5-4 | `FaceAngleComputer.arkitYawAt` would pick placeholder `.notAvailable` poses (created by `captureArkitPose` when `latestPose` was nil) as the closest pose to impact time, injecting a yaw of 0 into the result. | `Physics/FaceAngleComputer.swift` | Added `where p.trackingState.isNormal` filter. |
+| C5-5 | `StatsAggregator` returned `closestPin=0` for all-snapped sessions, which the UI would render as "pin-perfect" — better than any real stroke. | `Storage/StatsAggregator.swift` | All Optional fields on `SessionStats`. Nil means "no data". UI renders "—". |
+| C5-6 | `StrokeHistoryStore.append()` was `load → mutate → save` with no atomicity guard. Concurrent appends from two contexts would lose a record. `@unchecked Sendable` was a lie. | `Storage/StrokeHistoryStore.swift` | Added internal NSLock. All public methods now wrap an atomic locked-region. |
+| C5-7 | `Fixtures/Generator.swift:59` still used `ImpactDetector.wrapAngle` to compute the expected truth value (flagged by C1 + C3 + C5 audits). | `Tests/Fixtures/Generator.swift` | Replaced with independent inline wrap math. A wrapAngle regression would now be caught by face-angle assertions. |
+| C5-8 | `CalibrationProfile` decode used `try c.decode` (not `decodeIfPresent`) on every field. A v0.1 profile in storage with a renamed/missing field would throw on the first launch of v0.2 → app crashes the user out of calibration. | `Storage/ProfileStore.swift` | `load()` catches `DecodingError` and returns nil. Upgrade path = "needs recalibration", not crash. |
+| C5-9 | Cycle 4 audit flagged `meanTempoFromVariedDurations` test as still partially tautological (700 was both the mean AND a fixture value). | `Tests/Calibration/CalibrationTests.swift` | Changed durations to [350, 500, 720, 850, 1100] (mean 704 — not in set). A "return median" or "return middle element" bug would now fail. |
+
+### TestFlight prep (NEW)
+
+| # | Item | File |
+|---|---|---|
+| T1 | `ITSAppUsesNonExemptEncryption=false` in Info.plist → avoids per-upload export-compliance prompt | `Info.plist` |
+| T2 | `PrivacyInfo.xcprivacy` skeleton with no tracking + UserDefaults usage declaration → required since May 2024 | `PuttingLab/Resources/PrivacyInfo.xcprivacy` |
+| T3 | TestFlight handoff doc with showstopper checklist for the Mac side (AppIcon, code signing, archive + upload) | `docs/testflight-handoff.md` |
+
+### Tests modified / added
+
+- `lowPeakSnaps` (replaces `lowPeakConfidence`) — verifies snap on <0.3 m/s
+- `emptyStats` updated for Optional fields
+- `allSnappedSessionNilStats` — new test for the C5-5 fix
+- Other Stats tests updated to unwrap Optional
+- `meanTempoFromVariedDurations` toughened against medianbug
+
+### Deferred (in known-issues.md or low-priority)
+
+- TempoComputer module (spec §7) — significant new module, defer to post-TestFlight
+- `confidence < 0.5` global snap (spec §5.2 doesn't actually demand this — keeping confidence multipliers for non-critical penalties)
+- `pcaSignNegatedAccel` still partially tautological — peakValue forced positive by abs. Would need a timestamp-direction check. Defer (low-impact).
+- ARKit-baseline-captured visibility test (C3 carryover)
+- StrokeRecord JSON size validation
+- Date timezone edge cases in streak calculation
+- ARKit session interruption / scenePhase lifecycle handling
+- Lefty handedness
+- All remaining UI shell work
+
+### CI / outcome
+
+- Commit `c29f7fc` — **307 tests green in 15.2s** (1 net new test after replacing `lowPeakConfidence` with `lowPeakSnaps`, adding `allSnappedSessionNilStats`).
+- Build clean. Zero regressions across the 5 fixes.
+
+### Verdict (FINAL)
+
+**24 critical bugs fixed across 5 cycles.** Algorithmic core is now spec-§5.2-compliant on all 4 snap-to-square conditions. AsyncStream pipeline is correctness-safe for the 800ms stillness window. Stats no longer claim "pin-perfect" for snap-only sessions. Persistence is upgrade-safe and concurrency-safe.
+
+Code is **shippable to TestFlight pending the 3 Mac-side showstoppers** documented in `docs/testflight-handoff.md`:
+1. App icon
+2. Code signing setup
+3. Archive + upload from a Mac
+
+Plus 5 device-verification known-issues that need real iPhone 13 data before the next algorithmic round.

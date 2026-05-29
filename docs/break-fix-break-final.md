@@ -2,13 +2,13 @@
 
 ## Summary
 
-**Cycles completed:** 4 (of 5 max)
-**Test count:** 281 → 306 (+25 net regression tests)
-**Critical bugs fixed:** 15 (across 4 cycles)
-**Important bugs deferred:** 15 (in `docs/known-issues.md`)
-**CI cycles:** ~12 (a few forgivable misses on import statements + Equatable signature update)
+**Cycles completed:** 5 of 5
+**Test count:** 281 → 307 (+26 net regression tests)
+**Critical bugs fixed:** 24 (across 5 cycles)
+**Important bugs deferred:** ~15 (in `docs/known-issues.md`)
+**CI cycles:** ~14
 **Hard stops:** 0
-**Final commit:** `62d91e7` (Cycle 4 AsyncStream refactor) — CI green, 306 tests in 13.1s
+**Final commit:** `c29f7fc` (Cycle 5 — peakSpeed snap + AsyncStream policy fix + 7 other algo + TestFlight prep) — CI green, 307 tests in 15.2s
 
 ## Critical fixes by cycle
 
