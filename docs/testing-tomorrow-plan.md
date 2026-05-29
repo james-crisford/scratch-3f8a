@@ -14,11 +14,17 @@ flowing back from your iPhone 13 for me to analyse in the next session."
 | **A** | 5 min | Sanity-check the build (CI screenshot + run tests) |
 | **B** | 15 min | Wire 8 GitHub secrets, push to TestFlight |
 | **C** | 10 min | Apple TestFlight processing (you wait) |
-| **D** | 30-45 min | 5-stroke calibration + 20-stroke test session on iPhone 13 |
+| **D** | 75-90 min (2 blocks + break) | 5-stroke calibration + 70-stroke structured test session on iPhone 13 |
 | **E** | 5 min | Export every stroke JSON to Google Drive |
 | **F** | next session | I read the JSONs from Drive, analyse, report |
 
-**Total active time:** ~70 minutes. Plus 10 minutes of waiting for Apple.
+**Total active time:** ~2 hours. Plus 10 minutes of waiting for Apple.
+
+**Stroke count rationale** (bumped from 25 → 75): each Known Issue needs
+roughly 10 paired observations to verify with confidence — single 1-in-5
+misses are noise. The structured 70-test-stroke design gives us:
+KI-1 sign convention (20 strokes), KI-4 magnetometer (10 paired), KI-5
+stillness (10 paired), KI-6 calibration (35 clean across two blocks).
 
 ---
 
@@ -113,10 +119,18 @@ If iOS says "Untrusted Developer" → Settings → General → VPN & Device Mana
 
 ---
 
-## D. The 30-45 minute test session (the actual work)
+## D. The 75-90 minute test session (the actual work)
 
-Below is the exact script. Have me / Claude on a laptop next to you so you
-can copy-paste questions if something behaves weirdly.
+**Total: 75 strokes** (5 calibration + 70 test). Structured so each Known Issue
+gets enough reps that one misclassified stroke is noise, not signal.
+
+Split it ~50/25 across two 35-min blocks with a 10-min break (water, stretch,
+let the phone cool). Putting 75 times in one go in front of a screen WILL
+fatigue your stroke — and stroke variance from fatigue is noise we don't
+want polluting the diagnostic data.
+
+Have Claude on a laptop next to you so you can paste questions if anything
+behaves weirdly.
 
 ### D.1 — Calibration (5 strokes, ~5 min)
 
@@ -132,47 +146,78 @@ can copy-paste questions if something behaves weirdly.
 5. After stroke 5: profile saves to UserDefaults
 
 **What to watch for:**
-- Does "Aim ✓" badge appear within 1-2 sec of holding still? (KI-5 verification)
+- Does "Aim ✓" badge appear within 1-2 sec of holding still? (KI-5)
 - If it never appears: you've found KI-5 (stillness tolerance too tight)
-- If it appears too easily (even when moving): tolerance too loose, log it
+- If it appears too easily (even when moving): tolerance too loose
 
-### D.2 — 20 test strokes (~20 min)
+---
 
-Do 20 strokes in 4 batches of 5:
+### D.2 — Block 1: baseline + sign convention (40 strokes, ~35 min)
 
-**Batch 1 — clean strokes (5 strokes):**
-- Stand still, hold still, swing smoothly
-- Expected: every result shows a face angle + peak velocity, no "Square" snap
-- **If every stroke snaps to Square**: KI-6 brittleness, the model isn't trusting
-  your calibrated profile
+**Batch A — natural variance baseline (15 strokes):**
+- Stand still, hold still, swing smoothly, NO deliberate face manipulation
+- Goal: characterise your natural stroke-to-stroke variance
+- Expected: face angle scattered around 0° within ±~3°
+- **If >50% snap to "Square"**: KI-6 verified (calibration brittleness — trust your profile less)
+- **If mean face angle drifts >2° from zero across the 15**: calibration profile may be biased
 
-**Batch 2 — pull strokes (5 strokes):**
-- Deliberately close the face on impact (rotate phone slightly left at peak)
-- Expected: result panel shows "Pull" / negative face angle
-- **If sign is flipped (shows "Push" when you pulled)**: KI-1 verified bug
-- **If it always snaps to Square**: confidence too tight
+**Batch B — deliberate pull strokes (10 strokes):**
+- Deliberately close the face at impact (rotate phone slightly left at peak)
+- Make the manipulation OBVIOUS — at least 5° of rotation
+- Expected: result shows "Pull" / negative face angle, ≥8 of 10 strokes
+- **If sign is flipped (shows "Push" when you pulled)**: KI-1 verified bug → I fix the convention
+- **If ≥4 snap to Square**: confidence threshold too tight → I relax it
 
-**Batch 3 — push strokes (5 strokes):**
-- Deliberately open the face on impact (rotate slightly right)
-- Expected: "Push" / positive face angle
-- Cross-check with Batch 2 — sign should be opposite
+**Batch C — deliberate push strokes (10 strokes):**
+- Deliberately open the face at impact (rotate slightly right)
+- Same magnitude as Batch B
+- Expected: "Push" / positive face angle, ≥8 of 10 strokes
+- Sign must be OPPOSITE of Batch B — that's the cross-check
 
-**Batch 4 — edge cases (5 strokes):**
-- 1 stroke standing next to a metal radiator/steel filing cabinet
-  → tests KI-4 (compass corruption by steel)
-- 1 stroke moving slightly while "still" (subtle weight shift)
-  → tests KI-5 again
-- 1 stroke that is genuinely terrible (huge wobble, slow)
-  → expected: snaps to Square with low confidence
-- 2 strokes after the app has been backgrounded for 30 sec then reopened
-  → tests scenePhase handler
+**Batch D — clean strokes immediately after (5 strokes):**
+- Same as Batch A — purely to check whether 35 prior strokes have biased the calibration profile
+- If face angle wanders from Batch A baseline by >3°: profile is drifting
 
-### D.3 — Stress test (5 min)
+**☕ BREAK — 10 minutes.** Put the phone down. Drink water. Don't think about it.
 
-- Try the **History** button (top-right menu in SensorDebugView)
-- You should see all 25 strokes listed (5 calibration + 20 test)
-- Tap **share** icon on a few → AirDrop is not relevant for your case;
-  pick **"Save to Files"** → save to a folder you'll find later
+---
+
+### D.3 — Block 2: edge cases + sensor robustness (30 strokes, ~30 min)
+
+**Batch E — magnetometer corruption test (10 strokes, PAIRED):**
+- 5 strokes standing next to a metal radiator, steel filing cabinet, or any
+  large iron/steel object (within ~30 cm)
+- 5 strokes in the SAME room, same posture, but 2+ metres from any steel
+- Goal: see if the yaw baseline drifts more in the steel-adjacent strokes
+- **If steel-adjacent yaw drifts >5° more than control**: KI-4 verified → I add magnetometer rejection logic
+
+**Batch F — stillness tolerance test (10 strokes, PAIRED):**
+- 5 strokes with deliberately RIGID body posture (military-stiff before each)
+- 5 strokes with natural body sway / subtle weight shift while "holding still"
+- Goal: does the stillness detector reject the natural-sway strokes?
+- **If natural-sway strokes refuse to auto-lock**: KI-5 verified → I relax the 25° tolerance
+
+**Batch G — calibration robustness (5 strokes):**
+- 1 stroke immediately after backgrounding the app for 30 sec
+- 1 stroke immediately after backgrounding for 2 min (ARKit will lose tracking)
+- 1 stroke with the phone tilted 20° forward at address (not vertical)
+- 1 deliberately terrible stroke (huge wobble, slow, ugly) — expect Square snap
+- 1 normal stroke to confirm everything's fine
+
+**Batch H — final cool-down clean (5 strokes):**
+- Pure baseline strokes again — these are the "you're tired now" reference
+- Compare face-angle scatter to Batch A
+- Wider scatter = real-world fatigue noise → informs natural variance bounds
+
+---
+
+### D.4 — In-app check (~3 min)
+
+- Open the **History** view (top-right menu in SensorDebugView)
+- You should see exactly **75 strokes** listed (5 calibration + 70 test)
+- If the count is off, note which batches went missing (any stroke that crashed
+  the app won't have a JSON — that's diagnostic too)
+- Tap a few strokes to inspect the result panel (face angle, peak velocity, confidence)
 
 ---
 
@@ -208,18 +253,27 @@ analysis report covering:
 
 ## F. What I'll do with the data (next session)
 
-When you return with the JSONs in Drive, I will:
+When you return with 75 JSONs in Drive, I will:
 
-1. Read the JSONs into memory
-2. Build a per-stroke diagnostic table (timestamp, expected vs measured, confidence, snap reason)
-3. Cross-check each KI assumption against the real-world numbers
-4. Write `docs/device-verification-day-1.md` with the verdict for each KI
-5. Patch any algorithm issues we find as a new audit cycle
-6. Push, rerun CI, ship a second TestFlight build with the fixes for re-test
+1. Read every JSON, batch-tag by filename + creation time matching the plan blocks
+2. Build a per-batch diagnostic table:
+   - Batch A: face-angle scatter (mean, std, % snapped) → calibration health
+   - Batch B vs C: pull/push sign cross-check → KI-1 verdict (>= 8/10 each direction = green)
+   - Batch D vs A: did the profile drift across 35 strokes?
+   - Batch E paired: yaw drift steel vs control → KI-4 verdict
+   - Batch F paired: stillness rejection rate rigid vs natural-sway → KI-5 verdict
+   - Batch G: edge-case behaviour (backgrounding, tilt, terrible stroke)
+   - Batch H vs A: fatigue scatter difference → natural variance bounds
+3. KI-2 + KI-6: pure data analysis on Batches A/D/H (no special batch needed)
+4. Write `docs/device-verification-day-1.md` with a verdict for each KI: VERIFIED / REFUTED / INCONCLUSIVE
+5. Patch the algorithm issues we find as a new audit cycle (cycle 6)
+6. Push, rerun CI, ship a second TestFlight build with the fixes
+7. Plan a smaller re-test session (~25 strokes targeted at whatever changed)
 
-**Expected outcome:** at least 2-3 of the 5 known-issue assumptions will turn
-out to need adjusting (this is normal — the audit cycles found 24 bugs without
-real sensor data; with real sensor data we'll find more).
+**Expected outcome:** with 75 strokes I should be able to give VERIFIED or
+REFUTED for 5 of the 6 KIs (KI-2 might stay INCONCLUSIVE depending on noise
+profile). The audit cycles found 24 bugs WITHOUT real sensor data; with real
+sensor data we'll find more — that's the point of doing this.
 
 ---
 
