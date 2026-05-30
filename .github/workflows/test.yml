@@ -43,7 +43,12 @@ concurrency:
 jobs:
   test:
     name: Build and test (iOS Simulator)
-    runs-on: macos-26
+    # macos-26 runners started failing in 2-3s on 2026-05-30 ~19:30 UTC
+    # (Build 10 onwards) — transient capacity issue. Falling back to
+    # macos-latest for the test job; the release job (below) stays on
+    # macos-26 because Apple validation needs Xcode 26 SDK for upload.
+    # Revert when capacity recovers.
+    runs-on: macos-latest
     timeout-minutes: 15
     # Cost-control: skip the test job when manually triggered with skip_tests=true.
     # Use ONLY when you know the tests already pass on this exact commit (e.g. you
