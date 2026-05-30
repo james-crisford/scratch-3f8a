@@ -141,12 +141,11 @@ struct PracticeSessionView: View {
 
 private struct SetupPhaseView: View {
     let viewModel: PracticeSessionViewModel
-    @State private var firstFewStrokesOfBatch: Bool = true
 
     var body: some View {
         let batch = viewModel.session.currentBatch
-        VStack(alignment: .leading, spacing: 18) {
-            // Top progress
+        VStack(spacing: 0) {
+            // Top progress is always visible
             ProgressHeader(
                 totalDone: viewModel.session.totalStrokesCompleted,
                 totalTarget: viewModel.session.totalTargetStrokes,
@@ -154,61 +153,82 @@ private struct SetupPhaseView: View {
                 inBatchDone: viewModel.session.strokesInCurrentBatch,
                 inBatchTarget: batch.targetCount
             )
+            .padding(.horizontal, 20)
+            .padding(.top, 16)
+            .padding(.bottom, 12)
 
-            // Stroke type
-            VStack(alignment: .leading, spacing: 4) {
-                Text(batch.strokeTypeLabel.uppercased())
-                    .font(.system(size: 28, weight: .heavy, design: .rounded))
-                    .foregroundStyle(.primary)
-                    .lineLimit(2)
-                Text(batch.intentSummary)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            }
-
-            // Phone-hold visual: shown for first 2 strokes of every new batch.
-            if viewModel.session.strokesInCurrentBatch < 2 {
-                PhoneHoldVisual()
-            }
-
-            // Instructions
-            VStack(alignment: .leading, spacing: 8) {
-                ForEach(Array(batch.instructions.enumerated()), id: \.offset) { _, line in
-                    HStack(alignment: .top, spacing: 8) {
-                        Image(systemName: "circle.fill")
-                            .font(.system(size: 5))
-                            .foregroundStyle(.tertiary)
-                            .padding(.top, 8)
-                        Text(line)
-                            .font(.callout)
+            // Scroll the middle: stroke type + visual + instructions + errors
+            // so long instruction lists never get clipped on any iPhone size.
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    // Stroke type
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(batch.strokeTypeLabel.uppercased())
+                            .font(.system(size: 24, weight: .heavy, design: .rounded))
                             .foregroundStyle(.primary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Text(batch.intentSummary)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
+
+                    // Phone-hold visual: shown for first 2 strokes of every new batch.
+                    if viewModel.session.strokesInCurrentBatch < 2 {
+                        PhoneHoldVisual()
+                    }
+
+                    // Instructions
+                    VStack(alignment: .leading, spacing: 10) {
+                        ForEach(Array(batch.instructions.enumerated()), id: \.offset) { _, line in
+                            HStack(alignment: .top, spacing: 8) {
+                                Image(systemName: "circle.fill")
+                                    .font(.system(size: 5))
+                                    .foregroundStyle(.tertiary)
+                                    .padding(.top, 8)
+                                Text(line)
+                                    .font(.callout)
+                                    .foregroundStyle(.primary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
+                    }
+
+                    // Error toast
+                    if let err = viewModel.lastError {
+                        HStack(spacing: 6) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .foregroundStyle(.orange)
+                            Text(err)
+                                .font(.footnote.weight(.medium))
+                                .foregroundStyle(.primary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        .padding(10)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 10))
+                    }
+
+                    // Sensor warnings (small, at the bottom of scroll content)
+                    if let motionErr = viewModel.motionErrorText {
+                        Text("Motion sensor: \(motionErr)")
+                            .font(.caption).foregroundStyle(.red)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    if let arkitErr = viewModel.arkitErrorText {
+                        Text("ARKit: \(arkitErr)")
+                            .font(.caption).foregroundStyle(.orange)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+
+                    // Bottom padding so last instruction line isn't flush
+                    // against the bottom prompt.
+                    Color.clear.frame(height: 8)
                 }
+                .padding(.horizontal, 20)
             }
 
-            // Error toast (e.g. "too quick — try again")
-            if let err = viewModel.lastError {
-                HStack(spacing: 6) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundStyle(.orange)
-                    Text(err)
-                        .font(.footnote.weight(.medium))
-                        .foregroundStyle(.primary)
-                }
-                .padding(10)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 10))
-            }
-
-            // Sensor warning
-            if let motionErr = viewModel.motionErrorText {
-                Text("Motion sensor error: \(motionErr)")
-                    .font(.caption).foregroundStyle(.red)
-            }
-
-            Spacer()
-
-            // Bottom: prompt + arrow
+            // Bottom prompt — always visible, never scrolls off
             VStack(spacing: 6) {
                 Image(systemName: "hand.tap.fill")
                     .font(.system(size: 28))
@@ -219,12 +239,13 @@ private struct SetupPhaseView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             .frame(maxWidth: .infinity)
-            .padding(.bottom, 24)
+            .padding(.vertical, 16)
+            .padding(.horizontal, 20)
+            .background(Color(.systemBackground))
         }
-        .padding(.horizontal, 20)
-        .padding(.top, 16)
     }
 }
 

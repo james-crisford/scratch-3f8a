@@ -77,28 +77,63 @@ final class PracticeSessionViewModel {
 
     /// Starts motion + ARKit and spins the sample-consumer task. Also loads
     /// any persisted session progress so the user resumes mid-session.
+    ///
+    /// CRITICAL: this method is idempotent. Calling it twice in quick succession
+    /// (which happens on first launch when both .onAppear AND scenePhase .active
+    /// fire) used to cancel the consumer task on the second call and then fail
+    /// to recreate it (because motion.start() throws alreadyRunning). Result:
+    /// motion was streaming but nobody was listening, so strokes were silently
+    /// empty (peakSpeedTooLow with 0.0 velocity). Now we guard on isRunning.
     func startSession() {
         session.loadIfAvailable()
         if session.isAtBreak {
             phase = .breakPoint
         } else if session.isSessionComplete {
             phase = .sessionComplete
-        } else {
+        } else if phase != .recording && phase != .showing && phase != .batchTransition {
             phase = .setup
         }
+
+        // Guard against double-start. If motion is already running, the
+        // consumer task is alive — don't disturb it.
+        if motion.isRunning && streamTask != nil {
+            return
+        }
+
         streamTask?.cancel()
+        streamTask = nil
         do {
             let stream = try motion.start()
+            motionErrorText = nil
             streamTask = Task { @MainActor [weak self] in
                 for await sample in stream {
                     self?.handle(sample)
                 }
+            }
+        } catch MotionManagerError.alreadyRunning {
+            // Motion is running but our consumer was lost. We can't
+            // recover the stream reference without restarting motion.
+            // Stop + start to reattach.
+            motion.stop()
+            do {
+                let stream = try motion.start()
+                motionErrorText = nil
+                streamTask = Task { @MainActor [weak self] in
+                    for await sample in stream {
+                        self?.handle(sample)
+                    }
+                }
+            } catch {
+                motionErrorText = "Motion restart failed: \(error)"
             }
         } catch {
             motionErrorText = String(describing: error)
         }
         do {
             try arkit.start()
+            arkitErrorText = nil
+        } catch ARTrackingError.alreadyRunning {
+            // ARKit is already running — that's fine, leave it.
         } catch {
             arkitErrorText = String(describing: error)
         }
