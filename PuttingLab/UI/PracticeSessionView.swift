@@ -44,8 +44,13 @@ struct PracticeSessionView: View {
             switch newPhase {
             case .active:
                 viewModel.startSession()
+                // Defensive: if the touch gesture was interrupted by app
+                // backgrounding, onEnded may not have fired and isPressing
+                // would remain true, blocking the next touchDown. Reset.
+                isPressing = false
             case .background:
                 viewModel.stopSession()
+                isPressing = false
             default:
                 break
             }

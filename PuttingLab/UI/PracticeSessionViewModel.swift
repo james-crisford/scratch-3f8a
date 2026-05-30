@@ -150,6 +150,19 @@ final class PracticeSessionViewModel {
     }
 
     func stopSession() {
+        // Safety belt: if we were in mid-stroke recording when the user
+        // backgrounds the app (e.g., incoming call), discard the partial
+        // buffer + return to .setup. Otherwise the user comes back to a
+        // stuck red RECORDING screen with no thumb pressed and no exit.
+        if phase == .recording {
+            samplesDuringRecording.removeAll(keepingCapacity: false)
+            posesDuringRecording.removeAll(keepingCapacity: false)
+            samplesInCurrentRecording = 0
+            recordingLock = nil
+            recordingArkitBaseline = nil
+            lastError = "Stroke discarded — phone was backgrounded mid-recording. Try again."
+            phase = .setup
+        }
         motion.stop()
         arkit.stop()
         streamTask?.cancel()
