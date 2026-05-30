@@ -57,6 +57,16 @@ final class PracticeSessionViewModel {
     /// safety margin against the BUNDLE_LOADER short-stroke failure mode.
     static let minimumSamplesForStroke = 5
 
+    /// Hard cap on samples captured during a single recording — prevents
+    /// runaway memory growth if the user holds the screen too long.
+    /// 1500 samples at 100Hz = 15 seconds, which is far longer than any
+    /// reasonable putting stroke + follow-through.
+    static let maximumSamplesPerRecording = 1500
+
+    /// Counter of save failures during the session, exposed for end-of-session
+    /// reporting. Incremented only when the detached save Task throws.
+    var replaySaveFailureCount: Int = 0
+
     init(
         session: TestSessionState = TestSessionState(),
         motion: MotionStreaming = MotionManager(),
@@ -150,9 +160,15 @@ final class PracticeSessionViewModel {
     /// reference; append to the recording buffer only when phase == .recording.
     /// Internal (not private) so tests can inject samples directly without
     /// constructing an AsyncStream.
+    ///
+    /// Silently caps the buffer at `maximumSamplesPerRecording` (15 s at 100Hz)
+    /// to prevent runaway memory if the user holds the screen too long.
     func handle(_ sample: MotionSample) {
         latestSample = sample
         if phase == .recording {
+            guard samplesDuringRecording.count < Self.maximumSamplesPerRecording else {
+                return
+            }
             samplesDuringRecording.append(sample)
             if let pose = arkit.latestPose {
                 posesDuringRecording.append(pose)
@@ -198,8 +214,13 @@ final class PracticeSessionViewModel {
             phase = .setup
             return
         }
+        // Cleanly drain the per-recording buffers + counter regardless of
+        // which path we exit on. samplesDuringRecording / posesDuringRecording
+        // are re-seeded fresh on the next touchDown.
         defer {
             samplesInCurrentRecording = 0
+            samplesDuringRecording.removeAll(keepingCapacity: false)
+            posesDuringRecording.removeAll(keepingCapacity: false)
         }
         guard samplesDuringRecording.count >= Self.minimumSamplesForStroke else {
             lastError = "Too quick — please press, complete the stroke, then release."
@@ -226,8 +247,17 @@ final class PracticeSessionViewModel {
                     deviceModel: SessionCoordinator.deviceModelString(),
                     appVersion: SessionCoordinator.appVersionString()
                 )
-                Task.detached(priority: .utility) {
-                    _ = try? store.save(replay)
+                // Detach to keep the UI smooth. Surface failures via a counter
+                // (replaySaveFailureCount) so the end-of-session screen can
+                // warn the user if any replays did not persist.
+                Task.detached(priority: .utility) { [weak self] in
+                    do {
+                        _ = try store.save(replay)
+                    } catch {
+                        await MainActor.run {
+                            self?.replaySaveFailureCount += 1
+                        }
+                    }
                 }
             }
             phase = .showing

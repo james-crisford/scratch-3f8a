@@ -28,12 +28,14 @@ struct TestBatch: Identifiable, Equatable, Sendable {
             strokeTypeLabel: "Natural putting stroke",
             intentSummary: "Learning your stroke style",
             instructions: [
-                "Pick a consistent TARGET (doorway, wall mark) and stand facing it",
-                "Address pose: hold phone VERTICAL, screen TOWARD YOU — wait for the 'Aimed' badge",
-                "Press + hold the screen at takeaway",
-                "Make your natural putting motion — the phone WILL tilt forward, that is fine",
-                "Release the screen at the end of your follow-through",
-                "Keep the SAME grip + stance between strokes — consistency is everything",
+                "Pick a target to face — a doorway, mark on wall, or imaginary hole",
+                "Read these instructions in your normal phone-reading position",
+                "When ready, get into YOUR natural putting setup — your grip, your stance, your tilt",
+                "Press and hold the screen the MOMENT you start your takeaway",
+                "Keep holding through backswing, forward swing, impact, follow-through",
+                "Release the screen at the END of your follow-through",
+                "Lift phone back to reading position to see the result",
+                "Use the SAME grip and SAME stance for every stroke — consistency > exact aim",
             ],
             targetCount: 5,
             phase: .calibration
@@ -57,9 +59,10 @@ struct TestBatch: Identifiable, Equatable, Sendable {
             strokeTypeLabel: "Deliberate PULL stroke",
             intentSummary: "Sign convention test — verifies KI-1",
             instructions: [
-                "Deliberately CLOSE the face at impact",
-                "Rotate phone slightly LEFT at peak forward velocity",
-                "Make the manipulation OBVIOUS — at least 5° of rotation",
+                "Pick a direction to twist the phone at impact — your choice",
+                "Use the SAME direction for all 15 strokes — that's your 'pull' direction",
+                "Make the twist OBVIOUS at peak forward velocity — at least 5° of rotation",
+                "Twist comes from your wrists at impact, not before",
             ],
             targetCount: 15,
             phase: .block1
@@ -70,9 +73,10 @@ struct TestBatch: Identifiable, Equatable, Sendable {
             strokeTypeLabel: "Deliberate PUSH stroke",
             intentSummary: "Sign convention cross-check — verifies KI-1",
             instructions: [
-                "Deliberately OPEN the face at impact",
-                "Rotate phone slightly RIGHT at peak forward velocity",
+                "Twist the OPPOSITE direction from Batch B at impact",
                 "Same magnitude as Batch B (5°+ rotation)",
+                "Use the SAME OPPOSITE direction for all 15 strokes — that's your 'push' direction",
+                "We don't care which is 'really' pull/push — algorithm just needs OPPOSITE signs",
             ],
             targetCount: 15,
             phase: .block1
@@ -137,7 +141,7 @@ struct TestBatch: Identifiable, Equatable, Sendable {
             instructions: [
                 "Stroke 1: after backgrounding the app 30 sec",
                 "Stroke 2: after backgrounding 2 min (ARKit will lose tracking)",
-                "Stroke 3: with phone tilted 20° forward at address",
+                "Stroke 3: deliberately exaggerate your phone tilt (more forward than usual)",
                 "Stroke 4: deliberately TERRIBLE stroke (huge wobble) — expect Square snap",
                 "Strokes 5-10: normal strokes to confirm everything still works",
             ],

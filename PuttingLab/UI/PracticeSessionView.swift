@@ -475,6 +475,17 @@ private struct CompleteView: View {
                 exportStep(1, "Open the Files app on this iPhone")
                 exportStep(2, "Go to On My iPhone -> PuttingLab -> StrokeReplays")
                 exportStep(3, "Long-press a file -> Select All -> Share -> Save to Drive")
+                if viewModel.replaySaveFailureCount > 0 {
+                    HStack(spacing: 6) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.orange)
+                        Text("\(viewModel.replaySaveFailureCount) replay(s) failed to save and will not be in the folder.")
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .padding(.top, 4)
+                }
             }
             .padding(20)
             .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 14))

@@ -1,80 +1,65 @@
 import SwiftUI
 
-/// SF Symbol-based illustration of how to hold the phone at the address pose.
-/// Shown for the first 2 strokes of each new batch, then hidden.
+/// Reminder card shown for the first 2 strokes of each new batch.
 ///
-/// Renders three labelled arrows around a vertical-orientation iPhone:
-///   - "Screen toward you" — green, exits the front of the device
-///   - "Back of phone toward your target" — orange, exits the back
-///   - "Hold phone vertical" — grey, runs alongside the device
+/// Intentionally describes the TWO-POSE FLOW without prescribing a specific
+/// phone orientation — the user holds the phone in their own natural putting
+/// grip, whatever that is for them. The algorithm calibrates "0° face" from
+/// whatever orientation the phone is in at touch-down.
 struct PhoneHoldVisual: View {
     var body: some View {
-        HStack(spacing: 28) {
-            // Left labels (screen-side)
-            VStack(alignment: .trailing, spacing: 6) {
-                Spacer()
-                Label {
-                    Text("Screen toward you")
-                        .font(.subheadline.weight(.semibold))
-                        .multilineTextAlignment(.trailing)
-                } icon: {
-                    Image(systemName: "arrow.right")
-                        .foregroundStyle(.green)
-                }
-                .labelStyle(.titleAndIcon)
-                Spacer()
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 10) {
+                Image(systemName: "hand.point.up.left.fill")
+                    .font(.title3)
+                    .foregroundStyle(.blue)
+                Text("Two-pose flow")
+                    .font(.subheadline.weight(.bold))
             }
-            .frame(maxWidth: .infinity)
-
-            // Centre: vertical phone
-            ZStack {
-                Image(systemName: "iphone.gen3")
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: 80, height: 160)
-                    .foregroundStyle(.primary)
-                    .accessibilityHidden(true)
-                // Tiny vertical indicator
-                VStack(spacing: 0) {
-                    Image(systemName: "arrow.up")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                    Image(systemName: "arrow.down")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
-                .frame(height: 160)
-                .padding(.trailing, 60)
+            VStack(alignment: .leading, spacing: 8) {
+                poseRow(
+                    icon: "iphone.gen3",
+                    title: "Reading pose",
+                    detail: "Hold the phone however you'd normally look at it."
+                )
+                poseRow(
+                    icon: "figure.golf",
+                    title: "Putting pose",
+                    detail: "Your natural putting grip — however you'd actually hold a putter handle."
+                )
+                poseRow(
+                    icon: "hand.tap.fill",
+                    title: "Press in putting pose",
+                    detail: "The moment you press = your address. Don't change grip after that."
+                )
             }
-            .frame(maxWidth: .infinity)
-
-            // Right labels (back-side)
-            VStack(alignment: .leading, spacing: 6) {
-                Spacer()
-                Label {
-                    Text("Back of phone toward target")
-                        .font(.subheadline.weight(.semibold))
-                        .multilineTextAlignment(.leading)
-                } icon: {
-                    Image(systemName: "arrow.left")
-                        .foregroundStyle(.orange)
-                }
-                .labelStyle(.titleAndIcon)
-                Spacer()
-            }
-            .frame(maxWidth: .infinity)
         }
-        .padding(.vertical, 12)
-        .frame(maxWidth: .infinity)
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .background(
-            RoundedRectangle(cornerRadius: 16)
+            RoundedRectangle(cornerRadius: 14)
                 .fill(.thinMaterial)
         )
         .accessibilityElement(children: .combine)
         .accessibilityLabel(
-            "Hold the phone vertical, screen toward you, back of phone toward your target."
+            "Two-pose flow: hold the phone naturally to read, transition to your putting grip when ready, then press the screen at takeaway."
         )
     }
-}
 
+    private func poseRow(icon: String, title: String, detail: String) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: icon)
+                .font(.title3)
+                .foregroundStyle(.secondary)
+                .frame(width: 28)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.subheadline.weight(.semibold))
+                Text(detail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+}
