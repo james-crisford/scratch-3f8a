@@ -427,6 +427,15 @@ private struct ResultPhaseView: View {
                 Text("HOW DID THIS FEEL?")
                     .font(.caption.weight(.bold))
                     .foregroundStyle(.secondary)
+                let n = viewModel.liveHapticFireCount
+                Text(n == 0
+                    ? "No haptic fired during the stroke — judge from your feel."
+                    : (n == 1
+                        ? "Felt 1 impact (the strong thump in your stroke)."
+                        : "Felt \(n) impacts — judge the LAST one before you released."))
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                    .multilineTextAlignment(.center)
                 HStack(spacing: 10) {
                     judgmentButton(label: "Just right", systemImage: "checkmark.circle.fill",
                                    tint: .green, judgment: .justRight)
