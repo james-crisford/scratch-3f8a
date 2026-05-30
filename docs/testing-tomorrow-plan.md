@@ -14,13 +14,21 @@ flowing back from your iPhone 13 for me to analyse in the next session."
 | **A** | 5 min | Sanity-check the build (CI screenshot + run tests) |
 | **B** | 15 min | Wire 8 GitHub secrets, push to TestFlight |
 | **C** | 10 min | Apple TestFlight processing (you wait) |
-| **D** | 75-90 min (2 blocks + break) | 5-stroke calibration + 70-stroke structured test session on iPhone 13 |
+| **D** | 90-100 min (2 blocks + break) | 5-stroke calibration + 95-stroke structured test session on iPhone 13 — **the app now walks you through every batch and every stroke** via the new PracticeSessionView |
 | **E** | 5 min | Export every stroke JSON to Google Drive |
 | **F** | next session | I read the JSONs from Drive, analyse, report |
 
 **Total active time:** ~2 hours. Plus 10 minutes of waiting for Apple.
 
-**Stroke count rationale** (bumped from 25 → 75): each Known Issue needs
+**Update 2026-05-30 — bumped from 75 → 100** to tighten confidence on every
+KI per James's call. Split (locked in `TestBatch.allBatches`):
+5 cal + 20 A + 15 B + 15 C + 5 D (Block 1 = 60) + break + 10 E + 10 F + 10 G + 10 H (Block 2 = 40).
+The app now contains a guided session view with touch-controlled stroke
+recording — see §D for the touch protocol. The plan below pre-dates that
+view and still describes self-managed batches; the app does the same work,
+just with on-screen guidance.
+
+**Stroke count rationale** (originally bumped from 25 → 75 → 100): each Known Issue needs
 roughly 10 paired observations to verify with confidence — single 1-in-5
 misses are noise. The structured 70-test-stroke design gives us:
 KI-1 sign convention (20 strokes), KI-4 magnetometer (10 paired), KI-5
@@ -119,10 +127,31 @@ If iOS says "Untrusted Developer" → Settings → General → VPN & Device Mana
 
 ---
 
-## D. The 75-90 minute test session (the actual work)
+## D. The 90-100 minute test session (the actual work)
 
-**Total: 75 strokes** (5 calibration + 70 test). Structured so each Known Issue
+**Total: 100 strokes** (5 calibration + 95 test). Structured so each Known Issue
 gets enough reps that one misclassified stroke is noise, not signal.
+
+### Touch protocol (locked in PracticeSessionView)
+
+Every stroke follows the same cycle:
+
+1. **Setup pose** — phone vertical, screen toward you, back of phone toward
+   your chosen target (doorway / wall mark / imaginary hole). App displays
+   the current batch + stroke type ("BATCH B · PULL · 3 of 15").
+2. **Aim** — hold still until the address-pose lock is captured.
+3. **Press + hold the screen** at takeaway. Screen flips RED with "RECORDING".
+4. **Make your stroke** — natural putting motion. Phone will tilt forward
+   through the swing — that's expected. Don't release until follow-through.
+5. **Release** at the END of follow-through. Result panel shows face angle,
+   peak velocity, confidence. Counter ticks +1.
+6. **Tap "DONE — NEXT STROKE"** to advance. App returns to setup pose for
+   the next stroke.
+
+Between batches: app shows "BATCH X COMPLETE — Next: Batch Y" transition.
+Between Block 1 and Block 2: app shows "BREAK TIME — 10 min recommended"
+with an "I'M READY TO RESUME" button.
+At 100 strokes: app shows session-complete screen with export instructions.
 
 Split it ~50/25 across two 35-min blocks with a 10-min break (water, stretch,
 let the phone cool). Putting 75 times in one go in front of a screen WILL
