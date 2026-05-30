@@ -271,28 +271,10 @@ jobs:
           fi
           echo "All 8 secrets present."
 
-      - name: Patch project.yml with team + bundle ID
-        env:
-          TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          BUNDLE_ID: ${{ secrets.APP_BUNDLE_ID }}
+      - name: Generate Xcode project from project.yml
         run: |
-          # Remove CODE_SIGNING_ALLOWED: NO on app target and inject team + bundle id
-          python3 - <<'PY'
-          import os, re
-          path = "project.yml"
-          src = open(path).read()
-          src = src.replace("CODE_SIGNING_ALLOWED: NO", "CODE_SIGNING_ALLOWED: YES")
-          src = src.replace(
-              "PRODUCT_BUNDLE_IDENTIFIER: com.puttinglab.app",
-              f"PRODUCT_BUNDLE_IDENTIFIER: {os.environ['BUNDLE_ID']}"
-          )
-          src = src.replace(
-              'DEVELOPMENT_TEAM: ""',
-              f'DEVELOPMENT_TEAM: {os.environ["TEAM_ID"]}'
-          )
-          open(path, "w").write(src)
-          PY
           xcodegen generate --spec project.yml
+          ls -la PuttingLab.xcodeproj
 
       - name: Install signing certificate
         env:
@@ -320,15 +302,28 @@ jobs:
           echo "Installed profile UUID: $UUID"
 
       - name: Archive
+        env:
+          TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          BUNDLE_ID: ${{ secrets.APP_BUNDLE_ID }}
         run: |
           set -o pipefail
+          # Signing settings are passed via command-line build settings rather
+          # than patching project.yml — cleaner + more robust. Project keeps
+          # CODE_SIGN_STYLE: Automatic + DEVELOPMENT_TEAM: "" as defaults; the
+          # overrides below take effect only for this archive invocation.
           xcodebuild archive \
             -project PuttingLab.xcodeproj \
             -scheme PuttingLab \
             -archivePath build/PuttingLab.xcarchive \
             -destination 'generic/platform=iOS' \
             -configuration Release \
-            -allowProvisioningUpdates \
+            CODE_SIGN_STYLE=Manual \
+            DEVELOPMENT_TEAM="$TEAM_ID" \
+            PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID" \
+            PROVISIONING_PROFILE_SPECIFIER="PuttingLab App Store" \
+            CODE_SIGN_IDENTITY="Apple Distribution" \
+            CODE_SIGNING_REQUIRED=YES \
+            CODE_SIGNING_ALLOWED=YES \
             | tee archive.log
 
       - name: Export IPA
