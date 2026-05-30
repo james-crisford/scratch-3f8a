@@ -141,18 +141,18 @@ final class LiveImpactDetector {
             return false
         }
 
-        // Cool-down rejects rapid double-fires from a single peak with a
-        // sample or two of jitter. We still track armed/disarmed transitions
-        // so the next legitimate peak after the cool-down still fires.
+        // Cool-down: hard suppression for `coolDownSeconds` after a fire.
+        // We do NOT track armed/max state during cool-down — that lets a
+        // stale max-since-arm from the just-fired peak linger, then trigger
+        // a spurious second fire as soon as the cool-down expires (the
+        // failure mode that the realisticPuttingProfileWithWarmUp test
+        // exposed on a slow-decay synthetic stroke). After cool-down ends
+        // we restart cleanly: armed=false, no max — the next genuine peak
+        // re-arms and confirms.
         if sample.timestamp - lastFireTime < coolDownSeconds {
-            if mag >= armThreshold {
-                armed = true
-                if mag > maxMagSinceArmed { maxMagSinceArmed = mag }
-            } else if mag <= disarmThreshold {
-                armed = false
-                maxMagSinceArmed = 0
-                consecutiveBelowMax = 0
-            }
+            armed = false
+            maxMagSinceArmed = 0
+            consecutiveBelowMax = 0
             return false
         }
 
