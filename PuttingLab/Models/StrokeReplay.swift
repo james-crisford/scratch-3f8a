@@ -345,6 +345,13 @@ final class StrokeReplayStore: @unchecked Sendable {
         // on decode — that NaN then propagates into ImpactDetector.detect()
         // and downstream UI formatters which can crash or render garbage.
         try Self.assertAllSamplesFinite(replay.samples)
+        // Same defence for the cached ImpactResult — NaN in peakVelocity /
+        // faceAngleRaw / confidence / timestamp would crash the history-
+        // view formatters or skew offline algorithm replays.
+        if let r = replay.result {
+            try Self.assertResultFinite(r)
+        }
+        try Self.assertLockFinite(replay.lock)
         return replay
     }
 
@@ -385,6 +392,26 @@ final class StrokeReplayStore: @unchecked Sendable {
                     userInfo: [NSLocalizedDescriptionKey: "Non-finite motion data at sample[\(i)]"]
                 )
             }
+        }
+    }
+
+    private static func assertResultFinite(_ r: StrokeReplay.SerializedImpactResult) throws {
+        if !r.timestamp.isFinite || !r.peakVelocity.isFinite ||
+            !r.faceAngleRaw.isFinite || !r.confidence.isFinite {
+            throw NSError(
+                domain: "StrokeReplayStore", code: 5,
+                userInfo: [NSLocalizedDescriptionKey: "Non-finite ImpactResult field"]
+            )
+        }
+    }
+
+    private static func assertLockFinite(_ l: StrokeReplay.SerializedLock) throws {
+        if !l.yawTargetCompass.isFinite || !l.lockedAt.isFinite ||
+            !l.gravity.allSatisfy({ $0.isFinite }) {
+            throw NSError(
+                domain: "StrokeReplayStore", code: 6,
+                userInfo: [NSLocalizedDescriptionKey: "Non-finite StillnessLock field"]
+            )
         }
     }
 

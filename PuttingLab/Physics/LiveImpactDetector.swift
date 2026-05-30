@@ -24,8 +24,17 @@ final class LiveImpactDetector {
     /// Magnitude must exceed this to "arm" (rad/s). Default tuned to putting:
     /// James's 5 sample strokes peaked at 2.1–3.1 rad/s, baseline ~0.5 rad/s.
     let armThreshold: Double
-    /// Once armed, fires when magnitude descends below this (rad/s).
+    /// Fallback fire trigger: if the peak-confirmation path never fires for
+    /// some reason (very flat decay, etc.), descending past this magnitude
+    /// fires anyway. Acts as a safety net so the haptic always lands.
     let disarmThreshold: Double
+    /// Number of consecutive samples where |ω| < maxMagSinceArmed required
+    /// to confirm we've passed the rotation-rate peak. 3 samples at 100 Hz
+    /// = ~30 ms latency from true peak — calibrated on James's 5 B7
+    /// strokes to land within 0–80 ms of the algorithm's chosen impact
+    /// time (vs. 274–388 ms for the original disarm-cross logic).
+    /// Higher = more noise rejection but more latency.
+    let peakConfirmationSamples: Int
     /// Minimum gap between successive haptic fires (seconds). Prevents one
     /// noisy peak with a few jittery samples from double-firing.
     let coolDownSeconds: Double
@@ -40,10 +49,18 @@ final class LiveImpactDetector {
     private var lastFireTime: TimeInterval = -.infinity
     private var consecutiveBelowDisarm: Int = 0
     private var warmedUp: Bool = false
+    /// Maximum |ω| seen during the current armed window. Used to detect
+    /// "we just passed the peak" by counting samples that descend from it.
+    private var maxMagSinceArmed: Double = 0
+    /// Count of consecutive samples whose magnitude was below
+    /// `maxMagSinceArmed`. Reset to 0 every time a new max is recorded.
+    /// When this hits `peakConfirmationSamples`, we fire.
+    private var consecutiveBelowMax: Int = 0
 
     init(
         armThreshold: Double = 2.0,
         disarmThreshold: Double = 1.0,
+        peakConfirmationSamples: Int = 3,
         coolDownSeconds: Double = 0.4,
         warmUpSamplesBelowDisarm: Int = 5
     ) {
@@ -52,10 +69,15 @@ final class LiveImpactDetector {
             "armThreshold (\(armThreshold)) must be > disarmThreshold (\(disarmThreshold)) " +
             "otherwise the rising/falling cross-detection cannot fire."
         )
+        precondition(
+            peakConfirmationSamples >= 1,
+            "peakConfirmationSamples must be >= 1"
+        )
         precondition(coolDownSeconds >= 0, "coolDownSeconds must be non-negative")
         precondition(warmUpSamplesBelowDisarm >= 0, "warmUpSamplesBelowDisarm must be non-negative")
         self.armThreshold = armThreshold
         self.disarmThreshold = disarmThreshold
+        self.peakConfirmationSamples = peakConfirmationSamples
         self.coolDownSeconds = coolDownSeconds
         self.warmUpSamplesBelowDisarm = warmUpSamplesBelowDisarm
     }
@@ -66,6 +88,8 @@ final class LiveImpactDetector {
         lastFireTime = -.infinity
         consecutiveBelowDisarm = 0
         warmedUp = false
+        maxMagSinceArmed = 0
+        consecutiveBelowMax = 0
     }
 
     /// Feed every motion sample during recording. Returns `true` exactly when
@@ -106,8 +130,11 @@ final class LiveImpactDetector {
         if sample.timestamp - lastFireTime < coolDownSeconds {
             if mag >= armThreshold {
                 armed = true
+                if mag > maxMagSinceArmed { maxMagSinceArmed = mag }
             } else if mag <= disarmThreshold {
                 armed = false
+                maxMagSinceArmed = 0
+                consecutiveBelowMax = 0
             }
             return false
         }
@@ -115,14 +142,36 @@ final class LiveImpactDetector {
         if !armed {
             if mag >= armThreshold {
                 armed = true
+                maxMagSinceArmed = mag
+                consecutiveBelowMax = 0
             }
             return false
         }
 
-        // Armed: fire when magnitude crosses back DOWN through the disarm
-        // threshold (the peak is just behind us by 10–30 ms at 100 Hz).
+        // Armed: PEAK-CONFIRMATION path (fires ~30 ms after the true peak).
+        // Track max-since-arm; count consecutive samples that fall below
+        // it. When that count hits `peakConfirmationSamples`, we're past
+        // the peak. Calibrated on James's 5 B7 strokes: this typically
+        // fires 0–80 ms after the algorithm's chosen impact time (vs.
+        // 274–388 ms for the original disarm-cross fallback).
+        if mag > maxMagSinceArmed {
+            maxMagSinceArmed = mag
+            consecutiveBelowMax = 0
+        } else if mag < maxMagSinceArmed {
+            consecutiveBelowMax += 1
+            if consecutiveBelowMax >= peakConfirmationSamples {
+                armed = false
+                maxMagSinceArmed = 0
+                consecutiveBelowMax = 0
+                lastFireTime = sample.timestamp
+                return true
+            }
+        }
+        // Safety-net fallback for very-slow descents: classic disarm-cross.
         if mag < disarmThreshold {
             armed = false
+            maxMagSinceArmed = 0
+            consecutiveBelowMax = 0
             lastFireTime = sample.timestamp
             return true
         }
