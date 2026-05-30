@@ -22,6 +22,15 @@ struct StrokeReplay: Sendable, Codable {
     /// per-stroke "How did this feel?" buttons in the result panel. v1 replays
     /// without this field decode as nil. Added 2026-05-30 for B7 data collection.
     let userImpactJudgment: String?
+    /// Identifier of the test batch this stroke belongs to (e.g. "cal", "A",
+    /// "B"). v1 replays without this field decode as nil. Added 2026-05-30 (B8)
+    /// so we can group strokes by intended type when analysing offline.
+    let batchId: String?
+    /// 1-indexed position of this stroke within its batch.
+    let batchStrokeIndex: Int?
+    /// Human-readable stroke type (e.g. "Clean baseline stroke",
+    /// "Deliberate PULL stroke") — copied from `TestBatch.strokeTypeLabel`.
+    let batchStrokeType: String?
 
     struct SerializedSample: Sendable, Codable {
         let timestamp: TimeInterval
@@ -50,6 +59,7 @@ struct StrokeReplay: Sendable, Codable {
         case schemaVersion, capturedAt, deviceModel, appVersion
         case samples, lock, windowStart, windowEnd, result, userNote
         case userImpactJudgment
+        case batchId, batchStrokeIndex, batchStrokeType
     }
 }
 
@@ -73,6 +83,9 @@ extension StrokeReplay {
         self.result = try c.decodeIfPresent(SerializedImpactResult.self, forKey: .result)
         self.userNote = try c.decodeIfPresent(String.self, forKey: .userNote)
         self.userImpactJudgment = try c.decodeIfPresent(String.self, forKey: .userImpactJudgment)
+        self.batchId = try c.decodeIfPresent(String.self, forKey: .batchId)
+        self.batchStrokeIndex = try c.decodeIfPresent(Int.self, forKey: .batchStrokeIndex)
+        self.batchStrokeType = try c.decodeIfPresent(String.self, forKey: .batchStrokeType)
     }
 }
 
@@ -154,6 +167,9 @@ extension StrokeReplay {
         appVersion: String,
         userNote: String? = nil,
         userImpactJudgment: String? = nil,
+        batchId: String? = nil,
+        batchStrokeIndex: Int? = nil,
+        batchStrokeType: String? = nil,
         now: Date = Date()
     ) {
         self.schemaVersion = 1
@@ -162,6 +178,9 @@ extension StrokeReplay {
         self.appVersion = appVersion
         self.userNote = userNote
         self.userImpactJudgment = userImpactJudgment
+        self.batchId = batchId
+        self.batchStrokeIndex = batchStrokeIndex
+        self.batchStrokeType = batchStrokeType
         self.samples = window.samples.map { s in
             SerializedSample(
                 timestamp: s.timestamp,
@@ -247,8 +266,16 @@ final class StrokeReplayStore: @unchecked Sendable {
         lock.lock(); defer { lock.unlock() }
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        let filename = "stroke-\(formatter.string(from: replay.capturedAt)).json"
+        let timestamp = formatter.string(from: replay.capturedAt)
             .replacingOccurrences(of: ":", with: "-")
+        let batchSegment: String = {
+            guard let id = replay.batchId, !id.isEmpty,
+                  let idx = replay.batchStrokeIndex, idx > 0 else { return "" }
+            // Keep filename filesystem-safe: only letters/digits/dash.
+            let safeId = id.filter { $0.isLetter || $0.isNumber }
+            return safeId.isEmpty ? "" : "\(safeId)-\(idx)-"
+        }()
+        let filename = "stroke-\(batchSegment)\(timestamp).json"
         let url = directory.appendingPathComponent(filename)
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601

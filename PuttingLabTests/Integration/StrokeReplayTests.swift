@@ -86,4 +86,82 @@ struct StrokeReplayTests {
         let loaded = try store.load(from: url)
         #expect(loaded.samples.count == replay.samples.count)
     }
+
+    // MARK: - B8: batch tagging fields
+
+    @Test("batch fields (id/index/type) round-trip through JSON")
+    func batchFieldsRoundTrip() throws {
+        let fixture = StrokeFixtures.cleanStraight8ft()
+        let r = try ImpactDetector().detect(in: fixture.window)
+        let replay = StrokeReplay(
+            window: fixture.window,
+            result: r,
+            deviceModel: "iPhone14,3",
+            appVersion: "0.1.4 (8)",
+            userImpactJudgment: "just_right",
+            batchId: "B",
+            batchStrokeIndex: 7,
+            batchStrokeType: "Deliberate PULL stroke"
+        )
+        let data = try JSONEncoder().encode(replay)
+        let decoded = try JSONDecoder().decode(StrokeReplay.self, from: data)
+        #expect(decoded.batchId == "B")
+        #expect(decoded.batchStrokeIndex == 7)
+        #expect(decoded.batchStrokeType == "Deliberate PULL stroke")
+        #expect(decoded.userImpactJudgment == "just_right")
+    }
+
+    @Test("v1 replays (no batch fields) decode with nil values for new fields")
+    func backwardCompatV1ReplayDecodes() throws {
+        let fixture = StrokeFixtures.cleanStraight8ft()
+        let r = try ImpactDetector().detect(in: fixture.window)
+        let replay = StrokeReplay(window: fixture.window, result: r, deviceModel: "t", appVersion: "t")
+        let data = try JSONEncoder().encode(replay)
+        let decoded = try JSONDecoder().decode(StrokeReplay.self, from: data)
+        #expect(decoded.batchId == nil)
+        #expect(decoded.batchStrokeIndex == nil)
+        #expect(decoded.batchStrokeType == nil)
+        #expect(decoded.userImpactJudgment == nil)
+    }
+
+    @Test("filename includes batch-id and stroke-index when present")
+    func filenameIncludesBatchInfo() throws {
+        let tmp = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("PuttingLabTest_\(UUID().uuidString)", isDirectory: true)
+        let store = StrokeReplayStore(directory: tmp)
+        defer { try? store.clear() }
+
+        let fixture = StrokeFixtures.cleanStraight8ft()
+        let r = try ImpactDetector().detect(in: fixture.window)
+        let replay = StrokeReplay(
+            window: fixture.window,
+            result: r,
+            deviceModel: "t",
+            appVersion: "t",
+            batchId: "A",
+            batchStrokeIndex: 3,
+            batchStrokeType: "Clean baseline stroke"
+        )
+        let url = try store.save(replay)
+        let name = url.lastPathComponent
+        #expect(name.hasPrefix("stroke-A-3-"), "expected 'stroke-A-3-…json' got '\(name)'")
+        #expect(name.hasSuffix(".json"))
+    }
+
+    @Test("filename falls back to date-only when batch tag is absent")
+    func filenameFallsBackWithoutBatch() throws {
+        let tmp = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("PuttingLabTest_\(UUID().uuidString)", isDirectory: true)
+        let store = StrokeReplayStore(directory: tmp)
+        defer { try? store.clear() }
+
+        let fixture = StrokeFixtures.cleanStraight8ft()
+        let r = try ImpactDetector().detect(in: fixture.window)
+        let replay = StrokeReplay(window: fixture.window, result: r, deviceModel: "t", appVersion: "t")
+        let url = try store.save(replay)
+        let name = url.lastPathComponent
+        // No batch segment when batchId is nil.
+        #expect(name.hasPrefix("stroke-"))
+        #expect(!name.contains("--"))
+    }
 }

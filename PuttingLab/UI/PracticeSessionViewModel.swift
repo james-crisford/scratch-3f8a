@@ -58,6 +58,12 @@ final class PracticeSessionViewModel {
     private let impactDetector: ImpactDetector
     private let replayStore: StrokeReplayStore?
     private let onHaptic: @MainActor (UIImpactFeedbackGenerator.FeedbackStyle) -> Void
+    private let liveImpactDetector: LiveImpactDetector
+
+    /// Count of live-haptic fires during the most recent stroke. Exposed so
+    /// the result panel can confirm to the user how many "felt impacts" they
+    /// got (typically 1 for fast strokes, 2 for backswing+forwardswing).
+    private(set) var liveHapticFireCount: Int = 0
 
     private var streamTask: Task<Void, Never>?
     private var samplesDuringRecording: [MotionSample] = []
@@ -90,6 +96,7 @@ final class PracticeSessionViewModel {
         arkit: ARTracking = ARTrackingManager(),
         impactDetector: ImpactDetector = ImpactDetector(),
         replayStore: StrokeReplayStore? = StrokeReplayStore.shared,
+        liveImpactDetector: LiveImpactDetector = LiveImpactDetector(),
         onHaptic: @escaping @MainActor (UIImpactFeedbackGenerator.FeedbackStyle) -> Void = { style in
             UIImpactFeedbackGenerator(style: style).impactOccurred()
         }
@@ -99,6 +106,7 @@ final class PracticeSessionViewModel {
         self.arkit = arkit
         self.impactDetector = impactDetector
         self.replayStore = replayStore
+        self.liveImpactDetector = liveImpactDetector
         self.onHaptic = onHaptic
     }
 
@@ -206,6 +214,13 @@ final class PracticeSessionViewModel {
                 posesDuringRecording.append(pose)
             }
             samplesInCurrentRecording = samplesDuringRecording.count
+            // Fire a real-time haptic at each estimated impact peak so the
+            // user can judge timing in the result panel. The .heavy style is
+            // distinguishable from the .medium "you started recording" tap.
+            if liveImpactDetector.consume(sample) {
+                liveHapticFireCount += 1
+                onHaptic(.heavy)
+            }
         }
     }
 
@@ -249,6 +264,8 @@ final class PracticeSessionViewModel {
             posesDuringRecording.append(pose)
         }
         samplesInCurrentRecording = 1
+        liveImpactDetector.reset()
+        liveHapticFireCount = 0
         phase = .recording
         onHaptic(.medium)
     }
@@ -320,12 +337,19 @@ final class PracticeSessionViewModel {
         // Persist the stroke now (we held off saving in touchUp so we could
         // include the user's impact judgment).
         if let window = pendingWindow, let result = pendingResult, let store = replayStore {
+            // strokesInCurrentBatch is the count of strokes *already* recorded
+            // for this batch; this stroke is index (count + 1) — 1-indexed so
+            // filenames read naturally (stroke-A-1-..., stroke-A-2-...).
+            let currentBatch = session.currentBatch
             let replay = StrokeReplay(
                 window: window,
                 result: result,
                 deviceModel: SessionCoordinator.deviceModelString(),
                 appVersion: SessionCoordinator.appVersionString(),
-                userImpactJudgment: pendingImpactJudgment
+                userImpactJudgment: pendingImpactJudgment,
+                batchId: currentBatch.id,
+                batchStrokeIndex: session.strokesInCurrentBatch + 1,
+                batchStrokeType: currentBatch.strokeTypeLabel
             )
             Task.detached(priority: .utility) { [weak self] in
                 do {
