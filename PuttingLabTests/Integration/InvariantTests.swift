@@ -51,7 +51,9 @@ struct InvariantTests {
         case .noClearPeak:
             fixture = StrokeFixtures.zeroAccel()
         case .peakSpeedTooLow:
-            fixture = StrokeFixtures.cleanStraight(durationMs: 600, peakVelocity: 0.1)
+            // Threshold lowered to 0.05 in B7 for putting-specific tuning.
+            // Use a fixture peak well below 0.05 to trigger the snap.
+            fixture = StrokeFixtures.cleanStraight(durationMs: 600, peakVelocity: 0.02)
         case .arkitLost:
             // Cannot synthesize this from a single-window detect call; it's set externally.
             return
