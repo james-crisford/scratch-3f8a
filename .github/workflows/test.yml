@@ -28,6 +28,11 @@ on:
         type: boolean
         required: false
         default: false
+      skip_tests:
+        description: 'Skip the test job (use ONLY when you know tests already pass — saves ~$0.30 of macOS minutes per release attempt)'
+        type: boolean
+        required: false
+        default: false
 
 # Cancel any in-flight run on the same branch when a new push arrives.
 # Stops back-to-back commits from each spending a full 5-minute Mac slot.
@@ -38,19 +43,25 @@ concurrency:
 jobs:
   test:
     name: Build and test (iOS Simulator)
-    runs-on: macos-15
+    runs-on: macos-26
     timeout-minutes: 15
+    # Cost-control: skip the test job when manually triggered with skip_tests=true.
+    # Use ONLY when you know the tests already pass on this exact commit (e.g. you
+    # just want a signed TestFlight build and tests passed on the prior push).
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.skip_tests != 'true'
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Select Xcode 16
+      - name: Select Xcode 26
         run: |
           echo "=== Available Xcode versions ==="
           ls /Applications | grep -i xcode || true
-          # Pick the highest installed Xcode 16.x — the iOS 18.0 SDK in 16.0 is not installed
-          XCODE_APP=$(ls -d /Applications/Xcode_16*.app 2>/dev/null | sort -V | tail -1)
+          # Apple now requires apps to be built with iOS 26 SDK / Xcode 26 (validation
+          # error from App Store Connect since April 2026). macos-26 runner has
+          # Xcode 26.0–26.3 with 26.2 as default. Pick highest available.
+          XCODE_APP=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)
           if [ -z "$XCODE_APP" ]; then XCODE_APP="/Applications/Xcode.app"; fi
           echo "Selecting: $XCODE_APP"
           sudo xcode-select -s "$XCODE_APP"
@@ -86,7 +97,7 @@ jobs:
           xcodebuild build \
             -project PuttingLab.xcodeproj \
             -scheme PuttingLab \
-            -destination 'platform=iOS Simulator,OS=18.5,name=iPhone 16' \
+            -destination 'platform=iOS Simulator,OS=latest,name=iPhone 17' \
             -configuration Debug \
             CODE_SIGNING_ALLOWED=NO \
             | tee build.log
@@ -100,7 +111,7 @@ jobs:
           xcodebuild test \
             -project PuttingLab.xcodeproj \
             -scheme PuttingLab \
-            -destination 'platform=iOS Simulator,OS=18.5,name=iPhone 16' \
+            -destination 'platform=iOS Simulator,OS=latest,name=iPhone 17' \
             -enableCodeCoverage YES \
             -resultBundlePath TestResults.xcresult \
             -test-timeouts-enabled YES \
@@ -140,7 +151,7 @@ jobs:
           retention-days: 14
           if-no-files-found: warn
 
-      # Screenshot the app running on iPhone 16 simulator. MANUAL-ONLY.
+      # Screenshot the app running on iPhone 17 simulator. MANUAL-ONLY.
       # Boots the sim, installs the build, launches, captures the launch view.
       # Useful for a quick visual sanity check before TestFlight is available.
       - name: Capture launch screenshot
@@ -148,7 +159,7 @@ jobs:
         continue-on-error: true
         run: |
           set -e
-          SIM_ID=$(xcrun simctl list devices available | grep "iPhone 16 (" | head -1 | grep -E -o '[0-9A-F-]{36}')
+          SIM_ID=$(xcrun simctl list devices available | grep "iPhone 17 (" | head -1 | grep -E -o '[0-9A-F-]{36}')
           echo "Using simulator: $SIM_ID"
           xcrun simctl boot "$SIM_ID" 2>/dev/null || true
           xcrun simctl bootstatus "$SIM_ID" -b
@@ -229,15 +240,21 @@ jobs:
   release:
     name: Sign + Upload to TestFlight
     needs: test
-    runs-on: macos-15
-    if: github.event_name == 'workflow_dispatch' && github.event.inputs.release == 'true'
+    runs-on: macos-26
+    # always() lets this job run even when `test` was SKIPPED via skip_tests=true.
+    # Without it, a skipped dependency would skip this job too.
+    if: |
+      always() &&
+      github.event_name == 'workflow_dispatch' &&
+      github.event.inputs.release == 'true' &&
+      (needs.test.result == 'success' || needs.test.result == 'skipped')
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
 
-      - name: Select Xcode 16
+      - name: Select Xcode 26
         run: |
-          XCODE_APP=$(ls -d /Applications/Xcode_16*.app 2>/dev/null | sort -V | tail -1)
+          XCODE_APP=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)
           if [ -z "$XCODE_APP" ]; then XCODE_APP="/Applications/Xcode.app"; fi
           sudo xcode-select -s "$XCODE_APP"
 
@@ -302,7 +319,7 @@ jobs:
             -f pkcs12 -t cert \
             -T /usr/bin/codesign -T /usr/bin/security -T /usr/bin/productbuild
 
-          # S6: add codesign: to partition list (required on Xcode 16 / macOS 15)
+          # S6: add codesign: to partition list (required on Xcode 16+ / macOS 15+)
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KC_PASS" "$KC"
 
           # S1: add temp keychain to USER search list, otherwise xcodebuild won't find it
