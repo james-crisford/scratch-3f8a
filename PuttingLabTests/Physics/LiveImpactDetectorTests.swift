@@ -43,9 +43,24 @@ struct LiveImpactDetectorTests {
         }
     }
 
+    /// Detector that skips the warm-up gate, for tests that only need to
+    /// exercise the arm/disarm/cool-down state machine.
+    private func instantDetector(
+        armThreshold: Double = 2.0,
+        disarmThreshold: Double = 1.0,
+        coolDownSeconds: Double = 0.4
+    ) -> LiveImpactDetector {
+        LiveImpactDetector(
+            armThreshold: armThreshold,
+            disarmThreshold: disarmThreshold,
+            coolDownSeconds: coolDownSeconds,
+            warmUpSamplesBelowDisarm: 0
+        )
+    }
+
     @Test("fires exactly once for a single rising-falling burst above threshold")
     func singleBurstFiresOnce() {
-        let det = LiveImpactDetector(armThreshold: 2.0, disarmThreshold: 1.0, coolDownSeconds: 0.4)
+        let det = instantDetector()
         let samples = bumpSamples(durationMs: 800, peak: 3.0)
         let fires = samples.filter { det.consume($0) }.count
         #expect(fires == 1, "expected exactly one fire for a single peak burst, got \(fires)")
@@ -53,7 +68,7 @@ struct LiveImpactDetectorTests {
 
     @Test("never fires when the magnitude stays below arm threshold")
     func belowArmNeverFires() {
-        let det = LiveImpactDetector(armThreshold: 2.0, disarmThreshold: 1.0)
+        let det = instantDetector()
         // Peak 1.5 rad/s — below arm. Should never fire.
         let samples = bumpSamples(durationMs: 800, peak: 1.5)
         let fires = samples.filter { det.consume($0) }.count
@@ -62,7 +77,7 @@ struct LiveImpactDetectorTests {
 
     @Test("two non-overlapping bursts both fire (one each)")
     func twoBurstsFireTwice() {
-        let det = LiveImpactDetector(armThreshold: 2.0, disarmThreshold: 1.0, coolDownSeconds: 0.3)
+        let det = instantDetector(coolDownSeconds: 0.3)
         // First burst at t∈[0, 0.6], second at t∈[1.2, 1.8]. Cool-down (0.3s)
         // safely elapsed between the two.
         let first = bumpSamples(durationMs: 600, peak: 3.0, startTime: 0)
@@ -74,7 +89,7 @@ struct LiveImpactDetectorTests {
 
     @Test("cool-down suppresses a noisy double-peak from firing twice")
     func coolDownSuppressesNoisyRefire() {
-        let det = LiveImpactDetector(armThreshold: 2.0, disarmThreshold: 1.0, coolDownSeconds: 0.5)
+        let det = instantDetector(coolDownSeconds: 0.5)
         // Two close peaks 100ms apart — cool-down 500ms should keep this to
         // one haptic fire.
         let first = bumpSamples(durationMs: 200, peak: 3.0, startTime: 0)
@@ -86,7 +101,7 @@ struct LiveImpactDetectorTests {
 
     @Test("reset() re-arms the detector for the next stroke")
     func resetReArms() {
-        let det = LiveImpactDetector(armThreshold: 2.0, disarmThreshold: 1.0)
+        let det = instantDetector()
         let firstStroke = bumpSamples(durationMs: 600, peak: 3.0)
         let firesFirst = firstStroke.filter { det.consume($0) }.count
         #expect(firesFirst == 1)
@@ -101,9 +116,8 @@ struct LiveImpactDetectorTests {
 
     @Test("fire occurs after the peak (on the descending side), not at the rising edge")
     func firesOnDescent() {
-        let det = LiveImpactDetector(armThreshold: 2.0, disarmThreshold: 1.0, coolDownSeconds: 0.0)
+        let det = instantDetector(coolDownSeconds: 0.0)
         let samples = bumpSamples(durationMs: 1000, peak: 3.0)
-        // Find the first index where the detector fires.
         var fireIndex: Int?
         for (i, s) in samples.enumerated() where det.consume(s) {
             fireIndex = i
@@ -116,14 +130,82 @@ struct LiveImpactDetectorTests {
         }
     }
 
-    @Test("realistic putting profile (peak 3.0 rad/s, ~1s duration) fires once")
-    func realisticPuttingProfile() {
-        // Roughly matches James's 5 calibration strokes from 2026-05-30 —
-        // peak ~3.0 rad/s, total stroke ~1.7 s. We simulate just the impact
-        // burst here (not the whole bidirectional pattern).
+    @Test("realistic putting profile with default warm-up fires once on the real impact peak")
+    func realisticPuttingProfileWithWarmUp() {
+        // Default LiveImpactDetector (with warm-up=5). 1.7s burst gives
+        // ~17 low-mag samples on the leading edge so warm-up engages cleanly.
         let det = LiveImpactDetector()
         let samples = bumpSamples(durationMs: 1700, peak: 3.0, baseline: 0.3)
         let fires = samples.filter { det.consume($0) }.count
         #expect(fires == 1)
+    }
+
+    // MARK: - Build 9 hardening
+
+    @Test("warm-up gate suppresses a touchDown-time wrist flick from firing on sample 1")
+    func warmUpGateSuppressesFirstSampleFlick() {
+        // Simulates: user grabs phone, presses screen, and the very first
+        // motion sample after touchDown shows |ω|=3.0 rad/s (wrist flick).
+        // With warm-up=5 requiring 5 consecutive below-disarm samples first,
+        // this single high-magnitude sample MUST NOT fire.
+        let det = LiveImpactDetector(
+            armThreshold: 2.0,
+            disarmThreshold: 1.0,
+            coolDownSeconds: 0.4,
+            warmUpSamplesBelowDisarm: 5
+        )
+        let flick = sample(t: 0.0, omegaMagnitude: 3.0)
+        #expect(det.consume(flick) == false, "first-sample flick should be suppressed by warm-up gate")
+    }
+
+    @Test("warm-up engages after N consecutive below-disarm samples, then a real peak fires")
+    func warmUpEngagesThenFires() {
+        let det = LiveImpactDetector(
+            armThreshold: 2.0,
+            disarmThreshold: 1.0,
+            coolDownSeconds: 0.4,
+            warmUpSamplesBelowDisarm: 5
+        )
+        // 5 quiet samples to satisfy warm-up.
+        for i in 0..<5 {
+            _ = det.consume(sample(t: Double(i) * 0.01, omegaMagnitude: 0.2))
+        }
+        // Now a real burst.
+        let burst = bumpSamples(durationMs: 600, peak: 3.0, startTime: 0.05)
+        let fires = burst.filter { det.consume($0) }.count
+        #expect(fires == 1)
+    }
+
+    @Test("non-finite timestamp (NaN/Inf) is rejected and does not corrupt state")
+    func nonFiniteTimestampRejected() {
+        let det = instantDetector()
+        // Feed a real peak, expect 1 fire.
+        let real = bumpSamples(durationMs: 400, peak: 3.0)
+        let firesBeforeJunk = real.filter { det.consume($0) }.count
+        #expect(firesBeforeJunk == 1)
+
+        // Reset and try to corrupt with NaN/Inf timestamp.
+        det.reset()
+        // 5 quiet samples to warm up.
+        for i in 0..<5 {
+            _ = det.consume(sample(t: Double(i) * 0.01, omegaMagnitude: 0.2))
+        }
+        let junkNaN = sample(t: .nan, omegaMagnitude: 3.0)
+        let junkInf = sample(t: .infinity, omegaMagnitude: 3.0)
+        _ = det.consume(junkNaN)
+        _ = det.consume(junkInf)
+        // After the junk, a real burst should still fire normally.
+        let realAgain = bumpSamples(durationMs: 600, peak: 3.0, startTime: 1.0)
+        let firesAfterJunk = realAgain.filter { det.consume($0) }.count
+        #expect(firesAfterJunk == 1, "detector must survive non-finite timestamps and still fire on real bursts")
+    }
+
+    @Test("non-finite rotation magnitude is rejected silently")
+    func nonFiniteRotationRejected() {
+        let det = instantDetector()
+        let nan = sample(t: 0.0, omegaMagnitude: .nan)
+        let inf = sample(t: 0.01, omegaMagnitude: .infinity)
+        #expect(det.consume(nan) == false)
+        #expect(det.consume(inf) == false)
     }
 }

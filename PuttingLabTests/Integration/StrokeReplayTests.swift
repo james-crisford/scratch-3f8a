@@ -164,4 +164,101 @@ struct StrokeReplayTests {
         #expect(name.hasPrefix("stroke-"))
         #expect(!name.contains("--"))
     }
+
+    // MARK: - Build 9: load() hardening (size cap before read, JSON depth limit, NaN reject)
+
+    @Test("load rejects an oversized JSON before reading it into memory")
+    func loadRejectsOversizedFile() throws {
+        let tmp = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("PuttingLabTest_\(UUID().uuidString)", isDirectory: true)
+        let store = StrokeReplayStore(directory: tmp)
+        defer { try? store.clear() }
+
+        // Write a 12MB blob that the OS sees as a .json by extension.
+        // Content doesn't have to be valid JSON; the size check is the
+        // first gate and should reject before parsing.
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        let bigURL = tmp.appendingPathComponent("oversized.json")
+        let payload = Data(repeating: UInt8(ascii: "a"), count: 12 * 1024 * 1024)
+        try payload.write(to: bigURL)
+
+        #expect(throws: NSError.self) {
+            _ = try store.load(from: bigURL)
+        }
+    }
+
+    @Test("load rejects a JSON whose nesting depth exceeds the cap")
+    func loadRejectsDeepNesting() throws {
+        let tmp = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("PuttingLabTest_\(UUID().uuidString)", isDirectory: true)
+        let store = StrokeReplayStore(directory: tmp)
+        defer { try? store.clear() }
+
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        let deepURL = tmp.appendingPathComponent("deep.json")
+        // 200 consecutive '[' — well over the 100 cap.
+        let payload = String(repeating: "[", count: 200) + String(repeating: "]", count: 200)
+        try payload.write(to: deepURL, atomically: true, encoding: .utf8)
+
+        #expect(throws: NSError.self) {
+            _ = try store.load(from: deepURL)
+        }
+    }
+
+    @Test("load rejects a replay carrying NaN timestamps in its samples")
+    func loadRejectsNaNTimestamps() throws {
+        let tmp = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("PuttingLabTest_\(UUID().uuidString)", isDirectory: true)
+        let store = StrokeReplayStore(directory: tmp)
+        defer { try? store.clear() }
+
+        // Save a real stroke, read back the JSON, mutate one timestamp to "nan".
+        let fixture = StrokeFixtures.cleanStraight8ft()
+        let r = try ImpactDetector().detect(in: fixture.window)
+        let replay = StrokeReplay(window: fixture.window, result: r, deviceModel: "t", appVersion: "t")
+        let url = try store.save(replay)
+        var text = try String(contentsOf: url, encoding: .utf8)
+        // Replace the very first timestamp value with "nan". The replays use
+        // ISO-8601 string for capturedAt, but per-sample timestamps are bare
+        // doubles, easy to swap.
+        if let range = text.range(of: #""timestamp":[\s]*[0-9.]+"#, options: .regularExpression) {
+            text.replaceSubrange(range, with: #""timestamp":"nan""#)
+            try text.write(to: url, atomically: true, encoding: .utf8)
+            #expect(throws: NSError.self) {
+                _ = try store.load(from: url)
+            }
+        } else {
+            Issue.record("Could not find timestamp pattern to mutate")
+        }
+    }
+
+    @Test("stageExportSnapshot copies only saved .json files (curated, excludes dotfiles)")
+    func stageSnapshotIsCurated() throws {
+        let tmp = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("PuttingLabTest_\(UUID().uuidString)", isDirectory: true)
+        let store = StrokeReplayStore(directory: tmp)
+        defer { try? store.clear() }
+
+        // Save one real stroke.
+        let fixture = StrokeFixtures.cleanStraight8ft()
+        let r = try ImpactDetector().detect(in: fixture.window)
+        let replay = StrokeReplay(window: fixture.window, result: r, deviceModel: "t", appVersion: "t")
+        _ = try store.save(replay)
+
+        // Drop a dotfile and a non-.json file in the same directory
+        // (simulating an attacker via Files-app share).
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        let dot = tmp.appendingPathComponent(".DS_Store")
+        let txt = tmp.appendingPathComponent("evil.txt")
+        try Data("dotfile".utf8).write(to: dot)
+        try Data("evil".utf8).write(to: txt)
+
+        let staging = try store.stageExportSnapshot()
+        defer { try? FileManager.default.removeItem(at: staging) }
+        let stagedNames = try FileManager.default.contentsOfDirectory(atPath: staging.path).sorted()
+        #expect(stagedNames.count == 1, "only the .json file should be staged, got \(stagedNames)")
+        #expect(stagedNames.first?.hasPrefix("stroke-") == true)
+        #expect(!stagedNames.contains(".DS_Store"))
+        #expect(!stagedNames.contains("evil.txt"))
+    }
 }

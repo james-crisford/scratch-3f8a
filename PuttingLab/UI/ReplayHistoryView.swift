@@ -74,55 +74,84 @@ struct ReplayHistoryView: View {
         }
     }
 
-    /// Zip every JSON in the StrokeReplays directory into a single archive
-    /// under a stable temp path, then present the system share sheet so the
-    /// user can AirDrop / save to Drive / email it as one item.
+    /// Stage every saved JSON into a curated snapshot directory (under the
+    /// store lock, so no parallel save can sneak a half-written file in),
+    /// zip it via NSFileCoordinator(.forUploading), and present the system
+    /// share sheet so the user can AirDrop / save to Drive / email it as one
+    /// item.
+    ///
+    /// Swift 6 strict-concurrency pattern: outer `Task` inherits the View
+    /// body's MainActor isolation; inner `Task.detached` does the file I/O
+    /// off-main; awaiting its `.value` lands back on MainActor so the
+    /// `@State` mutations are isolation-correct.
     private func exportAll() {
         guard !isPreparingExport else { return }
         isPreparingExport = true
         exportError = nil
-        let sourceURL = store.directoryURL
-        // NSFileCoordinator + .forUploading transparently zips a directory
-        // into a temp URL — no third-party deps, works on iOS. The temp URL
-        // is reclaimed when the closure exits, so copy it to a stable temp
-        // path first.
-        DispatchQueue.global(qos: .userInitiated).async {
-            let coordinator = NSFileCoordinator()
-            var coordError: NSError?
-            var savedURL: URL?
-            var caughtError: Error?
-            coordinator.coordinate(
-                readingItemAt: sourceURL,
-                options: .forUploading,
-                error: &coordError
-            ) { zipURL in
-                do {
-                    let stableName = "PuttingLab-strokes-\(Self.timestampSuffix()).zip"
-                    let dest = FileManager.default.temporaryDirectory
-                        .appendingPathComponent(stableName)
-                    if FileManager.default.fileExists(atPath: dest.path) {
-                        try? FileManager.default.removeItem(at: dest)
-                    }
-                    try FileManager.default.copyItem(at: zipURL, to: dest)
-                    savedURL = dest
-                } catch {
-                    caughtError = error
-                }
-            }
-            let finalError = coordError ?? (caughtError as NSError?)
-            DispatchQueue.main.async {
+        let storeRef = store
+        Task {
+            do {
+                let zipURL = try await Task.detached(priority: .userInitiated) {
+                    try Self.buildExportZip(store: storeRef)
+                }.value
                 isPreparingExport = false
-                if let savedURL {
-                    shareItem = ShareableURL(url: savedURL)
-                } else {
-                    exportError = "Export failed: \(finalError?.localizedDescription ?? "unknown error")"
-                }
+                shareItem = ShareableURL(url: zipURL)
+            } catch {
+                isPreparingExport = false
+                exportError = "Export failed: \(error.localizedDescription)"
             }
         }
     }
 
-    private static func timestampSuffix() -> String {
+    /// Pure function: stage a snapshot, zip it, copy the zip to a UUID-named
+    /// path, clean the staging dir. Throws on any failure. Caller (and the
+    /// system share sheet) own the returned URL.
+    nonisolated private static func buildExportZip(store: StrokeReplayStore) throws -> URL {
+        let staging = try store.stageExportSnapshot()
+        // Always clean up the staging dir, even if zipping fails.
+        defer { try? FileManager.default.removeItem(at: staging) }
+
+        let coordinator = NSFileCoordinator()
+        var coordError: NSError?
+        var savedURL: URL?
+        var caughtError: Error?
+        coordinator.coordinate(
+            readingItemAt: staging,
+            options: .forUploading,
+            error: &coordError
+        ) { zipURL in
+            do {
+                // UUID in the destination filename guarantees no collision
+                // across rapid re-opens of the History sheet (H3 race fix).
+                let stableName = "PuttingLab-strokes-\(timestampSuffix())-\(UUID().uuidString.prefix(8)).zip"
+                let dest = FileManager.default.temporaryDirectory
+                    .appendingPathComponent(String(stableName))
+                // Idempotent: ignore "no such file" but propagate other errors.
+                try? FileManager.default.removeItem(at: dest)
+                try FileManager.default.copyItem(at: zipURL, to: dest)
+                savedURL = dest
+            } catch {
+                caughtError = error
+            }
+        }
+        if let url = savedURL { return url }
+        if let e = caughtError { throw e }
+        if let e = coordError { throw e }
+        throw NSError(
+            domain: "ReplayHistoryView", code: 100,
+            userInfo: [NSLocalizedDescriptionKey: "Unknown export failure (no URL, no error)"]
+        )
+    }
+
+    /// Locale-pinned (en_US_POSIX) and UTC-pinned filename timestamp. Without
+    /// the pin, Thai Buddhist / Japanese Imperial calendar devices produce
+    /// non-Gregorian year strings ("2569", "令6") — still valid filenames,
+    /// but un-sortable across mixed devices and unfamiliar to receiving
+    /// support staff.
+    nonisolated private static func timestampSuffix() -> String {
         let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = TimeZone(secondsFromGMT: 0)
         f.dateFormat = "yyyy-MM-dd-HHmmss"
         return f.string(from: Date())
     }

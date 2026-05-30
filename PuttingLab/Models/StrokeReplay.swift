@@ -294,17 +294,43 @@ final class StrokeReplayStore: @unchecked Sendable {
         return url
     }
 
+    /// Max replay file size on disk (bytes). 75 strokes × 200 samples × 6
+    /// doubles × ~16 chars JSON each ≈ ~1.5 MB; 10 MB gives ~6× headroom
+    /// for pretty-printing + schema growth. Anything larger is rejected
+    /// BEFORE we read it into memory.
+    static let maxReplayFileSizeBytes: Int = 10 * 1024 * 1024
+
+    /// Max consecutive opening brackets/braces in a replay JSON. Foundation's
+    /// `JSONDecoder` does not enforce a nesting cap; a 9 MB file of `[[[…]]]`
+    /// would recurse the decoder until it stack-overflows. 100 is far above
+    /// any legitimate StrokeReplay nesting (~6 levels deep).
+    static let maxJSONNestingDepth: Int = 100
+
     func load(from url: URL) throws -> StrokeReplay {
+        // M5 (security): stat file BEFORE loading it into RAM. The old order
+        // `Data(contentsOf:) → check size` pulled multi-hundred-MB files into
+        // memory on iPhone 12 before noticing they were too big and got
+        // jetsam-killed.
+        let attrs = try FileManager.default.attributesOfItem(atPath: url.path)
+        if let size = attrs[.size] as? Int, size > Self.maxReplayFileSizeBytes {
+            throw NSError(
+                domain: "StrokeReplayStore", code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "Stroke replay too large (\(size) bytes, max \(Self.maxReplayFileSizeBytes))"]
+            )
+        }
         let data = try Data(contentsOf: url)
-        // Hard size cap — a corrupted/malicious 100MB JSON would OOM on iPhone 12.
-        // 75 strokes × 200 samples × 6 doubles × ~16 chars JSON each ≈ ~1.5MB upper bound.
-        // 10MB gives ~6x headroom for future schema growth + pretty printing variations.
-        guard data.count <= 10 * 1024 * 1024 else {
+        guard data.count <= Self.maxReplayFileSizeBytes else {
             throw NSError(
                 domain: "StrokeReplayStore", code: 1,
                 userInfo: [NSLocalizedDescriptionKey: "Stroke replay too large (\(data.count) bytes)"]
             )
         }
+        // M4 (security): cap JSON nesting depth before handing to decoder.
+        // Cheap byte-scan: max run of consecutive `[` or `{` (string-literal
+        // brackets count too, but that costs us nothing — a real replay
+        // never has 100 consecutive open-brackets anywhere).
+        try Self.assertJSONNestingDepthOK(data: data, max: Self.maxJSONNestingDepth)
+
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         decoder.nonConformingFloatDecodingStrategy = .convertFromString(
@@ -312,7 +338,54 @@ final class StrokeReplayStore: @unchecked Sendable {
             negativeInfinity: "-inf",
             nan: "nan"
         )
-        return try decoder.decode(StrokeReplay.self, from: data)
+        let replay = try decoder.decode(StrokeReplay.self, from: data)
+        // L1 (security/robustness): a malicious replay may carry NaN/Inf in
+        // timestamp / rotationRate / userAcceleration / gravity / attitude.
+        // The encoder's `convertToString` path round-trips them back to NaN
+        // on decode — that NaN then propagates into ImpactDetector.detect()
+        // and downstream UI formatters which can crash or render garbage.
+        try Self.assertAllSamplesFinite(replay.samples)
+        return replay
+    }
+
+    private static func assertJSONNestingDepthOK(data: Data, max: Int) throws {
+        var run = 0
+        var maxRun = 0
+        for b in data {
+            if b == UInt8(ascii: "[") || b == UInt8(ascii: "{") {
+                run += 1
+                if run > maxRun { maxRun = run }
+                if run > max {
+                    throw NSError(
+                        domain: "StrokeReplayStore", code: 2,
+                        userInfo: [NSLocalizedDescriptionKey: "JSON nesting depth > \(max) — rejected (potential decoder stack overflow)"]
+                    )
+                }
+            } else if b == UInt8(ascii: "]") || b == UInt8(ascii: "}") {
+                run = 0
+            }
+        }
+        _ = maxRun
+    }
+
+    private static func assertAllSamplesFinite(_ samples: [StrokeReplay.SerializedSample]) throws {
+        for (i, s) in samples.enumerated() {
+            if !s.timestamp.isFinite {
+                throw NSError(
+                    domain: "StrokeReplayStore", code: 3,
+                    userInfo: [NSLocalizedDescriptionKey: "Non-finite timestamp at sample[\(i)]"]
+                )
+            }
+            if !s.rotationRate.allSatisfy({ $0.isFinite }) ||
+                !s.userAcceleration.allSatisfy({ $0.isFinite }) ||
+                !s.gravity.allSatisfy({ $0.isFinite }) ||
+                !s.attitude.allSatisfy({ $0.isFinite }) {
+                throw NSError(
+                    domain: "StrokeReplayStore", code: 4,
+                    userInfo: [NSLocalizedDescriptionKey: "Non-finite motion data at sample[\(i)]"]
+                )
+            }
+        }
     }
 
     func list() throws -> [URL] {
@@ -340,4 +413,31 @@ final class StrokeReplayStore: @unchecked Sendable {
     }
 
     var directoryURL: URL { directory }
+
+    /// Snapshot for bulk export. Under the write lock, copies every CURRENT
+    /// `.json` stroke replay into a fresh staging directory and returns its
+    /// URL. The caller (ReplayHistoryView) then zips THIS dir and shares it.
+    ///
+    /// Two security fixes vs the old "zip the whole StrokeReplays dir"
+    /// approach:
+    /// 1. Excludes any non-.json files an attacker dropped via the
+    ///    Files-app share (`UIFileSharingEnabled=true`) — only files we
+    ///    wrote ourselves are included.
+    /// 2. Takes the store's write lock around the file-copy loop so a
+    ///    parallel `save()` cannot leak a half-finished JSON into the
+    ///    snapshot.
+    ///
+    /// Returns the staging dir URL. Caller is responsible for cleanup.
+    func stageExportSnapshot() throws -> URL {
+        lock.lock(); defer { lock.unlock() }
+        let stagingURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("PuttingLab-export-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: stagingURL, withIntermediateDirectories: true)
+        let urls = try listLocked()
+        for u in urls {
+            let dest = stagingURL.appendingPathComponent(u.lastPathComponent)
+            try FileManager.default.copyItem(at: u, to: dest)
+        }
+        return stagingURL
+    }
 }
