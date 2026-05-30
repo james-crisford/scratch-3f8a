@@ -36,6 +36,12 @@ final class DistanceModel: Sendable {
     static let bandFactor: Double = 0.15
     static let jitterAmplitude: Double = 0.05
 
+    /// Upper bound on plausible peak hand speed for a putt (m/s). PGA Tour
+    /// putters peak around 1.5-2.5 m/s; anything above this is almost certainly
+    /// a double-integration spike from sensor noise. We clamp the input
+    /// rather than the output so the band + jitter stay self-consistent.
+    static let maxPlausiblePeakSpeedMps: Double = 5.0
+
     let speedCalibrationFactor: Double
     let stimp: Double
     let jitterFraction: Double
@@ -51,12 +57,20 @@ final class DistanceModel: Sendable {
     }
 
     func compute(peakSpeedMps: Double) -> DistanceResult {
+        // Lower clamp: snap to 0 for negative / NaN.
         let safeSpeed = max(0, peakSpeedMps)
-        let fps = safeSpeed * speedCalibrationFactor * Self.mpsToFps
+        // Upper clamp: an IMU integration glitch can spit out a one-frame
+        // 50 m/s peak that would be squared into a confidently-displayed
+        // ~13,000 ft "putt." Mark such cases as suppressed (treated like
+        // snap-to-square) so the UI shows the user a degraded result instead
+        // of an absurd one.
+        let isAbsurd = safeSpeed > Self.maxPlausiblePeakSpeedMps || !safeSpeed.isFinite
+        let clamped = isAbsurd ? 0 : safeSpeed
+        let fps = clamped * speedCalibrationFactor * Self.mpsToFps
         let raw = (fps * fps) * stimp / Self.decelerationConstant
         let jitter = jitterFraction * Self.jitterAmplitude
         let displayed = raw * (1.0 + jitter)
-        let suppressed = safeSpeed < 0.05  // snap-to-square or no-meaningful-velocity result
+        let suppressed = isAbsurd || clamped < 0.05
         return DistanceResult(
             displayedFeet: displayed,
             lowFeet: displayed * (1.0 - Self.bandFactor),

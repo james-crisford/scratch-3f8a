@@ -27,7 +27,16 @@ final class StrokeHistoryStore: @unchecked Sendable {
 
     private func loadLocked() throws -> [StrokeRecord] {
         guard let data = defaults.data(forKey: key) else { return [] }
-        return try JSONDecoder().decode([StrokeRecord].self, from: data)
+        do {
+            return try JSONDecoder().decode([StrokeRecord].self, from: data)
+        } catch is DecodingError {
+            // Self-heal: a malformed blob (e.g. from a schema change in a future
+            // version) used to brick this store — append() does load+save, so a
+            // single un-decodable blob meant no new stroke could EVER be saved.
+            // Mirror ProfileStore behaviour: treat decode failure as 'empty' and
+            // let the next save overwrite the bad blob.
+            return []
+        }
     }
 
     /// Atomic load-mutate-save under an internal lock. Spec §8 calls for FIFO eviction

@@ -70,6 +70,30 @@ extension StrokeReplay {
     }
 }
 
+extension StrokeReplay.SerializedLock {
+    enum LockKeys: String, CodingKey {
+        case yawTargetCompass, gravity, lockedAt
+    }
+
+    /// Bounds-checked decoder. A truncated `gravity` array used to decode
+    /// successfully, then crash later in `toStrokeWindow()` where the array
+    /// is force-indexed at [0..2]. Catching the mismatch here turns a hard
+    /// crash into a skipped record at the per-file load layer.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: LockKeys.self)
+        self.yawTargetCompass = try c.decode(Double.self, forKey: .yawTargetCompass)
+        self.lockedAt = try c.decode(TimeInterval.self, forKey: .lockedAt)
+        let grv = try c.decode([Double].self, forKey: .gravity)
+        guard grv.count == 3 else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .gravity, in: c,
+                debugDescription: "gravity must have 3 elements, got \(grv.count)"
+            )
+        }
+        self.gravity = grv
+    }
+}
+
 extension StrokeReplay.SerializedSample {
     enum SampleKeys: String, CodingKey {
         case timestamp, rotationRate, userAcceleration, gravity, attitude
