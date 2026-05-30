@@ -18,6 +18,10 @@ struct StrokeReplay: Sendable, Codable {
     let windowEnd: TimeInterval
     let result: SerializedImpactResult?
     let userNote: String?
+    /// User's judgment of the algorithm's chosen impact time, captured via the
+    /// per-stroke "How did this feel?" buttons in the result panel. v1 replays
+    /// without this field decode as nil. Added 2026-05-30 for B7 data collection.
+    let userImpactJudgment: String?
 
     struct SerializedSample: Sendable, Codable {
         let timestamp: TimeInterval
@@ -45,6 +49,7 @@ struct StrokeReplay: Sendable, Codable {
     enum CodingKeys: String, CodingKey {
         case schemaVersion, capturedAt, deviceModel, appVersion
         case samples, lock, windowStart, windowEnd, result, userNote
+        case userImpactJudgment
     }
 }
 
@@ -67,6 +72,7 @@ extension StrokeReplay {
         self.windowEnd = try c.decode(TimeInterval.self, forKey: .windowEnd)
         self.result = try c.decodeIfPresent(SerializedImpactResult.self, forKey: .result)
         self.userNote = try c.decodeIfPresent(String.self, forKey: .userNote)
+        self.userImpactJudgment = try c.decodeIfPresent(String.self, forKey: .userImpactJudgment)
     }
 }
 
@@ -147,6 +153,7 @@ extension StrokeReplay {
         deviceModel: String,
         appVersion: String,
         userNote: String? = nil,
+        userImpactJudgment: String? = nil,
         now: Date = Date()
     ) {
         self.schemaVersion = 1
@@ -154,6 +161,7 @@ extension StrokeReplay {
         self.deviceModel = deviceModel
         self.appVersion = appVersion
         self.userNote = userNote
+        self.userImpactJudgment = userImpactJudgment
         self.samples = window.samples.map { s in
             SerializedSample(
                 timestamp: s.timestamp,

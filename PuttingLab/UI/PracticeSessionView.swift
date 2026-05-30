@@ -4,7 +4,8 @@ import UIKit
 /// Root view of the 100-stroke guided session.
 ///
 /// Switches between six sub-views by `PracticeSessionViewModel.Phase`:
-///   - .setup            → SetupPhaseView (waiting for touch-down)
+///   - .instructions     → InstructionsPhaseView (read the batch + tap Ready)
+///   - .ready            → ReadyPhaseView (waiting for touch-down)
 ///   - .recording        → RecordingPhaseView (touch held, red background)
 ///   - .showing          → ResultPhaseView (display impact result + "Done")
 ///   - .batchTransition  → BatchTransitionView ("Batch X complete, next: Y")
@@ -72,8 +73,10 @@ struct PracticeSessionView: View {
     @ViewBuilder
     private var content: some View {
         switch viewModel.phase {
-        case .setup:
-            SetupPhaseView(viewModel: viewModel)
+        case .instructions:
+            InstructionsPhaseView(viewModel: viewModel)
+        case .ready:
+            ReadyPhaseView(viewModel: viewModel)
         case .recording:
             RecordingPhaseView(samplesCount: viewModel.samplesInCurrentRecording)
         case .showing:
@@ -128,7 +131,7 @@ struct PracticeSessionView: View {
     private var touchGesture: some Gesture {
         DragGesture(minimumDistance: 0)
             .onChanged { _ in
-                if !isPressing && viewModel.phase == .setup {
+                if !isPressing && viewModel.phase == .ready {
                     isPressing = true
                     viewModel.touchDown()
                 }
@@ -144,53 +147,45 @@ struct PracticeSessionView: View {
 
 // MARK: - Phase sub-views
 
-private struct SetupPhaseView: View {
+// MARK: - Page 1: Instructions
+
+private struct InstructionsPhaseView: View {
     let viewModel: PracticeSessionViewModel
 
     var body: some View {
         let batch = viewModel.session.currentBatch
         VStack(spacing: 0) {
-            // Top progress is always visible
-            ProgressHeader(
-                totalDone: viewModel.session.totalStrokesCompleted,
+            // PROMINENT counter + stroke type at top
+            BigStrokeHeader(
+                strokeNumber: viewModel.session.totalStrokesCompleted + 1,
                 totalTarget: viewModel.session.totalTargetStrokes,
-                currentBatchLabel: batch.displayName.uppercased(),
+                batchLabel: batch.displayName.uppercased(),
+                strokeTypeLabel: batch.strokeTypeLabel.uppercased(),
                 inBatchDone: viewModel.session.strokesInCurrentBatch,
                 inBatchTarget: batch.targetCount
             )
-            .padding(.horizontal, 20)
-            .padding(.top, 16)
-            .padding(.bottom, 12)
 
-            // Scroll the middle: stroke type + visual + instructions + errors
-            // so long instruction lists never get clipped on any iPhone size.
+            // Scroll: intent + instructions + sensor warnings
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
-                    // Stroke type
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(batch.strokeTypeLabel.uppercased())
-                            .font(.system(size: 24, weight: .heavy, design: .rounded))
-                            .foregroundStyle(.primary)
-                            .fixedSize(horizontal: false, vertical: true)
-                        Text(batch.intentSummary)
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
+                    Text(batch.intentSummary)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
 
-                    // Phone-hold visual: shown for first 2 strokes of every new batch.
-                    if viewModel.session.strokesInCurrentBatch < 2 {
+                    // Phone-hold flow card for the FIRST stroke of any new batch.
+                    if viewModel.session.strokesInCurrentBatch == 0 {
                         PhoneHoldVisual()
                     }
 
                     // Instructions
-                    VStack(alignment: .leading, spacing: 10) {
-                        ForEach(Array(batch.instructions.enumerated()), id: \.offset) { _, line in
-                            HStack(alignment: .top, spacing: 8) {
-                                Image(systemName: "circle.fill")
-                                    .font(.system(size: 5))
-                                    .foregroundStyle(.tertiary)
-                                    .padding(.top, 8)
+                    VStack(alignment: .leading, spacing: 12) {
+                        ForEach(Array(batch.instructions.enumerated()), id: \.offset) { idx, line in
+                            HStack(alignment: .top, spacing: 10) {
+                                Text("\(idx + 1).")
+                                    .font(.callout.weight(.bold))
+                                    .foregroundStyle(.blue)
+                                    .frame(width: 22, alignment: .leading)
                                 Text(line)
                                     .font(.callout)
                                     .foregroundStyle(.primary)
@@ -199,22 +194,6 @@ private struct SetupPhaseView: View {
                         }
                     }
 
-                    // Error toast
-                    if let err = viewModel.lastError {
-                        HStack(spacing: 6) {
-                            Image(systemName: "exclamationmark.triangle.fill")
-                                .foregroundStyle(.orange)
-                            Text(err)
-                                .font(.footnote.weight(.medium))
-                                .foregroundStyle(.primary)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-                        .padding(10)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 10))
-                    }
-
-                    // Sensor warnings (small, at the bottom of scroll content)
                     if let motionErr = viewModel.motionErrorText {
                         Text("Motion sensor: \(motionErr)")
                             .font(.caption).foregroundStyle(.red)
@@ -226,31 +205,149 @@ private struct SetupPhaseView: View {
                             .fixedSize(horizontal: false, vertical: true)
                     }
 
-                    // Bottom padding so last instruction line isn't flush
-                    // against the bottom prompt.
-                    Color.clear.frame(height: 8)
+                    Color.clear.frame(height: 12)
                 }
                 .padding(.horizontal, 20)
+                .padding(.top, 16)
             }
 
-            // Bottom prompt — always visible, never scrolls off
-            VStack(spacing: 6) {
+            // Big READY button at bottom
+            Button {
+                viewModel.tapReadyForStrokes()
+            } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: "arrow.right.circle.fill")
+                        .font(.title2)
+                    Text("READY TO STROKE")
+                        .font(.title3.weight(.heavy))
+                }
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 20)
+                .background(.blue, in: RoundedRectangle(cornerRadius: 16))
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 16)
+            .background(Color(.systemBackground))
+        }
+    }
+}
+
+// MARK: - Page 2: Ready to stroke (touch area)
+
+private struct ReadyPhaseView: View {
+    let viewModel: PracticeSessionViewModel
+
+    var body: some View {
+        let batch = viewModel.session.currentBatch
+        VStack(spacing: 0) {
+            // PROMINENT counter + stroke type at top, plus a Back button.
+            BigStrokeHeader(
+                strokeNumber: viewModel.session.totalStrokesCompleted + 1,
+                totalTarget: viewModel.session.totalTargetStrokes,
+                batchLabel: batch.displayName.uppercased(),
+                strokeTypeLabel: batch.strokeTypeLabel.uppercased(),
+                inBatchDone: viewModel.session.strokesInCurrentBatch,
+                inBatchTarget: batch.targetCount
+            )
+
+            Spacer()
+
+            // Big touch prompt — the whole screen below the header is the touch area
+            VStack(spacing: 14) {
                 Image(systemName: "hand.tap.fill")
-                    .font(.system(size: 28))
+                    .font(.system(size: 80))
                     .foregroundStyle(.blue)
-                Text("TAP & HOLD ANYWHERE")
-                    .font(.headline.weight(.bold))
-                Text("Press at takeaway · release at end of follow-through")
-                    .font(.caption)
+                Text("TAP & HOLD\nANYWHERE")
+                    .font(.system(size: 38, weight: .black, design: .rounded))
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
+                Text("Press at takeaway · keep holding through the stroke · release at end of follow-through")
+                    .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 24)
             }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 16)
-            .padding(.horizontal, 20)
-            .background(Color(.systemBackground))
+
+            if let err = viewModel.lastError {
+                HStack(spacing: 6) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange)
+                    Text(err)
+                        .font(.footnote.weight(.medium))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(10)
+                .background(.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 10))
+                .padding(.horizontal, 20)
+                .padding(.top, 20)
+            }
+
+            Spacer()
+
+            Button {
+                viewModel.tapBackToInstructions()
+            } label: {
+                Label("Re-read instructions", systemImage: "arrow.uturn.backward")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.bottom, 16)
         }
+    }
+}
+
+// MARK: - Big header shared by Instructions + Ready pages
+
+private struct BigStrokeHeader: View {
+    let strokeNumber: Int
+    let totalTarget: Int
+    let batchLabel: String
+    let strokeTypeLabel: String
+    let inBatchDone: Int
+    let inBatchTarget: Int
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            // Big stroke counter
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text("STROKE")
+                    .font(.subheadline.weight(.bold))
+                    .foregroundStyle(.secondary)
+                Text("\(strokeNumber)")
+                    .font(.system(size: 38, weight: .black, design: .rounded))
+                    .foregroundStyle(.primary)
+                Text("of \(totalTarget)")
+                    .font(.title3.weight(.medium))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Text("\(inBatchDone) of \(inBatchTarget)")
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.tertiary)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 4)
+                    .background(.gray.opacity(0.15), in: Capsule())
+            }
+            // Batch label as accent
+            Text(batchLabel)
+                .font(.caption.weight(.bold))
+                .foregroundStyle(.blue)
+            // PROMINENT stroke type
+            Text(strokeTypeLabel)
+                .font(.system(size: 22, weight: .heavy, design: .rounded))
+                .foregroundStyle(.primary)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.top, 2)
+            // Session progress bar
+            ProgressView(value: Double(strokeNumber - 1), total: Double(max(totalTarget, 1)))
+                .tint(.blue)
+                .padding(.top, 6)
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 16)
+        .padding(.bottom, 14)
+        .background(Color(.systemBackground))
     }
 }
 
@@ -324,7 +421,25 @@ private struct ResultPhaseView: View {
                     .padding()
             }
 
-            Spacer()
+            // Per-stroke accuracy feedback. Stored as userImpactJudgment in
+            // StrokeReplay JSON for offline cross-check vs computed impact time.
+            VStack(spacing: 8) {
+                Text("HOW DID THIS FEEL?")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(.secondary)
+                HStack(spacing: 10) {
+                    judgmentButton(label: "Just right", systemImage: "checkmark.circle.fill",
+                                   tint: .green, judgment: .justRight)
+                    judgmentButton(label: "Felt early", systemImage: "backward.fill",
+                                   tint: .orange, judgment: .early)
+                    judgmentButton(label: "Felt late", systemImage: "forward.fill",
+                                   tint: .purple, judgment: .late)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 10)
+
+            Spacer(minLength: 8)
 
             Button {
                 viewModel.tapDone()
@@ -339,6 +454,38 @@ private struct ResultPhaseView: View {
             .padding(.horizontal, 24)
             .padding(.bottom, 24)
             .accessibilityLabel("Done. Continue to next stroke.")
+        }
+    }
+
+    @ViewBuilder
+    private func judgmentButton(
+        label: String,
+        systemImage: String,
+        tint: Color,
+        judgment: PracticeSessionViewModel.ImpactJudgment
+    ) -> some View {
+        let isSelected = viewModel.pendingImpactJudgment == judgment.rawValue
+        Button {
+            viewModel.setImpactJudgment(judgment)
+        } label: {
+            VStack(spacing: 6) {
+                Image(systemName: systemImage)
+                    .font(.title3)
+                Text(label)
+                    .font(.caption.weight(.semibold))
+                    .multilineTextAlignment(.center)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 12)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(isSelected ? tint.opacity(0.22) : Color.gray.opacity(0.12))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(isSelected ? tint : .clear, lineWidth: 2)
+            )
+            .foregroundStyle(isSelected ? tint : .primary)
         }
     }
 
@@ -533,32 +680,3 @@ private struct CompleteView: View {
     }
 }
 
-private struct ProgressHeader: View {
-    let totalDone: Int
-    let totalTarget: Int
-    let currentBatchLabel: String
-    let inBatchDone: Int
-    let inBatchTarget: Int
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Text(currentBatchLabel)
-                    .font(.caption.weight(.bold))
-                    .foregroundStyle(.blue)
-                Spacer()
-                Text("\(inBatchDone) of \(inBatchTarget)")
-                    .font(.caption.monospaced())
-                    .foregroundStyle(.secondary)
-            }
-            ProgressView(value: Double(totalDone), total: Double(max(totalTarget, 1)))
-                .tint(.blue)
-            HStack {
-                Text("Stroke \(totalDone) of \(totalTarget)")
-                    .font(.caption2.monospaced())
-                    .foregroundStyle(.tertiary)
-                Spacer()
-            }
-        }
-    }
-}

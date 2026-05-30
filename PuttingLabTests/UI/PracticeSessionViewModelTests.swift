@@ -36,24 +36,41 @@ struct PracticeSessionViewModelTests {
         StrokeFixtures.cleanStraight8ft().window.samples
     }
 
-    @Test("starts in .setup phase with no error")
-    func startsInSetup() {
+    @Test("starts in .instructions phase with no error")
+    func startsInInstructions() {
         let vm = makeViewModel()
-        #expect(vm.phase == .setup)
+        #expect(vm.phase == .instructions)
         #expect(vm.lastError == nil)
     }
 
-    @Test("touchDown without any motion sample yet surfaces an error and stays in .setup")
+    @Test("tapReadyForStrokes transitions .instructions to .ready")
+    func tapReadyTransitionsToReady() {
+        let vm = makeViewModel()
+        vm.tapReadyForStrokes()
+        #expect(vm.phase == .ready)
+    }
+
+    @Test("touchDown from .instructions is a no-op (user must tap Ready first)")
+    func touchDownInInstructionsIsNoop() {
+        let vm = makeViewModel()
+        vm.handle(stillSample(t: 0))
+        vm.touchDown()
+        #expect(vm.phase == .instructions)
+    }
+
+    @Test("touchDown without any motion sample yet surfaces an error and stays in .ready")
     func touchDownWithoutSample() {
         let vm = makeViewModel()
+        vm.tapReadyForStrokes()
         vm.touchDown()
-        #expect(vm.phase == .setup)
+        #expect(vm.phase == .ready)
         #expect(vm.lastError != nil)
     }
 
     @Test("touchDown after sample arrives transitions to .recording")
     func touchDownTransitionsToRecording() {
         let vm = makeViewModel()
+        vm.tapReadyForStrokes()
         vm.handle(stillSample(t: 0))
         vm.touchDown()
         #expect(vm.phase == .recording)
@@ -63,13 +80,12 @@ struct PracticeSessionViewModelTests {
     @Test("samples accumulate only during .recording phase")
     func samplesAccumulateOnlyInRecording() {
         let vm = makeViewModel()
+        vm.tapReadyForStrokes()
         vm.handle(stillSample(t: 0))
         vm.handle(stillSample(t: 0.01))
-        // Not recording yet — sample count for recording should be 0.
         #expect(vm.samplesInCurrentRecording == 0)
 
         vm.touchDown()
-        // touchDown seeds the buffer with the latest sample.
         #expect(vm.samplesInCurrentRecording == 1)
 
         vm.handle(stillSample(t: 0.02))
@@ -77,27 +93,26 @@ struct PracticeSessionViewModelTests {
         #expect(vm.samplesInCurrentRecording == 3)
     }
 
-    @Test("touchUp with too few samples returns to .setup and sets error")
+    @Test("touchUp with too few samples returns to .ready and sets error")
     func touchUpTooQuick() {
         let vm = makeViewModel()
+        vm.tapReadyForStrokes()
         vm.handle(stillSample(t: 0))
         vm.touchDown()
-        // Add only one more sample (so total = 2, below minimumSamplesForStroke = 5).
         vm.handle(stillSample(t: 0.01))
         vm.touchUp()
-        #expect(vm.phase == .setup)
+        #expect(vm.phase == .ready)
         #expect(vm.lastError != nil)
     }
 
     @Test("touchUp with valid stroke produces ImpactResult and transitions to .showing")
     func touchUpWithValidStroke() throws {
         let vm = makeViewModel()
-        // Prime motion with the first sample so touchDown works.
+        vm.tapReadyForStrokes()
         let strokeSamples = fixtureStrokeSamples()
         try #require(strokeSamples.count >= 10, "stroke fixture must have enough samples")
         vm.handle(strokeSamples[0])
         vm.touchDown()
-        // Feed the rest of the fixture samples while recording.
         for s in strokeSamples.dropFirst() {
             vm.handle(s)
         }
@@ -106,9 +121,10 @@ struct PracticeSessionViewModelTests {
         #expect(vm.lastImpactResult != nil)
     }
 
-    @Test("tapDone from .showing in mid-batch returns to .setup with incremented counter")
+    @Test("tapDone from .showing in mid-batch returns to .ready with incremented counter")
     func tapDoneMidBatch() throws {
         let vm = makeViewModel()
+        vm.tapReadyForStrokes()
         let strokeSamples = fixtureStrokeSamples()
         vm.handle(strokeSamples[0])
         vm.touchDown()
@@ -116,19 +132,34 @@ struct PracticeSessionViewModelTests {
         vm.touchUp()
         try #require(vm.phase == .showing)
         vm.tapDone()
-        #expect(vm.phase == .setup)
+        #expect(vm.phase == .ready)
         #expect(vm.session.totalStrokesCompleted == 1)
         #expect(vm.session.currentBatchIndex == 0)
+    }
+
+    @Test("setImpactJudgment stores the user's choice on the view model")
+    func setImpactJudgmentPersistsToVM() throws {
+        let vm = makeViewModel()
+        vm.tapReadyForStrokes()
+        let strokeSamples = fixtureStrokeSamples()
+        vm.handle(strokeSamples[0])
+        vm.touchDown()
+        for s in strokeSamples.dropFirst() { vm.handle(s) }
+        vm.touchUp()
+        try #require(vm.phase == .showing)
+        vm.setImpactJudgment(.justRight)
+        #expect(vm.pendingImpactJudgment == "just_right")
     }
 
     @Test("tapDone on last stroke of calibration transitions to .batchTransition")
     func tapDoneEndOfCalibration() throws {
         let vm = makeViewModel()
-        // Pre-record 4 calibration strokes via the state directly so we only
-        // need to simulate the 5th stroke via the touch flow.
+        // Pre-record 4 calibration strokes via the state so we only need to
+        // simulate the 5th via the touch flow.
         for _ in 0..<4 { _ = vm.session.recordStroke() }
         try #require(vm.session.strokesInCurrentBatch == 4)
 
+        vm.tapReadyForStrokes()
         let strokeSamples = fixtureStrokeSamples()
         vm.handle(strokeSamples[0])
         vm.touchDown()
@@ -136,7 +167,6 @@ struct PracticeSessionViewModelTests {
         vm.touchUp()
         try #require(vm.phase == .showing)
         vm.tapDone()
-        // Calibration complete → next is Batch A (not break) → batchTransition.
         #expect(vm.phase == .batchTransition)
         #expect(vm.justCompletedBatch?.id == "cal")
         #expect(vm.session.currentBatch.id == "A")

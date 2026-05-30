@@ -59,10 +59,11 @@ struct TestBatch: Identifiable, Equatable, Sendable {
             strokeTypeLabel: "Deliberate PULL stroke",
             intentSummary: "Sign convention test — verifies KI-1",
             instructions: [
-                "Pick a direction to twist the phone at impact — your choice",
-                "Use the SAME direction for all 15 strokes — that's your 'pull' direction",
-                "Make the twist OBVIOUS at peak forward velocity — at least 5° of rotation",
-                "Twist comes from your wrists at impact, not before",
+                "PULL = clubface closed at impact. In real golf, ball starts left of target",
+                "At the MOMENT you cross your starting position (peak forward speed):",
+                "Give a small wrist twist that rotates the phone TOP toward your LEFT FOOT",
+                "Like trying to scoop the ball left — deliberate but not violent (5-10°)",
+                "Same direction for all 15 strokes — that's your 'pull' twist",
             ],
             targetCount: 15,
             phase: .block1
@@ -73,10 +74,11 @@ struct TestBatch: Identifiable, Equatable, Sendable {
             strokeTypeLabel: "Deliberate PUSH stroke",
             intentSummary: "Sign convention cross-check — verifies KI-1",
             instructions: [
-                "Twist the OPPOSITE direction from Batch B at impact",
-                "Same magnitude as Batch B (5°+ rotation)",
-                "Use the SAME OPPOSITE direction for all 15 strokes — that's your 'push' direction",
-                "We don't care which is 'really' pull/push — algorithm just needs OPPOSITE signs",
+                "PUSH = clubface open at impact. In real golf, ball starts right of target",
+                "At the MOMENT you cross your starting position (peak forward speed):",
+                "Give a small wrist twist that rotates the phone TOP toward your RIGHT FOOT",
+                "EXACT OPPOSITE direction from Batch B — same magnitude",
+                "Same direction for all 15 strokes — that's your 'push' twist",
             ],
             targetCount: 15,
             phase: .block1

@@ -22,7 +22,10 @@ import simd
 final class PracticeSessionViewModel {
     /// High-level UI state.
     enum Phase: Equatable, Sendable {
-        case setup
+        /// Page 1: Read what you're about to do. Tap READY to advance.
+        case instructions
+        /// Page 2: Stroke page. Big counter + stroke type. Press and hold to record.
+        case ready
         case recording
         case showing
         case batchTransition
@@ -30,7 +33,7 @@ final class PracticeSessionViewModel {
         case sessionComplete
     }
 
-    var phase: Phase = .setup
+    var phase: Phase = .instructions
     var session: TestSessionState
     var lastImpactResult: ImpactResult?
     var justCompletedBatch: TestBatch?
@@ -39,6 +42,16 @@ final class PracticeSessionViewModel {
     var arkitErrorText: String?
     var latestSample: MotionSample?
     var samplesInCurrentRecording: Int = 0
+    /// User's judgment for the current stroke's impact timing.
+    /// Set via the result panel buttons; persisted to StrokeReplay on `tapDone`.
+    var pendingImpactJudgment: String?
+
+    /// Allowed impact judgments. Stored verbatim in StrokeReplay JSON.
+    enum ImpactJudgment: String, Sendable {
+        case justRight = "just_right"
+        case early
+        case late
+    }
 
     private let motion: MotionStreaming
     private let arkit: ARTracking
@@ -51,6 +64,10 @@ final class PracticeSessionViewModel {
     private var posesDuringRecording: [ARPose] = []
     private var recordingLock: StillnessLock?
     private var recordingArkitBaseline: Double?
+    /// The window for the stroke currently shown in the result panel.
+    /// Held so `tapDone` can persist the replay with the user's impact judgment.
+    private var pendingWindow: StrokeWindow?
+    private var pendingResult: ImpactResult?
 
     /// Minimum sample count to attempt impact detection. ImpactDetector
     /// already requires >= 3; we set 5 to give the integration step a small
@@ -100,8 +117,10 @@ final class PracticeSessionViewModel {
             phase = .breakPoint
         } else if session.isSessionComplete {
             phase = .sessionComplete
-        } else if phase != .recording && phase != .showing && phase != .batchTransition {
-            phase = .setup
+        } else if phase != .recording && phase != .showing && phase != .batchTransition && phase != .ready {
+            // Cold-launch / batch start: show instructions page. Mid-batch
+            // strokes stay on .ready (no need to re-read instructions every time).
+            phase = .instructions
         }
 
         // Guard against double-start. If motion is already running, the
@@ -152,7 +171,7 @@ final class PracticeSessionViewModel {
     func stopSession() {
         // Safety belt: if we were in mid-stroke recording when the user
         // backgrounds the app (e.g., incoming call), discard the partial
-        // buffer + return to .setup. Otherwise the user comes back to a
+        // buffer + return to .ready. Otherwise the user comes back to a
         // stuck red RECORDING screen with no thumb pressed and no exit.
         if phase == .recording {
             samplesDuringRecording.removeAll(keepingCapacity: false)
@@ -161,7 +180,7 @@ final class PracticeSessionViewModel {
             recordingLock = nil
             recordingArkitBaseline = nil
             lastError = "Stroke discarded — phone was backgrounded mid-recording. Try again."
-            phase = .setup
+            phase = .ready
         }
         motion.stop()
         arkit.stop()
@@ -192,10 +211,26 @@ final class PracticeSessionViewModel {
 
     // MARK: - User actions
 
+    /// Called when the user taps the "READY TO STROKE" button on the
+    /// instructions page. Transitions to the stroke page (`.ready`) where
+    /// they can press + hold to record.
+    func tapReadyForStrokes() {
+        guard phase == .instructions else { return }
+        lastError = nil
+        phase = .ready
+    }
+
+    /// Called when the user wants to go back to the instructions page from
+    /// the stroke-ready page (e.g. they want to re-read the batch directions).
+    func tapBackToInstructions() {
+        guard phase == .ready else { return }
+        phase = .instructions
+    }
+
     /// Called when the user touches and holds the screen.
     /// Snapshots the address-pose baseline, then transitions to recording.
     func touchDown() {
-        guard phase == .setup else { return }
+        guard phase == .ready else { return }
         guard let latest = latestSample else {
             lastError = "Sensors warming up — wait a moment then try again."
             return
@@ -224,7 +259,7 @@ final class PracticeSessionViewModel {
     func touchUp() {
         guard phase == .recording else { return }
         guard let lock = recordingLock else {
-            phase = .setup
+            phase = .ready
             return
         }
         // Cleanly drain the per-recording buffers + counter regardless of
@@ -237,7 +272,7 @@ final class PracticeSessionViewModel {
         }
         guard samplesDuringRecording.count >= Self.minimumSamplesForStroke else {
             lastError = "Too quick — please press, complete the stroke, then release."
-            phase = .setup
+            phase = .ready
             return
         }
         let window = StrokeWindow(
@@ -253,38 +288,59 @@ final class PracticeSessionViewModel {
                 arkitBaselineYaw: recordingArkitBaseline
             )
             lastImpactResult = result
-            if let store = replayStore {
-                let replay = StrokeReplay(
-                    window: window,
-                    result: result,
-                    deviceModel: SessionCoordinator.deviceModelString(),
-                    appVersion: SessionCoordinator.appVersionString()
-                )
-                // Detach to keep the UI smooth. Surface failures via a counter
-                // (replaySaveFailureCount) so the end-of-session screen can
-                // warn the user if any replays did not persist.
-                Task.detached(priority: .utility) { [weak self] in
-                    do {
-                        _ = try store.save(replay)
-                    } catch {
-                        await MainActor.run {
-                            self?.replaySaveFailureCount += 1
-                        }
-                    }
-                }
-            }
+            // Hold the window + result so tapDone can persist with the user's
+            // impact judgment. Saving on touchUp + then again on tapDone
+            // would have to overwrite — cleaner to wait the few seconds for
+            // the user to tap a judgment + Done.
+            pendingWindow = window
+            pendingResult = result
+            pendingImpactJudgment = nil
             phase = .showing
             onHaptic(.light)
         } catch {
             lastError = "Stroke not detected: \(error)"
-            phase = .setup
+            phase = .ready
         }
     }
 
-    /// User dismissed the result panel. Advances the session state and
-    /// routes to the next phase (Setup / BatchTransition / Break / Complete).
+    /// Called from the result panel when the user taps "Just right", "Felt early",
+    /// or "Felt late". Stored locally; persisted to disk in `tapDone`.
+    func setImpactJudgment(_ judgment: ImpactJudgment) {
+        guard phase == .showing else { return }
+        pendingImpactJudgment = judgment.rawValue
+        onHaptic(.light)
+    }
+
+    /// User dismissed the result panel. Persists the stroke replay with any
+    /// impact judgment, advances the session state, and routes to the next
+    /// phase. Within a batch, returns to .ready (so the user can stroke again
+    /// without re-reading instructions). New batches start on .instructions.
     func tapDone() {
         guard phase == .showing else { return }
+        // Persist the stroke now (we held off saving in touchUp so we could
+        // include the user's impact judgment).
+        if let window = pendingWindow, let result = pendingResult, let store = replayStore {
+            let replay = StrokeReplay(
+                window: window,
+                result: result,
+                deviceModel: SessionCoordinator.deviceModelString(),
+                appVersion: SessionCoordinator.appVersionString(),
+                userImpactJudgment: pendingImpactJudgment
+            )
+            Task.detached(priority: .utility) { [weak self] in
+                do {
+                    _ = try store.save(replay)
+                } catch {
+                    await MainActor.run {
+                        self?.replaySaveFailureCount += 1
+                    }
+                }
+            }
+        }
+        pendingWindow = nil
+        pendingResult = nil
+        pendingImpactJudgment = nil
+
         let batchComplete = session.recordStroke()
         session.save()
         if session.isSessionComplete {
@@ -305,7 +361,8 @@ final class PracticeSessionViewModel {
                 phase = .batchTransition
             }
         } else {
-            phase = .setup
+            // Same batch, next stroke — go straight to ready (no re-read).
+            phase = .ready
         }
     }
 
@@ -313,7 +370,8 @@ final class PracticeSessionViewModel {
     func tapContinueFromBatchTransition() {
         guard phase == .batchTransition else { return }
         justCompletedBatch = nil
-        phase = .setup
+        // New batch — show instructions page first.
+        phase = .instructions
     }
 
     /// User tapped "I'M READY TO RESUME" after the break.
@@ -321,7 +379,8 @@ final class PracticeSessionViewModel {
         guard phase == .breakPoint else { return }
         session.advanceBatch()
         session.save()
-        phase = .setup
+        // Block 2 starts — show instructions page.
+        phase = .instructions
     }
 
     /// User tapped "Restart Session" on the complete screen.
@@ -331,6 +390,6 @@ final class PracticeSessionViewModel {
         justCompletedBatch = nil
         lastImpactResult = nil
         lastError = nil
-        phase = .setup
+        phase = .instructions
     }
 }

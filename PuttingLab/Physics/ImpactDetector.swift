@@ -4,7 +4,15 @@ import simd
 final class ImpactDetector: Sendable {
     static let nominalDt: TimeInterval = 0.01
     static let minStrokeDurationSeconds: TimeInterval = 0.200
-    static let minPeakVelocityMps: Double = 0.3
+    /// Minimum integrated linear peak velocity to accept a stroke. Dropped from
+    /// 0.30 → 0.05 m/s for putting-specific tuning: a real putting stroke held
+    /// in a closed hand (no clubhead extension) produces ~0.1-0.2 m/s of linear
+    /// translation at the IMU, dominated by rotation rather than translation.
+    /// 0.30 was calibrated for Wii-Sports-style full-arm swings and rejected
+    /// every putt. 0.05 keeps the "snap-to-square" defense against pure finger
+    /// twitches while accepting actual putting motion. v1.1 will retune from
+    /// real-stroke distribution data once we have 100+ recorded strokes.
+    static let minPeakVelocityMps: Double = 0.05
     static let smoothingWindow: Int = 5
     static let fpTolerance: TimeInterval = 1e-6
 

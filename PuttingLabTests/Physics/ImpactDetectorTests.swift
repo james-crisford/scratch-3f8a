@@ -137,9 +137,14 @@ struct ImpactDetectorRejectionTests {
         #expect(result.confidence < 0.5)
     }
 
-    @Test("low peak velocity (<0.3 m/s) → snapped to square with .peakSpeedTooLow (C5 fix, spec §5.2 #4)")
+    @Test("low peak velocity (<0.05 m/s) → snapped to square with .peakSpeedTooLow (B7 putting tune, spec §5.2 #4)")
     func lowPeakSnaps() throws {
-        let fixture = StrokeFixtures.cleanStraight(durationMs: 600, peakVelocity: 0.2)
+        // Threshold lowered to 0.05 m/s for putting-specific tuning (was 0.30 m/s).
+        // Putting strokes held in a closed hand produce ~0.1-0.2 m/s linear
+        // translation; 0.30 rejected every putt. Use a fixture peak well below
+        // 0.05 so the snap-to-square defense against pure twitches is still
+        // exercised.
+        let fixture = StrokeFixtures.cleanStraight(durationMs: 600, peakVelocity: 0.02)
         let result = try ImpactDetector().detect(in: fixture.window)
         #expect(result.snappedToSquare)
         #expect(result.snapReason == .peakSpeedTooLow)
