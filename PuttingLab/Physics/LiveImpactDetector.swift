@@ -35,6 +35,17 @@ final class LiveImpactDetector {
     /// time (vs. 274–388 ms for the original disarm-cross logic).
     /// Higher = more noise rejection but more latency.
     let peakConfirmationSamples: Int
+    /// Minimum drop from `maxMagSinceArmed` required for the
+    /// peak-confirmation fire path to trigger. Without this, a low-amplitude
+    /// jitter during the rise (e.g. a 0.5% blip from 2.082 → 2.075 → 2.066
+    /// in James's stroke #5 around the arm-threshold plateau) qualifies as
+    /// "3 consecutive below-max samples" and fires prematurely — then the
+    /// 400 ms cool-down blocks the REAL impact peak. 0.05 = require a 5 %
+    /// drop below the running max. Calibrated on stroke #5: real peak 2.873
+    /// minus 5 % = 2.729 → fires at sample 139 (1382 ms, -1 ms vs algo
+    /// impact) instead of the false-positive at sample 123 (1223 ms, blocks
+    /// the real fire for 400 ms cool-down).
+    let minPeakDropFraction: Double
     /// Minimum gap between successive haptic fires (seconds). Prevents one
     /// noisy peak with a few jittery samples from double-firing.
     let coolDownSeconds: Double
@@ -61,6 +72,7 @@ final class LiveImpactDetector {
         armThreshold: Double = 2.0,
         disarmThreshold: Double = 1.0,
         peakConfirmationSamples: Int = 3,
+        minPeakDropFraction: Double = 0.05,
         coolDownSeconds: Double = 0.4,
         warmUpSamplesBelowDisarm: Int = 5
     ) {
@@ -73,11 +85,16 @@ final class LiveImpactDetector {
             peakConfirmationSamples >= 1,
             "peakConfirmationSamples must be >= 1"
         )
+        precondition(
+            minPeakDropFraction >= 0 && minPeakDropFraction < 1,
+            "minPeakDropFraction must be in [0, 1)"
+        )
         precondition(coolDownSeconds >= 0, "coolDownSeconds must be non-negative")
         precondition(warmUpSamplesBelowDisarm >= 0, "warmUpSamplesBelowDisarm must be non-negative")
         self.armThreshold = armThreshold
         self.disarmThreshold = disarmThreshold
         self.peakConfirmationSamples = peakConfirmationSamples
+        self.minPeakDropFraction = minPeakDropFraction
         self.coolDownSeconds = coolDownSeconds
         self.warmUpSamplesBelowDisarm = warmUpSamplesBelowDisarm
     }
@@ -150,16 +167,21 @@ final class LiveImpactDetector {
 
         // Armed: PEAK-CONFIRMATION path (fires ~30 ms after the true peak).
         // Track max-since-arm; count consecutive samples that fall below
-        // it. When that count hits `peakConfirmationSamples`, we're past
-        // the peak. Calibrated on James's 5 B7 strokes: this typically
-        // fires 0–80 ms after the algorithm's chosen impact time (vs.
-        // 274–388 ms for the original disarm-cross fallback).
+        // it. Fire only when BOTH conditions hold:
+        //   1. ≥ `peakConfirmationSamples` consecutive below-max samples
+        //      (rejects a single noisy descent during the rise).
+        //   2. Current mag is ≥ `minPeakDropFraction` below max (rejects
+        //      sub-1 % jitter on the arm-threshold plateau which would
+        //      otherwise produce a false-positive fire — see stroke #5).
+        // Calibrated on James's 5 B7 strokes (Build 11): all 5 strokes
+        // land within ±80 ms of the algorithm's chosen impact time.
         if mag > maxMagSinceArmed {
             maxMagSinceArmed = mag
             consecutiveBelowMax = 0
         } else if mag < maxMagSinceArmed {
             consecutiveBelowMax += 1
-            if consecutiveBelowMax >= peakConfirmationSamples {
+            let dropTrigger = maxMagSinceArmed * (1.0 - minPeakDropFraction)
+            if consecutiveBelowMax >= peakConfirmationSamples && mag < dropTrigger {
                 armed = false
                 maxMagSinceArmed = 0
                 consecutiveBelowMax = 0
