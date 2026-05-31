@@ -206,6 +206,33 @@ final class PracticeSessionViewModel {
         }
     }
 
+    /// Pause ARTrackingManager before presenting a Slice 1 / Slice 2
+    /// fullScreenCover. The cover spins up its own ARSession; iOS only
+    /// supports one active session at a time. Without an explicit pause
+    /// here, ARTrackingManager's session stays "running" by its flag
+    /// but stops receiving frames, then sits zombied after cover
+    /// dismiss until the next background+foreground cycle (H4 in the
+    /// 2026-05-31 audit). Pair with `resumeARFromCover()` on dismiss.
+    func pauseARForCover() {
+        arkit.stop()
+    }
+
+    /// Restart ARTrackingManager after a Slice 1 / Slice 2 cover
+    /// dismissal. `pauseARForCover` called `arkit.stop()` so the running
+    /// flag is false — start() will not throw .alreadyRunning. Errors
+    /// surface via `arkitErrorText` exactly like `startSession`.
+    func resumeARFromCover() {
+        do {
+            try arkit.start()
+            arkitErrorText = nil
+        } catch ARTrackingError.alreadyRunning {
+            // Defensive: if a previous cover dismissal left the flag set,
+            // we already paused; this branch shouldn't fire. Treat as ok.
+        } catch {
+            arkitErrorText = String(describing: error)
+        }
+    }
+
     func stopSession() {
         // Safety belt: if we were in mid-stroke recording when the user
         // backgrounds the app (e.g., incoming call), discard the partial

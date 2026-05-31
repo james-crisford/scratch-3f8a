@@ -489,28 +489,36 @@ private struct ResultPhaseView: View {
             .padding(.horizontal, 24)
             .padding(.bottom, 4)
 
-            // DEBUG: Slice 1 AR entry point — verification only (no ball,
-            // no hole, no stroke integration). Will move to a proper
-            // result-panel button once Slice 4 lands.
+            // DEBUG: Slice 1 + Slice 2 AR entry points — verification only.
+            // Each cover spins up its own ARSession; iOS only supports one
+            // active at a time, so we pause ARTrackingManager before
+            // presenting and restart it on dismiss. Without this the
+            // practice-screen AR-pose channel is dead after every cover
+            // close until the app is backgrounded (H4 in the 2026-05-31
+            // audit). Replaced by a single shared ARSession in Slice 3.
             VStack(spacing: 2) {
                 Button {
+                    viewModel.pauseARForCover()
                     showARScanningTest = true
                 } label: {
                     Text("DEBUG · AR scanning test (Slice 1)")
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
                 }
-                .fullScreenCover(isPresented: $showARScanningTest) {
+                .fullScreenCover(isPresented: $showARScanningTest,
+                                 onDismiss: { viewModel.resumeARFromCover() }) {
                     ARScanningView()
                 }
                 Button {
+                    viewModel.pauseARForCover()
                     showARPlacementTest = true
                 } label: {
                     Text("DEBUG · AR placement test (Slice 2)")
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
                 }
-                .fullScreenCover(isPresented: $showARPlacementTest) {
+                .fullScreenCover(isPresented: $showARPlacementTest,
+                                 onDismiss: { viewModel.resumeARFromCover() }) {
                     ARPlacementView()
                 }
             }

@@ -30,7 +30,12 @@ struct ARScanningView: View {
     @State private var trackingState: String = "Starting…"
     @State private var planeCount: Int = 0
     @State private var sessionElapsedSeconds: Int = 0
-    @State private var sessionStartedAt: Date = Date()
+    /// Anchored to the actual view-appear (not the View struct init) so
+    /// the Elapsed counter starts when the user actually sees the
+    /// camera (M9 in the audit). Set in onAppear.
+    @State private var sessionStartedAt: Date?
+    @State private var firstStillAt: Date?
+    @State private var showStillnessHint: Bool = false
     /// Live AR session event log — observed by the HUD for real-time
     /// visibility, persisted to Documents/ARSessionLogs/<id>.json on
     /// dismantle. Same logger type as Slice 2 so the JSON shape is
@@ -50,6 +55,9 @@ struct ARScanningView: View {
                 topBar
                 Spacer()
                 hud
+                if showStillnessHint && planeCount == 0 {
+                    stillnessHint
+                }
                 eventLog
             }
             .padding(.horizontal, 16)
@@ -57,15 +65,46 @@ struct ARScanningView: View {
         }
         .statusBarHidden()
         .onReceive(Timer.publish(every: 1, on: .main, in: .common).autoconnect()) { _ in
-            sessionElapsedSeconds = Int(Date().timeIntervalSince(sessionStartedAt))
+            // Elapsed is anchored to onAppear, not view-struct init.
+            // Without this fix the counter included pre-camera time and
+            // also jumped on background+foreground (M9).
+            if let start = sessionStartedAt {
+                sessionElapsedSeconds = Int(Date().timeIntervalSince(start))
+            }
+            // Silent-wait coaching nudge after 2 s of no plane (M12).
+            if planeCount == 0, let firstStillAt {
+                if !showStillnessHint && Date().timeIntervalSince(firstStillAt) > 2.0 {
+                    showStillnessHint = true
+                }
+            }
+        }
+        .onChange(of: planeCount) { _, newValue in
+            // Roll back the silent-wait hint as soon as a plane appears.
+            if newValue > 0 {
+                showStillnessHint = false
+                firstStillAt = nil
+            }
         }
         .onAppear {
+            sessionStartedAt = Date()
+            firstStillAt = Date()
             logger.log(.sessionStart, "Slice 1 scanning view opened")
         }
         .onDisappear {
             logger.log(.sessionEnd, "Slice 1 scanning view dismissed")
             logger.saveSnapshot()
         }
+    }
+
+    /// Silent-wait nudge after 2 s of no plane (M12 fix).
+    private var stillnessHint: some View {
+        Text("Try slowly panning the phone — ARKit needs motion to detect surfaces")
+            .font(.caption2.italic())
+            .foregroundStyle(.white)
+            .padding(10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(.orange.opacity(0.6), in: RoundedRectangle(cornerRadius: 10))
+            .padding(.top, 6)
     }
 
     private var topBar: some View {
@@ -129,8 +168,10 @@ struct ARScanningView: View {
                     .foregroundStyle(.white.opacity(0.65))
                 Spacer()
                 Button {
-                    logger.saveSnapshot()
+                    // Log first then save — otherwise the saved JSON
+                    // lacks the very marker it's supposed to tag (L16).
                     logger.log(.note, "Snapshot saved manually")
+                    logger.saveSnapshot()
                 } label: {
                     Text("Save")
                         .font(.caption2.weight(.semibold))
@@ -167,10 +208,16 @@ struct ARScanningView: View {
     }
 
     private func timeShort(_ d: Date) -> String {
+        Self.shortTimeFormatter.string(from: d)
+    }
+
+    /// Static DateFormatter — reuse across every row render instead of
+    /// reallocating per call (L27).
+    private static let shortTimeFormatter: DateFormatter = {
         let f = DateFormatter()
         f.dateFormat = "HH:mm:ss.SSS"
-        return f.string(from: d)
-    }
+        return f
+    }()
 
     private func row(_ label: String, _ value: String, tint: Color) -> some View {
         HStack {
@@ -186,7 +233,7 @@ struct ARScanningView: View {
 
     private var trackingTint: Color {
         if trackingState.hasPrefix("Normal") { return .green }
-        if trackingState.hasPrefix("Limited") { return .yellow }
+        if trackingState.hasPrefix("Limited") || trackingState.hasPrefix("Starting") { return .yellow }
         return .red
     }
 
@@ -247,10 +294,18 @@ private struct ARSceneRepresentable: UIViewRepresentable {
         // Stop the AR session when SwiftUI tears the view down. ARSession
         // holds the camera + sensor subscriptions; without explicit
         // pause() they can linger and burn battery between presentations.
+        // ARTrackingManager restart is handled by PracticeSessionView's
+        // onDismiss closure (H4 fix) — nothing for us to do here.
         uiView.session.pause()
-        // Drop overlays + flush snapshot. Mirrors Slice 2's dismantle.
-        coordinator.clearAllPlaneOverlays()
-        coordinator.logger.saveSnapshot()
+        // Drop overlays only. Static dismantleUIView isn't @MainActor-
+        // isolated at the type level even though SwiftUI calls it on
+        // the main thread, so we hop via assumeIsolated under Swift 6
+        // strict mode. saveSnapshot is NOT called here — the View's
+        // onDisappear already does it; doing it twice is wasted I/O
+        // and can race with the first write (M14 fix).
+        MainActor.assumeIsolated {
+            coordinator.clearAllPlaneOverlays()
+        }
     }
 
     func makeCoordinator() -> Coordinator {
@@ -259,11 +314,12 @@ private struct ARSceneRepresentable: UIViewRepresentable {
                     logger: logger)
     }
 
-    /// `@MainActor` so the delegate-callback bodies can talk to the
-    /// MainActor-isolated `ARSessionLogger` + write SwiftUI Bindings
-    /// without crossing actor boundaries. `arView.session.delegateQueue
-    /// = .main` means ARKit will call us on MainActor at runtime; the
-    /// annotation makes Swift 6 strict-concurrency aware.
+    /// `@MainActor` on the class for its own state; every delegate
+    /// method is `nonisolated` and bridges via MainActor.assumeIsolated
+    /// (C1 fix — Swift 6 strict-concurrency rejects @MainActor methods
+    /// satisfying nonisolated @objc protocol requirements otherwise).
+    /// `arView.session.delegateQueue = .main` guarantees ARKit calls us
+    /// on the main thread, so the runtime assertion always holds.
     @MainActor
     final class Coordinator: NSObject, ARSessionDelegate {
         @Binding var trackingState: String
@@ -271,20 +327,20 @@ private struct ARSceneRepresentable: UIViewRepresentable {
         let logger: ARSessionLogger
         weak var arView: ARView?
 
-        /// Plane anchor IDs currently tracked. We hold the set so add /
-        /// remove events keep `planeCount` correct without re-counting
-        /// the entire ARSession.anchors array on every frame.
         private var detectedPlanes: Set<UUID> = []
-        /// Last time we pushed a tracking-state update to the HUD.
-        /// 10 Hz is enough for the user to see changes — full 60 Hz
-        /// would flicker the string between frames mid-state-transition.
         private var lastHUDUpdate: Date = .distantPast
-        /// Translucent green overlay per detected plane. Same approach
-        /// as Slice 2 — see comments on the matching field there.
-        private var planeOverlays: [UUID: AnchorEntity] = [:]
-        /// Throttle for `.planeUpdated` log emission — see Slice 2 for
-        /// the rationale (ARKit fires updates at ~10 Hz per plane).
+        private var planeOverlays: [UUID: PlaneOverlay] = [:]
         private var lastPlaneUpdateLog: [UUID: Date] = [:]
+
+        /// Cached overlay record — mirrors Slice 2's PlaneOverlay struct.
+        /// Re-uses the ModelEntity across 10 Hz ticks and only rebuilds
+        /// the mesh when the extent changes by more than 5 cm (M7).
+        private struct PlaneOverlay {
+            let anchor: AnchorEntity
+            let model: ModelEntity
+            var lastWidth: Float
+            var lastDepth: Float
+        }
 
         init(trackingState: Binding<String>,
              planeCount: Binding<Int>,
@@ -296,87 +352,98 @@ private struct ARSceneRepresentable: UIViewRepresentable {
 
         // MARK: ARSessionDelegate
 
-        func session(_ session: ARSession, didUpdate frame: ARFrame) {
-            let now = Date()
-            guard now.timeIntervalSince(lastHUDUpdate) > 0.1 else { return }
-            lastHUDUpdate = now
-
-            let status = Self.formatTrackingState(frame.camera.trackingState)
-            if status != _trackingState.wrappedValue {
-                logger.log(.trackingState, status)
+        nonisolated func session(_ session: ARSession, didUpdate frame: ARFrame) {
+            MainActor.assumeIsolated {
+                let now = Date()
+                guard now.timeIntervalSince(lastHUDUpdate) > 0.1 else { return }
+                lastHUDUpdate = now
+                let status = Self.formatTrackingState(frame.camera.trackingState)
+                if status != _trackingState.wrappedValue {
+                    logger.log(.trackingState, status)
+                }
+                _trackingState.wrappedValue = status
             }
-            _trackingState.wrappedValue = status
         }
 
-        func session(_ session: ARSession, didAdd anchors: [ARAnchor]) {
-            var added = 0
-            for a in anchors {
-                guard let plane = a as? ARPlaneAnchor else { continue }
-                if detectedPlanes.insert(a.identifier).inserted {
-                    added += 1
+        nonisolated func session(_ session: ARSession, didAdd anchors: [ARAnchor]) {
+            MainActor.assumeIsolated {
+                var added = 0
+                for a in anchors {
+                    guard let plane = a as? ARPlaneAnchor else { continue }
+                    if detectedPlanes.insert(a.identifier).inserted {
+                        added += 1
+                        addOrUpdatePlaneOverlay(plane)
+                        logger.log(.planeAdded,
+                                   "plane \(plane.identifier.uuidString.prefix(6)) " +
+                                   "ext=\(String(format: "%.2f×%.2f", plane.planeExtent.width, plane.planeExtent.height))m",
+                                   payload: [
+                                       "id": plane.identifier.uuidString,
+                                       "width": String(format: "%.3f", plane.planeExtent.width),
+                                       "height": String(format: "%.3f", plane.planeExtent.height),
+                                       "alignment": plane.alignment == .horizontal ? "horizontal" : "vertical",
+                                   ])
+                    }
+                }
+                guard added > 0 else { return }
+                _planeCount.wrappedValue = detectedPlanes.count
+            }
+        }
+
+        nonisolated func session(_ session: ARSession, didUpdate anchors: [ARAnchor]) {
+            MainActor.assumeIsolated {
+                let now = Date()
+                for a in anchors {
+                    guard let plane = a as? ARPlaneAnchor,
+                          detectedPlanes.contains(a.identifier) else { continue }
                     addOrUpdatePlaneOverlay(plane)
-                    logger.log(.planeAdded,
-                               "plane \(plane.identifier.uuidString.prefix(6)) " +
-                               "ext=\(String(format: "%.2f×%.2f", plane.planeExtent.width, plane.planeExtent.height))m",
-                               payload: [
-                                   "id": plane.identifier.uuidString,
-                                   "width": String(format: "%.3f", plane.planeExtent.width),
-                                   "height": String(format: "%.3f", plane.planeExtent.height),
-                                   "alignment": plane.alignment == .horizontal ? "horizontal" : "vertical",
-                               ])
-                }
-            }
-            guard added > 0 else { return }
-            _planeCount.wrappedValue = detectedPlanes.count
-        }
-
-        func session(_ session: ARSession, didUpdate anchors: [ARAnchor]) {
-            let now = Date()
-            for a in anchors {
-                guard let plane = a as? ARPlaneAnchor,
-                      detectedPlanes.contains(a.identifier) else { continue }
-                addOrUpdatePlaneOverlay(plane)
-                let last = lastPlaneUpdateLog[a.identifier] ?? .distantPast
-                if now.timeIntervalSince(last) > 1.0 {
-                    lastPlaneUpdateLog[a.identifier] = now
-                    logger.log(.planeUpdated,
-                               "plane \(plane.identifier.uuidString.prefix(6)) " +
-                               "ext=\(String(format: "%.2f×%.2f", plane.planeExtent.width, plane.planeExtent.height))m",
-                               payload: [
-                                   "id": plane.identifier.uuidString,
-                                   "width": String(format: "%.3f", plane.planeExtent.width),
-                                   "height": String(format: "%.3f", plane.planeExtent.height),
-                               ])
+                    let last = lastPlaneUpdateLog[a.identifier] ?? .distantPast
+                    if now.timeIntervalSince(last) > 1.0 {
+                        lastPlaneUpdateLog[a.identifier] = now
+                        logger.log(.planeUpdated,
+                                   "plane \(plane.identifier.uuidString.prefix(6)) " +
+                                   "ext=\(String(format: "%.2f×%.2f", plane.planeExtent.width, plane.planeExtent.height))m",
+                                   payload: [
+                                       "id": plane.identifier.uuidString,
+                                       "width": String(format: "%.3f", plane.planeExtent.width),
+                                       "height": String(format: "%.3f", plane.planeExtent.height),
+                                   ])
+                    }
                 }
             }
         }
 
-        func session(_ session: ARSession, didRemove anchors: [ARAnchor]) {
-            var removed = 0
-            for a in anchors {
-                if detectedPlanes.remove(a.identifier) != nil {
-                    removed += 1
-                    removePlaneOverlay(id: a.identifier)
-                    lastPlaneUpdateLog.removeValue(forKey: a.identifier)
-                    logger.log(.planeRemoved,
-                               "plane \(a.identifier.uuidString.prefix(6))")
+        nonisolated func session(_ session: ARSession, didRemove anchors: [ARAnchor]) {
+            MainActor.assumeIsolated {
+                var removed = 0
+                for a in anchors {
+                    if detectedPlanes.remove(a.identifier) != nil {
+                        removed += 1
+                        removePlaneOverlay(id: a.identifier)
+                        lastPlaneUpdateLog.removeValue(forKey: a.identifier)
+                        logger.log(.planeRemoved,
+                                   "plane \(a.identifier.uuidString.prefix(6))")
+                    }
                 }
+                guard removed > 0 else { return }
+                _planeCount.wrappedValue = detectedPlanes.count
             }
-            guard removed > 0 else { return }
-            _planeCount.wrappedValue = detectedPlanes.count
         }
 
-        func sessionWasInterrupted(_ session: ARSession) {
-            logger.log(.interruption, "session interrupted")
-            _trackingState.wrappedValue = "Interrupted"
+        nonisolated func sessionWasInterrupted(_ session: ARSession) {
+            MainActor.assumeIsolated {
+                logger.log(.interruption, "session interrupted")
+                _trackingState.wrappedValue = "Interrupted"
+            }
         }
 
-        func sessionInterruptionEnded(_ session: ARSession) {
-            logger.log(.interruptionEnded, "session resumed")
-            _trackingState.wrappedValue = "Resuming…"
+        nonisolated func sessionInterruptionEnded(_ session: ARSession) {
+            MainActor.assumeIsolated {
+                logger.log(.interruptionEnded, "session resumed")
+                _trackingState.wrappedValue = "Resuming…"
+            }
         }
 
-        func session(_ session: ARSession, didFailWithError error: Error) {
+        nonisolated func session(_ session: ARSession, didFailWithError error: Error) {
             let nsErr = error as NSError
             let message: String
             if nsErr.domain == ARError.errorDomain,
@@ -385,9 +452,11 @@ private struct ARSceneRepresentable: UIViewRepresentable {
             } else {
                 message = "Failed: \(nsErr.localizedDescription)"
             }
-            logger.log(.failed, message,
-                       payload: ["domain": nsErr.domain, "code": "\(nsErr.code)"])
-            _trackingState.wrappedValue = message
+            MainActor.assumeIsolated {
+                logger.log(.failed, message,
+                           payload: ["domain": nsErr.domain, "code": "\(nsErr.code)"])
+                _trackingState.wrappedValue = message
+            }
         }
 
         // MARK: Translucent plane visualization (matches Slice 2)
@@ -396,36 +465,54 @@ private struct ARSceneRepresentable: UIViewRepresentable {
             guard let arView else { return }
             let width = plane.planeExtent.width
             let depth = plane.planeExtent.height
-            guard width > 0.01, depth > 0.01 else { return }
+            guard width.isFinite, depth.isFinite, width > 0.01, depth > 0.01 else { return }
 
-            let mesh = MeshResource.generatePlane(width: width, depth: depth)
-            let material = SimpleMaterial(
-                color: UIColor(red: 0.2, green: 0.9, blue: 0.4, alpha: 0.25),
-                roughness: 0.5, isMetallic: false
-            )
-            let model = ModelEntity(mesh: mesh, materials: [material])
-            model.position = SIMD3<Float>(plane.center.x, 0, plane.center.z)
+            let rotation = simd_quatf(angle: plane.planeExtent.rotationOnYAxis,
+                                       axis: SIMD3<Float>(0, 1, 0))
+            let translation = SIMD3<Float>(plane.center.x, 0, plane.center.z)
+            let localTransform = Transform(scale: .one, rotation: rotation, translation: translation)
 
-            if let existing = planeOverlays[plane.identifier] {
-                existing.children.removeAll()
-                existing.addChild(model)
-                existing.transform = Transform(matrix: plane.transform)
+            if var existing = planeOverlays[plane.identifier] {
+                existing.model.transform = localTransform
+                existing.anchor.transform = Transform(matrix: plane.transform)
+                let dW = abs(existing.lastWidth - width)
+                let dD = abs(existing.lastDepth - depth)
+                if dW > 0.05 || dD > 0.05 {
+                    existing.model.model = ModelComponent(
+                        mesh: MeshResource.generatePlane(width: width, depth: depth),
+                        materials: [Self.overlayMaterial]
+                    )
+                    existing.lastWidth = width
+                    existing.lastDepth = depth
+                }
+                planeOverlays[plane.identifier] = existing
             } else {
+                let mesh = MeshResource.generatePlane(width: width, depth: depth)
+                let model = ModelEntity(mesh: mesh, materials: [Self.overlayMaterial])
+                model.transform = localTransform
                 let anchor = AnchorEntity(world: plane.transform)
                 anchor.addChild(model)
                 arView.scene.addAnchor(anchor)
-                planeOverlays[plane.identifier] = anchor
+                planeOverlays[plane.identifier] = PlaneOverlay(
+                    anchor: anchor, model: model,
+                    lastWidth: width, lastDepth: depth
+                )
             }
         }
 
+        private static let overlayMaterial: SimpleMaterial = SimpleMaterial(
+            color: UIColor(red: 0.2, green: 0.9, blue: 0.4, alpha: 0.25),
+            roughness: 0.5, isMetallic: false
+        )
+
         private func removePlaneOverlay(id: UUID) {
-            planeOverlays[id]?.removeFromParent()
+            planeOverlays[id]?.anchor.removeFromParent()
             planeOverlays.removeValue(forKey: id)
         }
 
         func clearAllPlaneOverlays() {
-            for (_, anchor) in planeOverlays {
-                anchor.removeFromParent()
+            for (_, overlay) in planeOverlays {
+                overlay.anchor.removeFromParent()
             }
             planeOverlays.removeAll()
             lastPlaneUpdateLog.removeAll()

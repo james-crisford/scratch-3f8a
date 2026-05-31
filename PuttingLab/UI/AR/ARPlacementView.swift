@@ -40,6 +40,15 @@ struct ARPlacementView: View {
     @State private var placementState: PlacementState = .waitingForPlane
     @State private var trackingState: String = "Starting…"
     @State private var planeCount: Int = 0
+    /// Transient hint surfaced as a separate overlay (e.g. "Aim at the
+    /// floor"). Lives on its own @State so the 10 Hz didUpdate(frame:)
+    /// writes to trackingState don't overwrite it within ~100 ms (C2 in
+    /// the 2026-05-31 audit — the toast was previously invisible).
+    @State private var transientHint: String?
+    /// First time we noticed planeCount stuck at 0 with normal tracking.
+    /// Drives the silent-wait hint after 2 s (M12 in the audit).
+    @State private var firstStillAt: Date?
+    @State private var showStillnessHint: Bool = false
 
     /// The scene-graph "controller" we expose to the UIViewRepresentable.
     /// Lives as a single instance bound to the view so tap callbacks +
@@ -58,7 +67,9 @@ struct ARPlacementView: View {
                 logger: logger,
                 trackingState: $trackingState,
                 planeCount: $planeCount,
-                placementState: $placementState
+                placementState: $placementState,
+                onTransientHint: { msg in showTransientHint(msg) },
+                onResetAfterInterruption: { resetAfterInterruption() }
             )
             .ignoresSafeArea()
 
@@ -66,11 +77,33 @@ struct ARPlacementView: View {
                 topBar
                 Spacer()
                 hud
+                if showStillnessHint && planeCount == 0 {
+                    stillnessHint
+                }
                 eventLog
                 actionRow
             }
             .padding(.horizontal, 16)
             .padding(.bottom, 24)
+
+            // Transient hint rendered as its OWN overlay (C2 fix). The
+            // 10 Hz didUpdate(frame:) loop overwrites trackingState every
+            // ~100 ms, so we route ephemeral feedback through a separate
+            // state slot instead. Auto-dismisses 1.5 s after it is set.
+            if let hint = transientHint {
+                VStack {
+                    Spacer()
+                    Text(hint)
+                        .font(.callout.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 10)
+                        .background(.black.opacity(0.78), in: Capsule())
+                        .padding(.bottom, 220)
+                        .transition(.opacity)
+                }
+                .allowsHitTesting(false)
+            }
         }
         .statusBarHidden()
         .onChange(of: planeCount) { _, newValue in
@@ -79,14 +112,63 @@ struct ARPlacementView: View {
             if newValue > 0, case .waitingForPlane = placementState {
                 placementState = .readyToPlaceBall
             }
+            // Roll back the silent-wait stillness hint once any plane is
+            // detected — and reset the still-since timer so a later loss
+            // of planes can re-trigger the hint cleanly.
+            if newValue > 0 {
+                showStillnessHint = false
+                firstStillAt = nil
+            }
         }
         .onAppear {
+            firstStillAt = Date()
             logger.log(.sessionStart, "Slice 2 placement view opened")
         }
         .onDisappear {
             logger.log(.sessionEnd, "Slice 2 placement view dismissed")
             logger.saveSnapshot()
         }
+        .onReceive(Timer.publish(every: 0.5, on: .main, in: .common).autoconnect()) { _ in
+            // 0.5 s tick is fine for this — we only need a coarse 2-second
+            // threshold for the silent-wait hint.
+            guard planeCount == 0, let firstStillAt else { return }
+            if !showStillnessHint && Date().timeIntervalSince(firstStillAt) > 2.0 {
+                showStillnessHint = true
+            }
+        }
+    }
+
+    /// Show a 1.5 s transient overlay; auto-clears via a task so the
+    /// state slot returns to nil and the overlay disappears. Called by
+    /// the Coordinator via the `onTransientHint` closure (e.g. from the
+    /// raycast-miss branch in handleTap).
+    private func showTransientHint(_ message: String) {
+        transientHint = message
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            // Only clear if it's STILL the same message — another hint
+            // could have replaced it and we don't want to dismiss early.
+            if transientHint == message {
+                transientHint = nil
+            }
+        }
+    }
+
+    /// Force the placement state back to waiting after ARKit relocalises
+    /// from an interruption (H5 fix). Without this, the cached ball /
+    /// hole world coordinates may have shifted under the user and the
+    /// distance readout becomes wrong-but-confident.
+    private func resetAfterInterruption() {
+        let hadPlacedEntities: Bool
+        switch placementState {
+        case .readyToPlaceHole, .complete: hadPlacedEntities = true
+        default: hadPlacedEntities = false
+        }
+        guard hadPlacedEntities else { return }
+        scene.clearPlacedEntities()
+        placementState = planeCount > 0 ? .readyToPlaceBall : .waitingForPlane
+        showTransientHint("Tracking recovered — place again")
+        logger.log(.reset, "auto-reset after interruption recovery")
     }
 
     private var topBar: some View {
@@ -148,8 +230,11 @@ struct ARPlacementView: View {
                     .foregroundStyle(.white.opacity(0.65))
                 Spacer()
                 Button {
-                    logger.saveSnapshot()
+                    // Log first, THEN snapshot — otherwise the saved JSON
+                    // doesn't contain the very note it's supposed to tag
+                    // (L16 in the audit).
                     logger.log(.note, "Snapshot saved manually")
+                    logger.saveSnapshot()
                 } label: {
                     Text("Save")
                         .font(.caption2.weight(.semibold))
@@ -185,11 +270,31 @@ struct ARPlacementView: View {
         .padding(.top, 6)
     }
 
+    /// Tiny silent-wait coaching nudge after 2 s of no detected planes
+    /// (M12). ARKit needs parallax to bootstrap and a still phone gives
+    /// `Tracking=Limited(initializing), Planes=0` indefinitely — which
+    /// reads as "the slice is broken" unless we say what to do.
+    private var stillnessHint: some View {
+        Text("Try slowly panning the phone — ARKit needs motion to detect surfaces")
+            .font(.caption2.italic())
+            .foregroundStyle(.white)
+            .padding(10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(.orange.opacity(0.6), in: RoundedRectangle(cornerRadius: 10))
+            .padding(.top, 6)
+    }
+
     private func timeShort(_ d: Date) -> String {
+        Self.shortTimeFormatter.string(from: d)
+    }
+
+    /// Static DateFormatter — reuse across every event-log row render
+    /// instead of reallocating per call (L27 in the audit).
+    private static let shortTimeFormatter: DateFormatter = {
         let f = DateFormatter()
         f.dateFormat = "HH:mm:ss.SSS"
-        return f.string(from: d)
-    }
+        return f
+    }()
 
     private var actionRow: some View {
         HStack(spacing: 10) {
@@ -236,7 +341,7 @@ struct ARPlacementView: View {
 
     private var trackingTint: Color {
         if trackingState.hasPrefix("Normal") { return .green }
-        if trackingState.hasPrefix("Limited") { return .yellow }
+        if trackingState.hasPrefix("Limited") || trackingState.hasPrefix("Starting") { return .yellow }
         return .red
     }
 
@@ -367,7 +472,12 @@ final class ARPlacementScene {
         let model = ModelEntity(mesh: mesh, materials: [material])
 
         // Cylinder's default axis is Y. Rotate so it points from ball→hole
-        // along the horizontal direction.
+        // along the horizontal direction. `direction` lives between two
+        // points on a (roughly) horizontal plane — by construction it
+        // should not be near anti-parallel to +Y. The dot < -0.9999
+        // branch is defensive only (e.g. if a vertical plane were ever
+        // misidentified as horizontal); flagged as M15 in the 2026-05-31
+        // audit. Kept as belt-and-braces because the cost is one branch.
         let direction = simd_normalize(to - from)
         let yAxis = SIMD3<Float>(0, 1, 0)
         let rotation: simd_quatf
@@ -375,6 +485,7 @@ final class ARPlacementScene {
         if dot > 0.9999 {
             rotation = simd_quatf(angle: 0, axis: yAxis)
         } else if dot < -0.9999 {
+            // Anti-parallel: rotate 180° around X to flip +Y → -Y.
             rotation = simd_quatf(angle: .pi, axis: SIMD3<Float>(1, 0, 0))
         } else {
             let axis = simd_normalize(simd_cross(yAxis, direction))
@@ -413,6 +524,17 @@ private struct ARPlacementSceneRepresentable: UIViewRepresentable {
     @Binding var trackingState: String
     @Binding var planeCount: Int
     @Binding var placementState: ARPlacementView.PlacementState
+    /// Callback fired when the Coordinator wants to surface a 1.5 s
+    /// transient hint (e.g. "Aim at the floor"). Goes to a separate
+    /// @State on the parent — see ARPlacementView.transientHint — so
+    /// the live trackingState writes from didUpdate(frame:) don't
+    /// overwrite it within 100 ms (C2 fix).
+    let onTransientHint: (String) -> Void
+    /// Callback fired on sessionInterruptionEnded so the parent view
+    /// can force a reset of any placed entities — anchors are
+    /// `AnchorEntity(world:)` and may now point to stale coordinates
+    /// after ARKit relocalisation (H5 fix).
+    let onResetAfterInterruption: () -> Void
 
     func makeUIView(context: Context) -> ARView {
         // KNOWN-RISK FOR SLICE 2 (same as Slice 1, restored from earlier
@@ -453,35 +575,48 @@ private struct ARPlacementSceneRepresentable: UIViewRepresentable {
     }
 
     func updateUIView(_ uiView: ARView, context: Context) {
-        context.coordinator.placementState = placementState
+        // Coordinator already reads placementState live through its
+        // @Binding — the old self-write here was a structural no-op
+        // (L19 in the audit). Intentionally empty.
     }
 
     static func dismantleUIView(_ uiView: ARView, coordinator: Coordinator) {
         // Pause the AR session so the camera + IMU stop. ARTrackingManager
-        // will need to be restarted on the practice screen — that's
-        // Slice 3's wiring job.
+        // restart is handled by PracticeSessionView's onDismiss closure
+        // (H4 fix) so we don't need to touch it here.
         uiView.session.pause()
-        // Drop our translucent plane overlays + flush the session log to
-        // disk. The view's `onDisappear` also calls saveSnapshot, but
-        // doing it here too means a snapshot exists even if the SwiftUI
-        // lifecycle skips onDisappear (rare, but happens with fast cover
-        // dismissals during interactive transitions).
-        coordinator.clearAllPlaneOverlays()
-        coordinator.logger.saveSnapshot()
+        // Drop our translucent plane overlays + placed entities. SwiftUI
+        // calls dismantleUIView on the main thread but the static method
+        // isn't @MainActor-isolated at the type level, so we hop
+        // explicitly via assumeIsolated to satisfy Swift 6 strict mode.
+        // saveSnapshot is NOT called here — onDisappear on the View
+        // already does it, and doing it twice produces wasted I/O + the
+        // second write may race with the first (M14 fix).
+        MainActor.assumeIsolated {
+            coordinator.clearAllPlaneOverlays()
+            coordinator.scene?.clearPlacedEntities()
+        }
     }
 
     func makeCoordinator() -> Coordinator {
         Coordinator(trackingState: $trackingState,
                     planeCount: $planeCount,
                     placementState: $placementState,
-                    logger: logger)
+                    logger: logger,
+                    onTransientHint: onTransientHint,
+                    onResetAfterInterruption: onResetAfterInterruption)
     }
 
-    /// `@MainActor` so the delegate-callback bodies + handleTap can talk
-    /// to the MainActor-isolated `ARPlacementScene` and read SwiftUI
-    /// Bindings without crossing actor boundaries. `arView.session.
-    /// delegateQueue = .main` means ARKit will call us on MainActor at
-    /// runtime; the annotation makes Swift 6 strict-concurrency aware.
+    /// `@MainActor` on the class so its own state stays main-isolated,
+    /// but every ARSessionDelegate method + the @objc tap selector is
+    /// marked `nonisolated` and bridges to MainActor via
+    /// `MainActor.assumeIsolated`. The Obj-C protocol requirements
+    /// cannot express actor isolation, so Swift 6 strict-concurrency
+    /// otherwise rejects @MainActor-isolated methods satisfying them
+    /// (C1 in the 2026-05-31 audit). `arView.session.delegateQueue =
+    /// .main` guarantees ARKit calls us on the main thread at runtime,
+    /// so the assumeIsolated check holds; UITapGestureRecognizer
+    /// likewise dispatches on the main thread.
     @MainActor
     final class Coordinator: NSObject, ARSessionDelegate {
         @Binding var trackingState: String
@@ -490,167 +625,210 @@ private struct ARPlacementSceneRepresentable: UIViewRepresentable {
         weak var arView: ARView?
         weak var scene: ARPlacementScene?
         let logger: ARSessionLogger
+        let onTransientHint: (String) -> Void
+        let onResetAfterInterruption: () -> Void
 
         private var detectedPlanes: Set<UUID> = []
         private var lastHUDUpdate: Date = .distantPast
-        /// Race guard against rapid double-tap. The state-binding write
-        /// inside `handleTap` is async (via `Task { @MainActor in ... }`),
-        /// so two taps fired within the same runloop tick could both read
-        /// `.readyToPlaceBall` and place a ball + a stray "hole" at the
-        /// second tap's spot. The flag flips synchronously on tap entry
-        /// and clears after the binding write completes.
-        private var isProcessingTap: Bool = false
+        /// Real timestamp-based debounce for tap placement. Replaces the
+        /// previous `isProcessingTap` defer pattern which was dead code
+        /// for sequential gesture dispatches (handleTap is synchronous
+        /// on MainActor; defer cleared the flag before the next tap
+        /// could even arrive). 300 ms keeps fast deliberate taps usable
+        /// while killing the common iOS double-tap reflex that
+        /// otherwise places ball + hole in the same spot (H6 fix).
+        private var lastPlacementAt: Date?
 
         /// Translucent green overlay rectangles, one per detected plane.
         /// Replaces ARKit's built-in `debugOptions = .showAnchorGeometry`
-        /// which paints solid-green wireframe over every surface and made
-        /// it impossible to see the floor underneath. James's exact words:
-        /// "translucent so i can see how close you are to mapping the
-        /// floor". Map key is the plane's anchor UUID so we can update /
-        /// remove individually as ARKit grows the mesh.
-        private var planeOverlays: [UUID: AnchorEntity] = [:]
+        /// which paints solid-green wireframe over every surface. Map
+        /// key is the plane's anchor UUID so we can update / remove
+        /// individually as ARKit grows the mesh.
+        private var planeOverlays: [UUID: PlaneOverlay] = [:]
         /// Throttle for `.planeUpdated` log emission. ARKit fires anchor
         /// updates at ~10 Hz per plane, which would spam the event log.
         /// We only log if 1 s has passed since the last update event for
         /// that specific plane.
         private var lastPlaneUpdateLog: [UUID: Date] = [:]
 
+        /// Cached overlay record. Re-uses the same ModelEntity across
+        /// the 10 Hz didUpdate ticks instead of allocating a fresh
+        /// MeshResource + SimpleMaterial + ModelEntity every time (M7
+        /// fix). We rebuild the mesh only when the plane extent changes
+        /// by more than 5 cm; otherwise we just update the transform.
+        private struct PlaneOverlay {
+            let anchor: AnchorEntity
+            let model: ModelEntity
+            var lastWidth: Float
+            var lastDepth: Float
+        }
+
         init(trackingState: Binding<String>,
              planeCount: Binding<Int>,
              placementState: Binding<ARPlacementView.PlacementState>,
-             logger: ARSessionLogger) {
+             logger: ARSessionLogger,
+             onTransientHint: @escaping (String) -> Void,
+             onResetAfterInterruption: @escaping () -> Void) {
             _trackingState = trackingState
             _planeCount = planeCount
             _placementState = placementState
             self.logger = logger
+            self.onTransientHint = onTransientHint
+            self.onResetAfterInterruption = onResetAfterInterruption
         }
 
         // MARK: ARSessionDelegate
+        //
+        // Every delegate method is declared `nonisolated` so the
+        // @MainActor Coordinator class satisfies the @objc protocol
+        // requirements (which can't carry isolation). The body hops
+        // back to MainActor via assumeIsolated, which is a runtime
+        // assertion that holds because `arView.session.delegateQueue =
+        // .main` guarantees ARKit dispatches on the main thread. C1
+        // in the 2026-05-31 audit.
 
-        func session(_ session: ARSession, didUpdate frame: ARFrame) {
-            let now = Date()
-            guard now.timeIntervalSince(lastHUDUpdate) > 0.1 else { return }
-            lastHUDUpdate = now
-            let status = Self.formatTrackingState(frame.camera.trackingState)
-            // Log tracking-state CHANGES only (not every 100 ms tick) so
-            // the event log isn't dominated by "Normal → Normal" noise.
-            if status != _trackingState.wrappedValue {
-                logger.log(.trackingState, status)
+        nonisolated func session(_ session: ARSession, didUpdate frame: ARFrame) {
+            MainActor.assumeIsolated {
+                let now = Date()
+                guard now.timeIntervalSince(lastHUDUpdate) > 0.1 else { return }
+                lastHUDUpdate = now
+                let status = Self.formatTrackingState(frame.camera.trackingState)
+                // Log tracking-state CHANGES only (not every 100 ms tick).
+                if status != _trackingState.wrappedValue {
+                    logger.log(.trackingState, status)
+                }
+                _trackingState.wrappedValue = status
             }
-            _trackingState.wrappedValue = status
         }
 
-        func session(_ session: ARSession, didAdd anchors: [ARAnchor]) {
-            var added = 0
-            for a in anchors {
-                guard let plane = a as? ARPlaneAnchor else { continue }
-                if detectedPlanes.insert(a.identifier).inserted {
-                    added += 1
+        nonisolated func session(_ session: ARSession, didAdd anchors: [ARAnchor]) {
+            MainActor.assumeIsolated {
+                var added = 0
+                for a in anchors {
+                    guard let plane = a as? ARPlaneAnchor else { continue }
+                    if detectedPlanes.insert(a.identifier).inserted {
+                        added += 1
+                        addOrUpdatePlaneOverlay(plane)
+                        logger.log(.planeAdded,
+                                   "plane \(plane.identifier.uuidString.prefix(6)) " +
+                                   "ext=\(String(format: "%.2f×%.2f", plane.planeExtent.width, plane.planeExtent.height))m",
+                                   payload: [
+                                       "id": plane.identifier.uuidString,
+                                       "width": String(format: "%.3f", plane.planeExtent.width),
+                                       "height": String(format: "%.3f", plane.planeExtent.height),
+                                       "alignment": plane.alignment == .horizontal ? "horizontal" : "vertical",
+                                   ])
+                    }
+                }
+                guard added > 0 else { return }
+                _planeCount.wrappedValue = detectedPlanes.count
+            }
+        }
+
+        nonisolated func session(_ session: ARSession, didUpdate anchors: [ARAnchor]) {
+            MainActor.assumeIsolated {
+                let now = Date()
+                for a in anchors {
+                    guard let plane = a as? ARPlaneAnchor,
+                          detectedPlanes.contains(a.identifier) else { continue }
                     addOrUpdatePlaneOverlay(plane)
-                    // Log each plane add with its extent + center so the
-                    // event log + JSON snapshot record what we detected.
-                    logger.log(.planeAdded,
-                               "plane \(plane.identifier.uuidString.prefix(6)) " +
-                               "ext=\(String(format: "%.2f×%.2f", plane.planeExtent.width, plane.planeExtent.height))m",
-                               payload: [
-                                   "id": plane.identifier.uuidString,
-                                   "width": String(format: "%.3f", plane.planeExtent.width),
-                                   "height": String(format: "%.3f", plane.planeExtent.height),
-                                   "alignment": plane.alignment == .horizontal ? "horizontal" : "vertical",
-                               ])
-                }
-            }
-            guard added > 0 else { return }
-            let count = detectedPlanes.count
-            _planeCount.wrappedValue = count
-        }
-
-        func session(_ session: ARSession, didUpdate anchors: [ARAnchor]) {
-            // ARKit grows + refines plane meshes over time as the user
-            // moves the phone. Resize our translucent overlay to track,
-            // and log a throttled `.planeUpdated` event so the user can
-            // SEE that mapping is still improving (not just sitting at
-            // the initial detection size).
-            let now = Date()
-            for a in anchors {
-                guard let plane = a as? ARPlaneAnchor,
-                      detectedPlanes.contains(a.identifier) else { continue }
-                addOrUpdatePlaneOverlay(plane)
-                let last = lastPlaneUpdateLog[a.identifier] ?? .distantPast
-                if now.timeIntervalSince(last) > 1.0 {
-                    lastPlaneUpdateLog[a.identifier] = now
-                    logger.log(.planeUpdated,
-                               "plane \(plane.identifier.uuidString.prefix(6)) " +
-                               "ext=\(String(format: "%.2f×%.2f", plane.planeExtent.width, plane.planeExtent.height))m",
-                               payload: [
-                                   "id": plane.identifier.uuidString,
-                                   "width": String(format: "%.3f", plane.planeExtent.width),
-                                   "height": String(format: "%.3f", plane.planeExtent.height),
-                               ])
+                    let last = lastPlaneUpdateLog[a.identifier] ?? .distantPast
+                    if now.timeIntervalSince(last) > 1.0 {
+                        lastPlaneUpdateLog[a.identifier] = now
+                        logger.log(.planeUpdated,
+                                   "plane \(plane.identifier.uuidString.prefix(6)) " +
+                                   "ext=\(String(format: "%.2f×%.2f", plane.planeExtent.width, plane.planeExtent.height))m",
+                                   payload: [
+                                       "id": plane.identifier.uuidString,
+                                       "width": String(format: "%.3f", plane.planeExtent.width),
+                                       "height": String(format: "%.3f", plane.planeExtent.height),
+                                   ])
+                    }
                 }
             }
         }
 
-        func session(_ session: ARSession, didRemove anchors: [ARAnchor]) {
-            var removed = 0
-            for a in anchors {
-                if detectedPlanes.remove(a.identifier) != nil {
-                    removed += 1
-                    removePlaneOverlay(id: a.identifier)
-                    lastPlaneUpdateLog.removeValue(forKey: a.identifier)
-                    logger.log(.planeRemoved,
-                               "plane \(a.identifier.uuidString.prefix(6))")
+        nonisolated func session(_ session: ARSession, didRemove anchors: [ARAnchor]) {
+            MainActor.assumeIsolated {
+                var removed = 0
+                for a in anchors {
+                    if detectedPlanes.remove(a.identifier) != nil {
+                        removed += 1
+                        removePlaneOverlay(id: a.identifier)
+                        lastPlaneUpdateLog.removeValue(forKey: a.identifier)
+                        logger.log(.planeRemoved,
+                                   "plane \(a.identifier.uuidString.prefix(6))")
+                    }
                 }
+                guard removed > 0 else { return }
+                _planeCount.wrappedValue = detectedPlanes.count
             }
-            guard removed > 0 else { return }
-            let count = detectedPlanes.count
-            _planeCount.wrappedValue = count
         }
 
         // MARK: Translucent plane visualization
 
         /// Create or refresh a translucent green rectangle aligned with
-        /// the detected plane. Sized to `planeExtent` so the user can SEE
-        /// how big the detected mesh is + how it grows over time as
-        /// ARKit refines it. The rectangle is parented to an AnchorEntity
-        /// at the plane's WORLD transform, with the model entity offset
-        /// to the plane's local-frame center.
+        /// the detected plane. Caches one ModelEntity per plane and
+        /// only rebuilds the mesh when extent changes by more than 5 cm
+        /// (M7 fix — was reallocating mesh+material+entity at 10 Hz per
+        /// plane). Also applies `planeExtent.rotationOnYAxis` so the
+        /// rectangle stays aligned with the oriented bounding box once
+        /// ARKit refines a non-axis-aligned plane (H3 fix).
         private func addOrUpdatePlaneOverlay(_ plane: ARPlaneAnchor) {
             guard let arView else { return }
             let width = plane.planeExtent.width
             let depth = plane.planeExtent.height  // ARKit calls Z-extent "height"
-            // Skip near-zero-extent planes — ARKit briefly emits these
-            // while initialising and generatePlane(0, 0) crashes RealityKit.
-            guard width > 0.01, depth > 0.01 else { return }
+            // Drop malformed / sub-epsilon extents — ARKit briefly emits
+            // these while initialising and generatePlane crashes on
+            // non-finite or zero/negative inputs (L26).
+            guard width.isFinite, depth.isFinite, width > 0.01, depth > 0.01 else { return }
 
-            let mesh = MeshResource.generatePlane(width: width, depth: depth)
-            // Soft translucent green. Alpha 0.25 lets the camera feed
-            // show through clearly — verified at 0.4 it looked solid in
-            // the Slice 1 build that James complained about.
-            let material = SimpleMaterial(
-                color: UIColor(red: 0.2, green: 0.9, blue: 0.4, alpha: 0.25),
-                roughness: 0.5, isMetallic: false
-            )
-            let model = ModelEntity(mesh: mesh, materials: [material])
-            // ARPlaneAnchor.center is in the anchor's local frame; the
-            // plane lies in local XZ with Y=0, so this offset keeps the
-            // overlay exactly on the detected surface.
-            model.position = SIMD3<Float>(plane.center.x, 0, plane.center.z)
+            let rotation = simd_quatf(angle: plane.planeExtent.rotationOnYAxis,
+                                       axis: SIMD3<Float>(0, 1, 0))
+            let translation = SIMD3<Float>(plane.center.x, 0, plane.center.z)
+            let localTransform = Transform(scale: .one, rotation: rotation, translation: translation)
 
-            if let existing = planeOverlays[plane.identifier] {
-                existing.children.removeAll()
-                existing.addChild(model)
-                existing.transform = Transform(matrix: plane.transform)
+            if var existing = planeOverlays[plane.identifier] {
+                // Update local transform every tick — extent rotation
+                // and center may shift as ARKit refines.
+                existing.model.transform = localTransform
+                existing.anchor.transform = Transform(matrix: plane.transform)
+                // Only rebuild mesh when extent changes meaningfully.
+                let dW = abs(existing.lastWidth - width)
+                let dD = abs(existing.lastDepth - depth)
+                if dW > 0.05 || dD > 0.05 {
+                    existing.model.model = ModelComponent(
+                        mesh: MeshResource.generatePlane(width: width, depth: depth),
+                        materials: [Self.overlayMaterial]
+                    )
+                    existing.lastWidth = width
+                    existing.lastDepth = depth
+                }
+                planeOverlays[plane.identifier] = existing
             } else {
+                let mesh = MeshResource.generatePlane(width: width, depth: depth)
+                let model = ModelEntity(mesh: mesh, materials: [Self.overlayMaterial])
+                model.transform = localTransform
                 let anchor = AnchorEntity(world: plane.transform)
                 anchor.addChild(model)
                 arView.scene.addAnchor(anchor)
-                planeOverlays[plane.identifier] = anchor
+                planeOverlays[plane.identifier] = PlaneOverlay(
+                    anchor: anchor, model: model,
+                    lastWidth: width, lastDepth: depth
+                )
             }
         }
 
+        /// Shared translucent material for every plane overlay. Stored
+        /// statically so we don't allocate a fresh `SimpleMaterial` on
+        /// each plane add/update.
+        private static let overlayMaterial: SimpleMaterial = SimpleMaterial(
+            color: UIColor(red: 0.2, green: 0.9, blue: 0.4, alpha: 0.25),
+            roughness: 0.5, isMetallic: false
+        )
+
         private func removePlaneOverlay(id: UUID) {
-            planeOverlays[id]?.removeFromParent()
+            planeOverlays[id]?.anchor.removeFromParent()
             planeOverlays.removeValue(forKey: id)
         }
 
@@ -658,17 +836,21 @@ private struct ARPlacementSceneRepresentable: UIViewRepresentable {
         /// the cover is dismissed (the ARView itself is released, but
         /// explicit cleanup is cheap insurance).
         func clearAllPlaneOverlays() {
-            for (_, anchor) in planeOverlays {
-                anchor.removeFromParent()
+            for (_, overlay) in planeOverlays {
+                overlay.anchor.removeFromParent()
             }
             planeOverlays.removeAll()
             lastPlaneUpdateLog.removeAll()
         }
 
-        func session(_ session: ARSession, didFailWithError error: Error) {
+        nonisolated func session(_ session: ARSession, didFailWithError error: Error) {
             // Friendly handling for the common case: user denied camera
             // permission on first launch. ARError code 103 =
             // .cameraUnauthorized. Anything else surfaces the raw error.
+            //
+            // NOTE: for any user-facing AR flow (Slice 3+), upgrade this
+            // to a modal alert with a UIApplication.openSettingsURLString
+            // button (M11 in the audit). Acceptable for DEBUG-only.
             let nsErr = error as NSError
             let message: String
             if nsErr.domain == ARError.errorDomain,
@@ -677,108 +859,107 @@ private struct ARPlacementSceneRepresentable: UIViewRepresentable {
             } else {
                 message = "Failed: \(nsErr.localizedDescription)"
             }
-            logger.log(.failed, message,
-                       payload: ["domain": nsErr.domain, "code": "\(nsErr.code)"])
-            _trackingState.wrappedValue = message
+            MainActor.assumeIsolated {
+                logger.log(.failed, message,
+                           payload: ["domain": nsErr.domain, "code": "\(nsErr.code)"])
+                _trackingState.wrappedValue = message
+            }
         }
 
-        func sessionWasInterrupted(_ session: ARSession) {
-            // Backgrounding mid-AR (incoming call, app switcher) fires
-            // this. Surface to the HUD so the user sees the freeze isn't
-            // a bug. Slice 1 has the same delegate; Slice 2 was missing
-            // it on the first draft.
-            logger.log(.interruption, "session interrupted")
-            _trackingState.wrappedValue = "Interrupted"
+        nonisolated func sessionWasInterrupted(_ session: ARSession) {
+            MainActor.assumeIsolated {
+                // Backgrounding mid-AR (incoming call, app switcher)
+                // fires this. Surface to the HUD so the user sees the
+                // freeze isn't a bug.
+                logger.log(.interruption, "session interrupted")
+                _trackingState.wrappedValue = "Interrupted"
+            }
         }
 
-        func sessionInterruptionEnded(_ session: ARSession) {
-            logger.log(.interruptionEnded, "session resumed")
-            _trackingState.wrappedValue = "Resuming…"
+        nonisolated func sessionInterruptionEnded(_ session: ARSession) {
+            MainActor.assumeIsolated {
+                // ARKit will try to relocalise — but the cached world
+                // coordinates we used for AnchorEntity(world:) may now
+                // point at a stale location. Push the recovery decision
+                // up to the parent View (H5 fix) which will clear any
+                // placed entities, reset state, and surface a hint.
+                logger.log(.interruptionEnded, "session resumed")
+                _trackingState.wrappedValue = "Resuming…"
+                onResetAfterInterruption()
+            }
         }
 
         // MARK: Tap → raycast → place
 
-        @objc func handleTap(_ recognizer: UITapGestureRecognizer) {
-            // Race guard against rapid double-tap. Set BEFORE we read
-            // placementState so two near-simultaneous taps don't both
-            // see .readyToPlaceBall. The bug-hunt audit flagged this
-            // explicitly.
-            guard !isProcessingTap else { return }
-            guard let arView, let scene else { return }
-            isProcessingTap = true
-            defer { isProcessingTap = false }
+        @objc nonisolated func handleTap(_ recognizer: UITapGestureRecognizer) {
+            MainActor.assumeIsolated {
+                guard let arView, let scene else { return }
 
-            let point = recognizer.location(in: arView)
-            logger.log(.tap, "screen \(String(format: "(%.0f, %.0f)", point.x, point.y))")
-
-            // Raycast against existing detected horizontal planes only.
-            // `.existingPlaneGeometry` ensures we hit a confirmed plane,
-            // not an estimated one — important during Slice 2 verification.
-            guard let query = arView.makeRaycastQuery(
-                from: point,
-                allowing: .existingPlaneGeometry,
-                alignment: .horizontal
-            ),
-            let result = arView.session.raycast(query).first
-            else {
-                logger.log(.raycastMiss, "no horizontal plane under tap")
-                // Raycast missed — tap went off-plane (ceiling, wall,
-                // outside the detected mesh). Surface a HUD hint so the
-                // user knows the tap WAS registered but rejected, not
-                // ignored. The UX audit flagged the silent-failure case.
-                let binding = _trackingState
-                Task { @MainActor in
-                    let current = binding.wrappedValue
-                    binding.wrappedValue = "Aim at the floor"
-                    // Restore the original tracking line after 1.5 s.
-                    try? await Task.sleep(nanoseconds: 1_500_000_000)
-                    if binding.wrappedValue == "Aim at the floor" {
-                        binding.wrappedValue = current
-                    }
+                // Real timestamp-based debounce (H6). UITapGestureRecognizer
+                // dispatches on the main thread, so handleTap is serial;
+                // the previous `isProcessingTap` defer pattern was dead
+                // code for the rapid double-tap case. 300 ms is a snug
+                // gate — fast enough for deliberate retries, slow enough
+                // to swallow the iOS reflex double-tap that otherwise
+                // placed ball + hole in the same spot.
+                if let last = lastPlacementAt, Date().timeIntervalSince(last) < 0.3 {
+                    logger.log(.note, "tap ignored — debounce <300ms")
+                    return
                 }
-                return
-            }
 
-            let t = result.worldTransform
-            let world = SIMD3<Float>(t.columns.3.x, t.columns.3.y, t.columns.3.z)
-            logger.log(.raycastHit, "hit \(ARLogFmt.vec(world))",
-                       payload: ["x": String(format: "%.4f", world.x),
-                                 "y": String(format: "%.4f", world.y),
-                                 "z": String(format: "%.4f", world.z)])
+                let point = recognizer.location(in: arView)
+                logger.log(.tap, "screen \(String(format: "(%.0f, %.0f)", point.x, point.y))")
 
-            // Mutate the scene + the placement state based on which step
-            // we're on. Direct read of `placementState` is fine because
-            // the Coordinator is @MainActor and so is the Binding.
-            let stateBinding = _placementState
-            switch placementState {
-            case .waitingForPlane:
-                // Shouldn't happen because the view auto-advances once
-                // planeCount > 0, but defensive: a tap before plane is
-                // detected does nothing.
-                logger.log(.note, "tap ignored — no plane yet")
-                return
-            case .readyToPlaceBall:
-                scene.placeBall(at: world)
-                logger.log(.ballPlaced, "ball \(ARLogFmt.vec(world))",
+                // Raycast against existing detected horizontal planes only.
+                // `.existingPlaneGeometry` ensures we hit a confirmed plane,
+                // not an estimated one — important during verification.
+                guard let query = arView.makeRaycastQuery(
+                    from: point,
+                    allowing: .existingPlaneGeometry,
+                    alignment: .horizontal
+                ),
+                let result = arView.session.raycast(query).first
+                else {
+                    logger.log(.raycastMiss, "no horizontal plane under tap")
+                    // Route the rejected-tap feedback to the parent
+                    // view's transientHint overlay (C2). The previous
+                    // path wrote to trackingState directly and was
+                    // overwritten ~100 ms later by didUpdate(frame:).
+                    onTransientHint("Aim at the floor")
+                    return
+                }
+
+                let t = result.worldTransform
+                let world = SIMD3<Float>(t.columns.3.x, t.columns.3.y, t.columns.3.z)
+                logger.log(.raycastHit, "hit \(ARLogFmt.vec(world))",
                            payload: ["x": String(format: "%.4f", world.x),
                                      "y": String(format: "%.4f", world.y),
                                      "z": String(format: "%.4f", world.z)])
-                stateBinding.wrappedValue = .readyToPlaceHole(world)
-            case .readyToPlaceHole(let ballWorld):
-                scene.placeHole(at: world)
-                let dist = simd_distance(ballWorld, world)
-                logger.log(.holePlaced, "hole \(ARLogFmt.vec(world)) · \(ARLogFmt.meters(dist))",
-                           payload: ["x": String(format: "%.4f", world.x),
-                                     "y": String(format: "%.4f", world.y),
-                                     "z": String(format: "%.4f", world.z),
-                                     "distance_m": String(format: "%.4f", dist)])
-                stateBinding.wrappedValue = .complete(ball: ballWorld, hole: world)
-            case .complete:
-                // Once both are placed, taps are a no-op. User must Reset
-                // before placing again. Avoids accidentally moving an
-                // entity by tapping the floor again.
-                logger.log(.note, "tap ignored — placement complete")
-                return
+
+                switch placementState {
+                case .waitingForPlane:
+                    logger.log(.note, "tap ignored — no plane yet")
+                case .readyToPlaceBall:
+                    scene.placeBall(at: world)
+                    logger.log(.ballPlaced, "ball \(ARLogFmt.vec(world))",
+                               payload: ["x": String(format: "%.4f", world.x),
+                                         "y": String(format: "%.4f", world.y),
+                                         "z": String(format: "%.4f", world.z)])
+                    _placementState.wrappedValue = .readyToPlaceHole(world)
+                    lastPlacementAt = Date()
+                case .readyToPlaceHole(let ballWorld):
+                    scene.placeHole(at: world)
+                    let dist = simd_distance(ballWorld, world)
+                    logger.log(.holePlaced, "hole \(ARLogFmt.vec(world)) · \(ARLogFmt.meters(dist))",
+                               payload: ["x": String(format: "%.4f", world.x),
+                                         "y": String(format: "%.4f", world.y),
+                                         "z": String(format: "%.4f", world.z),
+                                         "distance_m": String(format: "%.4f", dist)])
+                    _placementState.wrappedValue = .complete(ball: ballWorld, hole: world)
+                    lastPlacementAt = Date()
+                case .complete:
+                    logger.log(.note, "tap ignored — placement complete")
+                }
             }
         }
 
