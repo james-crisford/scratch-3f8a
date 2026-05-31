@@ -2,7 +2,7 @@ import Foundation
 import Observation
 import UIKit
 import simd
-import AudioToolbox
+import AVFoundation
 
 /// Drives the 100-stroke guided session UI.
 ///
@@ -116,12 +116,16 @@ final class PracticeSessionViewModel {
             UINotificationFeedbackGenerator().notificationOccurred(.warning)
         },
         onImpactSound: @escaping @MainActor () -> Void = {
-            // Cached SystemSoundID; safe to call repeatedly. AudioServices
-            // is the lowest-latency path for short percussive samples on
-            // iOS. The sound ID is leaked at process exit (intentional —
-            // we keep it for the app's lifetime).
-            if ImpactSoundLoader.id != 0 {
-                AudioServicesPlaySystemSound(ImpactSoundLoader.id)
+            // Switched from AudioServicesPlaySystemSound (B15) to a
+            // preloaded AVAudioPlayer (B16) to cut sound latency from
+            // ~50 ms to ~5–10 ms. The haptic fires near-instantly; if
+            // the sound lags 50 ms the brain anchors on the (later) sound
+            // as "impact" and everything feels late. B15 testing showed
+            // exactly this: 50 % of strokes felt late despite the
+            // detector firing on time.
+            if let player = ImpactSoundLoader.player {
+                player.currentTime = 0
+                player.play()
             }
         }
     ) {
@@ -457,18 +461,29 @@ final class PracticeSessionViewModel {
     }
 }
 
-/// Lazily-loaded cache for the bundled putter-click sound effect's
-/// SystemSoundID. Loading + ID creation happens once per process, the
-/// first time the impact path fires. If the bundle is missing the file
-/// (e.g. SwiftUI Preview in isolated module mode) the ID stays 0 and
+/// Lazily-loaded, preloaded AVAudioPlayer for the bundled putter-click
+/// sound effect. Loading + `prepareToPlay()` happens once per process,
+/// the first time the impact path fires, so subsequent `play()` calls
+/// have ~5–10 ms of latency instead of AudioServicesPlaySystemSound's
+/// ~50 ms (B15 testers reported every stroke felt "late" because the
+/// sound — louder than the haptic — anchored their perception of
+/// impact at +50 ms past the actual fire moment).
+///
+/// If the bundle is missing the file (e.g. SwiftUI Preview in isolated
+/// module mode) or AVFoundation init fails, `player` is nil and
 /// callers skip the play call — no crash, no audio.
 fileprivate enum ImpactSoundLoader {
-    static let id: SystemSoundID = {
+    static let player: AVAudioPlayer? = {
         guard let url = Bundle.main.url(forResource: "putter_click", withExtension: "wav") else {
-            return 0
+            return nil
         }
-        var soundID: SystemSoundID = 0
-        let status = AudioServicesCreateSystemSoundID(url as CFURL, &soundID)
-        return status == noErr ? soundID : 0
+        do {
+            let p = try AVAudioPlayer(contentsOf: url)
+            p.prepareToPlay()
+            p.volume = 1.0
+            return p
+        } catch {
+            return nil
+        }
     }()
 }
