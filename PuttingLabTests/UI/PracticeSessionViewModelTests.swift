@@ -176,14 +176,15 @@ struct PracticeSessionViewModelTests {
     // MARK: - Build 9: integration tests for live haptic + batch persistence
 
     /// Live impact detector helper that fires immediately on a high-mag
-    /// rotation pulse — no warm-up, no cool-down — so tests can synthesise
-    /// a single peak deterministically.
+    /// rotation pulse — no warm-up, no cool-down, no 1 s fire-delay gate —
+    /// so tests can synthesise a single peak deterministically.
     private func eagerDetector() -> LiveImpactDetector {
         LiveImpactDetector(
             armThreshold: 2.0,
             disarmThreshold: 1.0,
             coolDownSeconds: 0.0,
-            warmUpSamplesBelowDisarm: 0
+            warmUpSamplesBelowDisarm: 0,
+            minFireDelayFromTouchDownSeconds: 0.0
         )
     }
 
@@ -218,63 +219,41 @@ struct PracticeSessionViewModelTests {
             impactDetector: ImpactDetector(),
             replayStore: nil,
             liveImpactDetector: liveImpactDetector ?? eagerDetector(),
-            onHaptic: { style in log.append(style) }
+            onHaptic: { style in log.append(style) },
+            onImpactHaptic: { log.appendImpact() }
         )
         return (vm, log)
     }
 
-    @Test("handle(_:) fires .light haptic on the FIRST live-impact peak (backswing) during .recording")
-    func handleFiresLightHapticOnFirstLiveImpact() {
+    @Test("handle(_:) fires the impact haptic (notification.warning) when LiveImpactDetector returns true")
+    func handleFiresImpactHapticOnLiveImpact() {
         let (vm, log) = makeViewModelWithHapticSpy()
         vm.tapReadyForStrokes()
         vm.handle(stillSample(t: 0))
         vm.touchDown()
-        log.clearStyles()  // clear the .medium touchDown haptic from the log
+        log.clearStyles()
+        log.clearImpact()
         for s in liveHapticBurst(startT: 0.02) {
             vm.handle(s)
         }
-        // B13: the first fire in a stroke is the backswing peak — .light, NOT .heavy.
-        #expect(log.lightCount() == 1, "first fire in a stroke should be .light (backswing tap)")
-        #expect(log.heavyCount() == 0, "no .heavy expected for a single-peak stroke")
+        // B14: there's no more light/heavy split — every impact fires the
+        // strong notification-warning haptic via onImpactHaptic.
+        #expect(log.impactCount() == 1, "expected 1 impact haptic during the burst")
         #expect(vm.liveHapticFireCount == 1)
-    }
-
-    @Test("handle(_:) fires .heavy haptic on the SECOND live-impact peak (forward swing / impact)")
-    func handleFiresHeavyHapticOnSecondLiveImpact() {
-        // Use cool-down 0 so two separated bursts both fire.
-        let det = LiveImpactDetector(
-            armThreshold: 2.0,
-            disarmThreshold: 1.0,
-            peakConfirmationSamples: 1,
-            minPeakDropFraction: 0.02,
-            coolDownSeconds: 0.0,
-            warmUpSamplesBelowDisarm: 0
-        )
-        let (vm, log) = makeViewModelWithHapticSpy(liveImpactDetector: det)
-        vm.tapReadyForStrokes()
-        vm.handle(stillSample(t: 0))
-        vm.touchDown()
-        log.clearStyles()
-        // First burst — backswing
-        for s in liveHapticBurst(startT: 0.02) { vm.handle(s) }
-        // Second burst — forward swing (well separated from first)
-        for s in liveHapticBurst(startT: 0.30) { vm.handle(s) }
-        #expect(log.lightCount() == 1, "first fire = .light (backswing)")
-        #expect(log.heavyCount() == 1, "second fire = .heavy (impact)")
-        #expect(vm.liveHapticFireCount == 2)
     }
 
     @Test("touchDown resets LiveImpactDetector — previous stroke's cool-down + counter do not leak")
     func touchDownResetsLiveImpactDetector() {
-        // Detector with 10s cool-down so any non-reset would suppress the
-        // second stroke's haptic.
+        // Detector with 10 s cool-down so any non-reset would suppress
+        // the second stroke's haptic.
         let det = LiveImpactDetector(
             armThreshold: 2.0,
             disarmThreshold: 1.0,
             peakConfirmationSamples: 1,
             minPeakDropFraction: 0.02,
             coolDownSeconds: 10.0,
-            warmUpSamplesBelowDisarm: 0
+            warmUpSamplesBelowDisarm: 0,
+            minFireDelayFromTouchDownSeconds: 0.0
         )
         let (vm, log) = makeViewModelWithHapticSpy(liveImpactDetector: det)
         vm.tapReadyForStrokes()
@@ -283,20 +262,16 @@ struct PracticeSessionViewModelTests {
         vm.handle(stillSample(t: 0))
         vm.touchDown()
         for s in liveHapticBurst(startT: 0.02) { vm.handle(s) }
-        // First fire in stroke = .light (Build 13 behaviour).
-        #expect(log.lightCount() == 1)
+        #expect(log.impactCount() == 1)
         vm.touchUp()
         if vm.phase == .showing { vm.tapDone() }
-        log.clearStyles()
+        log.clearImpact()
 
-        // Stroke 2 — immediately after, well inside the 10s cool-down.
+        // Stroke 2 — immediately after, well inside the 10 s cool-down.
         vm.handle(stillSample(t: 0.5))
         vm.touchDown()  // <- must reset the detector AND the fire counter
         for s in liveHapticBurst(startT: 0.55) { vm.handle(s) }
-        // Stroke 2's first fire is also .light because liveHapticFireCount
-        // is reset to 0 on touchDown.
-        #expect(log.lightCount() == 1, "stroke 2 first fire should be .light (counter reset on touchDown)")
-        #expect(log.heavyCount() == 0)
+        #expect(log.impactCount() == 1, "stroke 2 should still fire impact haptic — cool-down must have been reset by touchDown")
     }
 
     @Test("tapDone writes a StrokeReplay with batchId, batchStrokeIndex, batchStrokeType set from session")
@@ -348,14 +323,21 @@ struct PracticeSessionViewModelTests {
     }
 }
 
-/// Records every haptic style fired by the view-model under test.
+/// Records every haptic fired by the view-model under test.
+/// `styles` covers the legacy UIImpactFeedbackGenerator path (touchDown
+/// medium, judgment-button light); `impactFires` counts the new
+/// onImpactHaptic path (UINotificationFeedbackGenerator.warning).
 @MainActor
 fileprivate final class HapticLog {
     private(set) var styles: [UIImpactFeedbackGenerator.FeedbackStyle] = []
+    private(set) var impactFires: Int = 0
     func append(_ s: UIImpactFeedbackGenerator.FeedbackStyle) { styles.append(s) }
+    func appendImpact() { impactFires += 1 }
     func clearStyles() { styles.removeAll(keepingCapacity: true) }
+    func clearImpact() { impactFires = 0 }
     func heavyCount() -> Int { styles.filter { $0 == .heavy }.count }
     func lightCount() -> Int { styles.filter { $0 == .light }.count }
+    func impactCount() -> Int { impactFires }
 }
 
 // MARK: - Test helpers (file-private, mirror SessionCoordinatorTests style)

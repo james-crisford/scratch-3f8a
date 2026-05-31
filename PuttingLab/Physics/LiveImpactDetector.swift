@@ -52,6 +52,13 @@ final class LiveImpactDetector {
     /// must see proof that the user actually settled into address before it
     /// will recognise a peak. 5 samples at 100 Hz = 50 ms.
     let warmUpSamplesBelowDisarm: Int
+    /// Minimum elapsed time after touchDown (= first sample of the stroke)
+    /// before any fire is allowed. Suppresses backswing-peak fires entirely
+    /// on James's strokes (B13 data: backswing peaks 469–1023 ms, forward
+    /// swing peaks 994–2317 ms — a 1.0 s gate suppresses every backswing
+    /// fire while preserving every forward-swing fire). Set to 0 to disable
+    /// the gate (e.g. in unit tests that don't simulate the full stroke).
+    let minFireDelayFromTouchDownSeconds: Double
 
     private var armed: Bool = false
     private var lastFireTime: TimeInterval = -.infinity
@@ -64,6 +71,10 @@ final class LiveImpactDetector {
     /// `maxMagSinceArmed`. Reset to 0 every time a new max is recorded.
     /// When this hits `peakConfirmationSamples`, we fire.
     private var consecutiveBelowMax: Int = 0
+    /// Timestamp of the first sample observed since the last reset(). Used
+    /// to gate fires by `minFireDelayFromTouchDownSeconds`. -.infinity =
+    /// not yet seen any sample.
+    private var touchDownTimestamp: TimeInterval = -.infinity
 
     init(
         armThreshold: Double = 2.0,
@@ -71,7 +82,8 @@ final class LiveImpactDetector {
         peakConfirmationSamples: Int = 1,
         minPeakDropFraction: Double = 0.02,
         coolDownSeconds: Double = 0.4,
-        warmUpSamplesBelowDisarm: Int = 5
+        warmUpSamplesBelowDisarm: Int = 5,
+        minFireDelayFromTouchDownSeconds: Double = 1.0
     ) {
         precondition(
             armThreshold > disarmThreshold,
@@ -88,12 +100,14 @@ final class LiveImpactDetector {
         )
         precondition(coolDownSeconds >= 0, "coolDownSeconds must be non-negative")
         precondition(warmUpSamplesBelowDisarm >= 0, "warmUpSamplesBelowDisarm must be non-negative")
+        precondition(minFireDelayFromTouchDownSeconds >= 0, "minFireDelayFromTouchDownSeconds must be non-negative")
         self.armThreshold = armThreshold
         self.disarmThreshold = disarmThreshold
         self.peakConfirmationSamples = peakConfirmationSamples
         self.minPeakDropFraction = minPeakDropFraction
         self.coolDownSeconds = coolDownSeconds
         self.warmUpSamplesBelowDisarm = warmUpSamplesBelowDisarm
+        self.minFireDelayFromTouchDownSeconds = minFireDelayFromTouchDownSeconds
     }
 
     /// Reset state at the start of a new stroke (touchDown).
@@ -104,6 +118,7 @@ final class LiveImpactDetector {
         warmedUp = false
         maxMagSinceArmed = 0
         consecutiveBelowMax = 0
+        touchDownTimestamp = -.infinity
     }
 
     /// Feed every motion sample during recording. Returns `true` exactly when
@@ -122,6 +137,19 @@ final class LiveImpactDetector {
         let mag = simd_length(sample.rotationRate)
         // Same defence for magnitude: NaN/Inf rotation never fires.
         guard mag.isFinite else { return false }
+
+        // Latch the touchDown timestamp on the first sample after reset().
+        if touchDownTimestamp == -.infinity {
+            touchDownTimestamp = sample.timestamp
+        }
+        // Fire-delay gate: from B13 80-stroke data, backswing-peak fires
+        // cluster 469–1023 ms after touchDown while forward-swing (impact)
+        // fires cluster 994–2317 ms. A 1.0 s gate suppresses every
+        // backswing fire but preserves every forward-swing fire. State is
+        // still tracked during the gate so the detector arms naturally
+        // once the gate expires.
+        let elapsedSinceTouchDown = sample.timestamp - touchDownTimestamp
+        let inFireGate = elapsedSinceTouchDown < minFireDelayFromTouchDownSeconds
 
         // Warm-up: require N consecutive samples below disarm before we
         // permit any arming. Stops a touchDown-time wrist flick from firing
@@ -182,8 +210,10 @@ final class LiveImpactDetector {
                 armed = false
                 maxMagSinceArmed = 0
                 consecutiveBelowMax = 0
+                // Inside the fire gate, suppress haptic but still update
+                // lastFireTime so the cool-down logic stays consistent.
                 lastFireTime = sample.timestamp
-                return true
+                return !inFireGate
             }
         }
         // Safety-net fallback for very-slow descents: classic disarm-cross.
@@ -192,7 +222,7 @@ final class LiveImpactDetector {
             maxMagSinceArmed = 0
             consecutiveBelowMax = 0
             lastFireTime = sample.timestamp
-            return true
+            return !inFireGate
         }
         return false
     }

@@ -55,3 +55,13 @@ references/
 .claude/skills/ios-accessibility/
 .claude/skills/app-store-review/
 .claude/skills/storekit/
+
+# Scratch work — disposable
+.tmp/
+
+# Stroke DB binary — rebuild from raw JSONs via tools/ingest_strokes.py.
+# Raw JSONs in data/raw/ ARE committed; the DB is a derived index.
+data/strokes.db
+data/strokes.db-journal
+data/strokes.db-wal
+data/strokes.db-shm

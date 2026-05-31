@@ -58,6 +58,12 @@ final class PracticeSessionViewModel {
     private let impactDetector: ImpactDetector
     private let replayStore: StrokeReplayStore?
     private let onHaptic: @MainActor (UIImpactFeedbackGenerator.FeedbackStyle) -> Void
+    /// Distinct from `onHaptic` — fires the strong "impact thwack"
+    /// haptic when the LiveImpactDetector decides we just hit the ball.
+    /// Default implementation uses UINotificationFeedbackGenerator(.warning)
+    /// which is a sharp double-tap pattern, noticeably stronger than
+    /// UIImpactFeedbackGenerator(.heavy).
+    private let onImpactHaptic: @MainActor () -> Void
     private let liveImpactDetector: LiveImpactDetector
 
     /// Count of live-haptic fires during the most recent stroke. Exposed so
@@ -99,6 +105,9 @@ final class PracticeSessionViewModel {
         liveImpactDetector: LiveImpactDetector = LiveImpactDetector(),
         onHaptic: @escaping @MainActor (UIImpactFeedbackGenerator.FeedbackStyle) -> Void = { style in
             UIImpactFeedbackGenerator(style: style).impactOccurred()
+        },
+        onImpactHaptic: @escaping @MainActor () -> Void = {
+            UINotificationFeedbackGenerator().notificationOccurred(.warning)
         }
     ) {
         self.session = session
@@ -108,6 +117,7 @@ final class PracticeSessionViewModel {
         self.replayStore = replayStore
         self.liveImpactDetector = liveImpactDetector
         self.onHaptic = onHaptic
+        self.onImpactHaptic = onImpactHaptic
     }
 
     /// Starts motion + ARKit and spins the sample-consumer task. Also loads
@@ -214,22 +224,18 @@ final class PracticeSessionViewModel {
                 posesDuringRecording.append(pose)
             }
             samplesInCurrentRecording = samplesDuringRecording.count
-            // Fire a real-time haptic at each estimated impact peak so the
-            // user can judge timing in the result panel.
-            //
-            // Build 13 haptic-style distinction (from B12 first-session data):
-            //   • The FIRST fire in a stroke is usually the backswing or
-            //     transition peak — gets `.light` ("takeaway noted").
-            //   • SECOND and subsequent fires are usually the forward-swing
-            //     / impact peak — get `.heavy` ("THIS is the one to judge").
-            // The .medium tap on touchDown still marks recording start, so the
-            // user can disambiguate by feel: medium-tap → press registered;
-            // light-tap → backswing top; heavy-thump → impact.
+            // Fire the strong "impact thwack" haptic. Build 14: the
+            // light/heavy backswing-vs-impact distinction from B13 is
+            // dropped — the 1.0 s fire gate inside LiveImpactDetector
+            // already suppresses backswing-peak fires structurally, so any
+            // fire that DOES come through is the impact one. Using
+            // UINotificationFeedbackGenerator(.warning) (the sharp
+            // double-tap pattern) instead of UIImpactFeedbackGenerator
+            // because the testers reported the .heavy style wasn't
+            // perceptibly distinct from the .medium touchDown tap.
             if liveImpactDetector.consume(sample) {
                 liveHapticFireCount += 1
-                let style: UIImpactFeedbackGenerator.FeedbackStyle =
-                    (liveHapticFireCount == 1) ? .light : .heavy
-                onHaptic(style)
+                onImpactHaptic()
             }
         }
     }
@@ -351,6 +357,12 @@ final class PracticeSessionViewModel {
             // for this batch; this stroke is index (count + 1) — 1-indexed so
             // filenames read naturally (stroke-A-1-..., stroke-A-2-...).
             let currentBatch = session.currentBatch
+            // B14: if we're saving a cal-batch stroke and it produced a
+            // real (non-snapped) face angle, contribute it to the session
+            // calibration baseline.
+            if currentBatch.id == "cal" && !result.snappedToSquare {
+                session.recordCalibrationFaceAngle(result.faceAngleRaw)
+            }
             let replay = StrokeReplay(
                 window: window,
                 result: result,

@@ -15,6 +15,11 @@ final class TestSessionState {
     private(set) var currentBatchIndex: Int = 0
     private(set) var strokesInCurrentBatch: Int = 0
     private(set) var totalStrokesCompleted: Int = 0
+    /// Raw face angles (radians) captured during the cal batch — used to
+    /// derive `calibrationFaceBaselineRad` once at least 3 cal strokes
+    /// have been recorded. Persisted to UserDefaults so a mid-session
+    /// kill/relaunch doesn't lose the baseline.
+    private(set) var calibrationFaceAnglesRad: [Double] = []
 
     let batches: [TestBatch]
     let userDefaults: UserDefaults
@@ -22,6 +27,7 @@ final class TestSessionState {
     private static let keyCurrentBatchIndex = "TestSessionState_v1.currentBatchIndex"
     private static let keyStrokesInCurrentBatch = "TestSessionState_v1.strokesInCurrentBatch"
     private static let keyTotalStrokesCompleted = "TestSessionState_v1.totalStrokesCompleted"
+    private static let keyCalibrationFaceAngles = "TestSessionState_v1.calibrationFaceAnglesRad"
 
     init(
         batches: [TestBatch] = TestBatch.allBatches,
@@ -33,6 +39,27 @@ final class TestSessionState {
 
     var currentBatch: TestBatch { batches[currentBatchIndex] }
     var isAtBreak: Bool { currentBatch.phase == .breakPoint }
+
+    /// Mean of the captured cal-batch face angles (radians), once we've
+    /// got at least 3 samples. Nil before then so the UI shows the raw
+    /// angle for the first few cal strokes (calibration hasn't stabilised).
+    var calibrationFaceBaselineRad: Double? {
+        guard calibrationFaceAnglesRad.count >= 3 else { return nil }
+        let sum = calibrationFaceAnglesRad.reduce(0, +)
+        return sum / Double(calibrationFaceAnglesRad.count)
+    }
+
+    /// Records a face angle into the cal-batch baseline accumulator.
+    /// Caller should only invoke this for strokes saved during the cal
+    /// batch (`currentBatch.id == "cal"`); silently caps the buffer at
+    /// the cal batch's targetCount so a buggy caller can't over-fill it.
+    func recordCalibrationFaceAngle(_ rad: Double) {
+        guard rad.isFinite else { return }
+        let calBatch = batches.first(where: { $0.id == "cal" })
+        let cap = calBatch?.targetCount ?? 5
+        guard calibrationFaceAnglesRad.count < cap else { return }
+        calibrationFaceAnglesRad.append(rad)
+    }
 
     var currentBatchIsComplete: Bool {
         if currentBatch.phase == .breakPoint { return false }
@@ -84,6 +111,7 @@ final class TestSessionState {
         currentBatchIndex = 0
         strokesInCurrentBatch = 0
         totalStrokesCompleted = 0
+        calibrationFaceAnglesRad = []
     }
 
     /// Saves current state to UserDefaults. Call after every recordStroke()
@@ -92,6 +120,7 @@ final class TestSessionState {
         userDefaults.set(currentBatchIndex, forKey: Self.keyCurrentBatchIndex)
         userDefaults.set(strokesInCurrentBatch, forKey: Self.keyStrokesInCurrentBatch)
         userDefaults.set(totalStrokesCompleted, forKey: Self.keyTotalStrokesCompleted)
+        userDefaults.set(calibrationFaceAnglesRad, forKey: Self.keyCalibrationFaceAngles)
     }
 
     /// Loads previous state from UserDefaults if present + still valid for
@@ -108,11 +137,16 @@ final class TestSessionState {
         currentBatchIndex = idx
         strokesInCurrentBatch = cappedInBatch
         totalStrokesCompleted = cappedTotal
+        if let raw = userDefaults.array(forKey: Self.keyCalibrationFaceAngles) as? [Double] {
+            // Defensive: drop non-finite entries that might have snuck in.
+            calibrationFaceAnglesRad = raw.filter { $0.isFinite }
+        }
     }
 
     func clearPersistence() {
         userDefaults.removeObject(forKey: Self.keyCurrentBatchIndex)
         userDefaults.removeObject(forKey: Self.keyStrokesInCurrentBatch)
         userDefaults.removeObject(forKey: Self.keyTotalStrokesCompleted)
+        userDefaults.removeObject(forKey: Self.keyCalibrationFaceAngles)
     }
 }

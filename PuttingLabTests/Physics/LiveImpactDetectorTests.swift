@@ -43,8 +43,9 @@ struct LiveImpactDetectorTests {
         }
     }
 
-    /// Detector that skips the warm-up gate, for tests that only need to
-    /// exercise the arm/disarm/cool-down state machine.
+    /// Detector that skips the warm-up gate AND the 1 s fire-delay gate,
+    /// for tests that only need to exercise the arm/disarm/cool-down state
+    /// machine in isolation.
     private func instantDetector(
         armThreshold: Double = 2.0,
         disarmThreshold: Double = 1.0,
@@ -54,7 +55,8 @@ struct LiveImpactDetectorTests {
             armThreshold: armThreshold,
             disarmThreshold: disarmThreshold,
             coolDownSeconds: coolDownSeconds,
-            warmUpSamplesBelowDisarm: 0
+            warmUpSamplesBelowDisarm: 0,
+            minFireDelayFromTouchDownSeconds: 0.0
         )
     }
 
@@ -130,14 +132,45 @@ struct LiveImpactDetectorTests {
         }
     }
 
-    @Test("realistic putting profile with default warm-up fires once on the real impact peak")
-    func realisticPuttingProfileWithWarmUp() {
-        // Default LiveImpactDetector (with warm-up=5). 1.7s burst gives
-        // ~17 low-mag samples on the leading edge so warm-up engages cleanly.
+    @Test("realistic putting profile (slow stroke, peak after the 1 s gate) fires once on the impact peak")
+    func realisticPuttingProfileWithFireGate() {
+        // Default LiveImpactDetector: warm-up=5, fire-delay-gate=1.0 s.
+        // 2400 ms burst, peak at fraction 0.5 → 1200 ms (past the gate).
         let det = LiveImpactDetector()
-        let samples = bumpSamples(durationMs: 1700, peak: 3.0, baseline: 0.3)
+        let samples = bumpSamples(durationMs: 2400, peak: 3.0, baseline: 0.3)
         let fires = samples.filter { det.consume($0) }.count
         #expect(fires == 1)
+    }
+
+    @Test("fire-delay gate (1.0 s default) suppresses an early-stroke peak")
+    func fireGateSuppressesEarlyPeak() {
+        // Default detector with gate=1.0 s. A peak that completes before
+        // 1 s after touchDown must NOT fire — this is the B14 anti-
+        // backswing-haptic invariant.
+        let det = LiveImpactDetector()  // gate = 1.0 s default
+        // 800 ms triangle starting at t=0: peak around 400 ms, descent
+        // through disarm by ~700 ms — entirely inside the gate.
+        let samples = bumpSamples(durationMs: 800, peak: 3.0, baseline: 0.3)
+        let fires = samples.filter { det.consume($0) }.count
+        #expect(fires == 0, "burst entirely inside the 1.0 s gate must not fire")
+    }
+
+    @Test("fire-delay gate allows a forward-swing peak that crosses 1.0 s")
+    func fireGateAllowsPostGatePeak() {
+        // 800 ms burst that STARTS at t=1.0 s (past the gate) but the
+        // touchDown reference is t=0, so the detector needs warm-up samples
+        // before the burst. Concatenate quiet samples [0, 1.0 s) with the
+        // burst.
+        var samples: [MotionSample] = []
+        for i in 0..<100 {
+            samples.append(sample(t: Double(i) * 0.01, omegaMagnitude: 0.2))
+        }
+        for s in bumpSamples(durationMs: 800, peak: 3.0, baseline: 0.3, startTime: 1.0) {
+            samples.append(s)
+        }
+        let det = LiveImpactDetector()
+        let fires = samples.filter { det.consume($0) }.count
+        #expect(fires == 1, "a peak completing AFTER the 1.0 s gate must fire normally")
     }
 
     // MARK: - Build 9 hardening
@@ -148,11 +181,13 @@ struct LiveImpactDetectorTests {
         // motion sample after touchDown shows |ω|=3.0 rad/s (wrist flick).
         // With warm-up=5 requiring 5 consecutive below-disarm samples first,
         // this single high-magnitude sample MUST NOT fire.
+        // Disable the 1.0s fire-gate so this test isolates warm-up only.
         let det = LiveImpactDetector(
             armThreshold: 2.0,
             disarmThreshold: 1.0,
             coolDownSeconds: 0.4,
-            warmUpSamplesBelowDisarm: 5
+            warmUpSamplesBelowDisarm: 5,
+            minFireDelayFromTouchDownSeconds: 0.0
         )
         let flick = sample(t: 0.0, omegaMagnitude: 3.0)
         #expect(det.consume(flick) == false, "first-sample flick should be suppressed by warm-up gate")
@@ -160,11 +195,14 @@ struct LiveImpactDetectorTests {
 
     @Test("warm-up engages after N consecutive below-disarm samples, then a real peak fires")
     func warmUpEngagesThenFires() {
+        // Default detector has fire-delay-gate=1.0s; use no-gate so this
+        // test stays focused on warm-up behaviour.
         let det = LiveImpactDetector(
             armThreshold: 2.0,
             disarmThreshold: 1.0,
             coolDownSeconds: 0.4,
-            warmUpSamplesBelowDisarm: 5
+            warmUpSamplesBelowDisarm: 5,
+            minFireDelayFromTouchDownSeconds: 0.0
         )
         // 5 quiet samples to satisfy warm-up.
         for i in 0..<5 {

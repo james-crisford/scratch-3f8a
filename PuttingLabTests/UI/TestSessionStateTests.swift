@@ -165,4 +165,65 @@ struct TestSessionStateTests {
             }
         }
     }
+
+    // MARK: - B14: calibration face-angle baseline
+
+    @Test("calibrationFaceBaselineRad is nil until at least 3 cal strokes recorded")
+    func calBaselineNilBeforeThreeStrokes() {
+        let s = TestSessionState(userDefaults: makeDefaults())
+        #expect(s.calibrationFaceBaselineRad == nil)
+        s.recordCalibrationFaceAngle(-0.10)
+        s.recordCalibrationFaceAngle(-0.12)
+        #expect(s.calibrationFaceBaselineRad == nil, "<3 samples should not yield a baseline")
+        s.recordCalibrationFaceAngle(-0.11)
+        #expect(s.calibrationFaceBaselineRad != nil, "3+ samples should yield a baseline")
+        let mean = s.calibrationFaceBaselineRad ?? .nan
+        #expect(abs(mean - (-0.11)) < 1e-9)
+    }
+
+    @Test("recordCalibrationFaceAngle silently rejects non-finite values")
+    func calBaselineRejectsNonFinite() {
+        let s = TestSessionState(userDefaults: makeDefaults())
+        s.recordCalibrationFaceAngle(.nan)
+        s.recordCalibrationFaceAngle(.infinity)
+        s.recordCalibrationFaceAngle(-.infinity)
+        #expect(s.calibrationFaceAnglesRad.isEmpty)
+    }
+
+    @Test("calibration face-angle buffer is capped at the cal batch target")
+    func calBaselineCapsAtBatchTarget() {
+        let s = TestSessionState(userDefaults: makeDefaults())
+        let target = TestBatch.allBatches.first(where: { $0.id == "cal" })!.targetCount
+        for i in 0..<(target + 10) {
+            s.recordCalibrationFaceAngle(0.01 * Double(i))
+        }
+        #expect(s.calibrationFaceAnglesRad.count == target)
+    }
+
+    @Test("calibration face-angle buffer persists across save/load")
+    func calBaselinePersistsAcrossLoad() {
+        let defaults = makeDefaults()
+        let s = TestSessionState(userDefaults: defaults)
+        s.recordCalibrationFaceAngle(-0.115)
+        s.recordCalibrationFaceAngle(-0.105)
+        s.recordCalibrationFaceAngle(-0.110)
+        s.save()
+
+        let reloaded = TestSessionState(userDefaults: defaults)
+        reloaded.loadIfAvailable()
+        #expect(reloaded.calibrationFaceAnglesRad.count == 3)
+        #expect(abs((reloaded.calibrationFaceBaselineRad ?? .nan) - (-0.110)) < 1e-9)
+    }
+
+    @Test("reset clears the calibration baseline")
+    func resetClearsCalBaseline() {
+        let s = TestSessionState(userDefaults: makeDefaults())
+        s.recordCalibrationFaceAngle(-0.10)
+        s.recordCalibrationFaceAngle(-0.12)
+        s.recordCalibrationFaceAngle(-0.11)
+        #expect(s.calibrationFaceBaselineRad != nil)
+        s.reset()
+        #expect(s.calibrationFaceAnglesRad.isEmpty)
+        #expect(s.calibrationFaceBaselineRad == nil)
+    }
 }

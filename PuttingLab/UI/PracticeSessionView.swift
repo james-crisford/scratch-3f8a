@@ -397,10 +397,26 @@ private struct ResultPhaseView: View {
 
             if let r = result {
                 VStack(spacing: 14) {
-                    resultRow("face",
+                    // B14: show calibrated face angle once the cal-batch
+                    // baseline has stabilised (≥3 cal strokes). Until then
+                    // we show the raw value — calibration hasn't been
+                    // established yet, so subtracting an unstable mean
+                    // would mislead. Also label the row so users know which
+                    // they're looking at.
+                    let calBaselineDeg: Double? = {
+                        guard let r = viewModel.session.calibrationFaceBaselineRad else { return nil }
+                        return r * 180.0 / .pi
+                    }()
+                    let displayedFaceDeg: Double = {
+                        if r.snappedToSquare { return 0 }
+                        let raw = r.faceAngleDegrees
+                        if let base = calBaselineDeg { return raw - base }
+                        return raw
+                    }()
+                    resultRow(calBaselineDeg == nil ? "face (raw)" : "face (cal)",
                               value: r.snappedToSquare
                                 ? "Square (snapped)"
-                                : String(format: "%+.1f°", r.faceAngleDegrees),
+                                : String(format: "%+.1f°", displayedFaceDeg),
                               tint: r.snappedToSquare ? .orange : .primary)
                     if let reason = r.snapReason, r.snappedToSquare {
                         resultRow("reason", value: String(describing: reason), tint: .secondary)
@@ -429,10 +445,10 @@ private struct ResultPhaseView: View {
                     .foregroundStyle(.secondary)
                 let n = viewModel.liveHapticFireCount
                 Text(n == 0
-                    ? "No haptic during the stroke — judge from your feel."
+                    ? "No impact haptic during this stroke — judge from feel."
                     : (n == 1
-                        ? "1 haptic (light tap). Judge whether it landed at the moment you hit the ball."
-                        : "\(n) haptics: a LIGHT tap for backswing top, then a HEAVY thump near impact. Judge only the HEAVY thump."))
+                        ? "Felt the impact thwack. Did it land at the moment of contact?"
+                        : "Felt \(n) impact thwacks — judge the LAST one."))
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
                     .multilineTextAlignment(.center)
