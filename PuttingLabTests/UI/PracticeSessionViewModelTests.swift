@@ -220,7 +220,8 @@ struct PracticeSessionViewModelTests {
             replayStore: nil,
             liveImpactDetector: liveImpactDetector ?? eagerDetector(),
             onHaptic: { style in log.append(style) },
-            onImpactHaptic: { log.appendImpact() }
+            onImpactHaptic: { log.appendImpact() },
+            onImpactSound: { log.appendSound() }
         )
         return (vm, log)
     }
@@ -233,6 +234,7 @@ struct PracticeSessionViewModelTests {
         vm.touchDown()
         log.clearStyles()
         log.clearImpact()
+        log.clearSound()
         for s in liveHapticBurst(startT: 0.02) {
             vm.handle(s)
         }
@@ -240,6 +242,24 @@ struct PracticeSessionViewModelTests {
         // strong notification-warning haptic via onImpactHaptic.
         #expect(log.impactCount() == 1, "expected 1 impact haptic during the burst")
         #expect(vm.liveHapticFireCount == 1)
+    }
+
+    @Test("handle(_:) fires the impact SOUND in lockstep with the impact haptic (B15)")
+    func handleFiresImpactSoundAlongsideHaptic() {
+        let (vm, log) = makeViewModelWithHapticSpy()
+        vm.tapReadyForStrokes()
+        vm.handle(stillSample(t: 0))
+        vm.touchDown()
+        log.clearSound()
+        log.clearImpact()
+        for s in liveHapticBurst(startT: 0.02) {
+            vm.handle(s)
+        }
+        // The putter-click sound and the notification.warning haptic must
+        // fire from the same code path so they're perceptually synchronous.
+        #expect(log.soundCount() == 1, "expected 1 impact sound")
+        #expect(log.impactCount() == 1, "expected 1 impact haptic")
+        #expect(log.soundCount() == log.impactCount(), "sound and haptic must fire 1:1")
     }
 
     @Test("touchDown resets LiveImpactDetector — previous stroke's cool-down + counter do not leak")
@@ -323,21 +343,26 @@ struct PracticeSessionViewModelTests {
     }
 }
 
-/// Records every haptic fired by the view-model under test.
-/// `styles` covers the legacy UIImpactFeedbackGenerator path (touchDown
-/// medium, judgment-button light); `impactFires` counts the new
-/// onImpactHaptic path (UINotificationFeedbackGenerator.warning).
+/// Records every haptic/sound fired by the view-model under test.
+/// `styles` covers the UIImpactFeedbackGenerator path (touchDown medium,
+/// judgment-button light); `impactFires` counts the onImpactHaptic path
+/// (UINotificationFeedbackGenerator.warning); `soundFires` counts the
+/// onImpactSound path (bundled putter-click WAV).
 @MainActor
 fileprivate final class HapticLog {
     private(set) var styles: [UIImpactFeedbackGenerator.FeedbackStyle] = []
     private(set) var impactFires: Int = 0
+    private(set) var soundFires: Int = 0
     func append(_ s: UIImpactFeedbackGenerator.FeedbackStyle) { styles.append(s) }
     func appendImpact() { impactFires += 1 }
+    func appendSound() { soundFires += 1 }
     func clearStyles() { styles.removeAll(keepingCapacity: true) }
     func clearImpact() { impactFires = 0 }
+    func clearSound() { soundFires = 0 }
     func heavyCount() -> Int { styles.filter { $0 == .heavy }.count }
     func lightCount() -> Int { styles.filter { $0 == .light }.count }
     func impactCount() -> Int { impactFires }
+    func soundCount() -> Int { soundFires }
 }
 
 // MARK: - Test helpers (file-private, mirror SessionCoordinatorTests style)

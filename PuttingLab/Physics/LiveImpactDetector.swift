@@ -77,10 +77,10 @@ final class LiveImpactDetector {
     private var touchDownTimestamp: TimeInterval = -.infinity
 
     init(
-        armThreshold: Double = 2.0,
+        armThreshold: Double = 1.7,
         disarmThreshold: Double = 1.0,
         peakConfirmationSamples: Int = 1,
-        minPeakDropFraction: Double = 0.02,
+        minPeakDropFraction: Double = 0.015,
         coolDownSeconds: Double = 0.4,
         warmUpSamplesBelowDisarm: Int = 5,
         minFireDelayFromTouchDownSeconds: Double = 1.0

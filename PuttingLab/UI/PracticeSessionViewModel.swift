@@ -2,6 +2,7 @@ import Foundation
 import Observation
 import UIKit
 import simd
+import AudioToolbox
 
 /// Drives the 100-stroke guided session UI.
 ///
@@ -64,6 +65,11 @@ final class PracticeSessionViewModel {
     /// which is a sharp double-tap pattern, noticeably stronger than
     /// UIImpactFeedbackGenerator(.heavy).
     private let onImpactHaptic: @MainActor () -> Void
+    /// Fires a short percussive "putter-on-ball" click in sync with the
+    /// impact haptic. Bundled WAV at PuttingLab/Resources/Sounds/
+    /// putter_click.wav — replace with a real recording to taste; the
+    /// loader just reads it from the main bundle.
+    private let onImpactSound: @MainActor () -> Void
     private let liveImpactDetector: LiveImpactDetector
 
     /// Count of live-haptic fires during the most recent stroke. Exposed so
@@ -108,6 +114,15 @@ final class PracticeSessionViewModel {
         },
         onImpactHaptic: @escaping @MainActor () -> Void = {
             UINotificationFeedbackGenerator().notificationOccurred(.warning)
+        },
+        onImpactSound: @escaping @MainActor () -> Void = {
+            // Cached SystemSoundID; safe to call repeatedly. AudioServices
+            // is the lowest-latency path for short percussive samples on
+            // iOS. The sound ID is leaked at process exit (intentional —
+            // we keep it for the app's lifetime).
+            if ImpactSoundLoader.id != 0 {
+                AudioServicesPlaySystemSound(ImpactSoundLoader.id)
+            }
         }
     ) {
         self.session = session
@@ -118,6 +133,7 @@ final class PracticeSessionViewModel {
         self.liveImpactDetector = liveImpactDetector
         self.onHaptic = onHaptic
         self.onImpactHaptic = onImpactHaptic
+        self.onImpactSound = onImpactSound
     }
 
     /// Starts motion + ARKit and spins the sample-consumer task. Also loads
@@ -236,6 +252,7 @@ final class PracticeSessionViewModel {
             if liveImpactDetector.consume(sample) {
                 liveHapticFireCount += 1
                 onImpactHaptic()
+                onImpactSound()
             }
         }
     }
@@ -438,4 +455,20 @@ final class PracticeSessionViewModel {
         lastError = nil
         phase = .instructions
     }
+}
+
+/// Lazily-loaded cache for the bundled putter-click sound effect's
+/// SystemSoundID. Loading + ID creation happens once per process, the
+/// first time the impact path fires. If the bundle is missing the file
+/// (e.g. SwiftUI Preview in isolated module mode) the ID stays 0 and
+/// callers skip the play call — no crash, no audio.
+fileprivate enum ImpactSoundLoader {
+    static let id: SystemSoundID = {
+        guard let url = Bundle.main.url(forResource: "putter_click", withExtension: "wav") else {
+            return 0
+        }
+        var soundID: SystemSoundID = 0
+        let status = AudioServicesCreateSystemSoundID(url as CFURL, &soundID)
+        return status == noErr ? soundID : 0
+    }()
 }
