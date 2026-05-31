@@ -11,6 +11,10 @@ on:
       - '.gitignore'
       - 'LICENSE'
       - '.claude/**'
+      # Cost control: these don't affect the iOS build/test surface.
+      - 'data/**'           # raw stroke JSONs + DB README — pure data
+      - 'tools/**'          # Python ingestion + parameter-search tooling
+      - '.tmp/**'           # scratch (gitignored anyway, belt-and-braces)
   pull_request:
     branches: [main]
     paths-ignore:
@@ -21,6 +25,10 @@ on:
       - '.gitignore'
       - 'LICENSE'
       - '.claude/**'
+      # Cost control: these don't affect the iOS build/test surface.
+      - 'data/**'           # raw stroke JSONs + DB README — pure data
+      - 'tools/**'          # Python ingestion + parameter-search tooling
+      - '.tmp/**'           # scratch (gitignored anyway, belt-and-braces)
   workflow_dispatch:
     inputs:
       release:
