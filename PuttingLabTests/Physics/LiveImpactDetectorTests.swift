@@ -132,14 +132,33 @@ struct LiveImpactDetectorTests {
         }
     }
 
-    @Test("realistic putting profile (slow stroke, peak after the 1 s gate) fires once on the impact peak")
+    @Test("realistic putting profile (slow rise, sharp impact decay, peak past the 1 s gate) fires once")
     func realisticPuttingProfileWithFireGate() {
         // Default LiveImpactDetector: warm-up=5, fire-delay-gate=1.0 s.
-        // 2400 ms burst, peak at fraction 0.5 → 1200 ms (past the gate).
+        // Hand-built profile mimicking a real putt: slow rise to peak at
+        // 1200 ms (past the gate), then sharp drop through disarm well
+        // before the 400 ms cool-down expires — so the descent's
+        // arm-threshold crossing doesn't get caught in a re-arming loop
+        // (which a symmetric triangle would). This is the shape James's
+        // B12/B13 real strokes have.
+        var samples: [MotionSample] = []
+        // Rise 0 → 3.0 rad/s over 1200 ms (120 samples)
+        for i in 0..<120 {
+            let mag = 0.3 + (3.0 - 0.3) * Double(i) / 119.0
+            samples.append(sample(t: Double(i) * 0.01, omegaMagnitude: mag))
+        }
+        // Sharp drop 3.0 → 0.1 rad/s over 200 ms (20 samples)
+        for i in 0..<20 {
+            let mag = 3.0 - (3.0 - 0.1) * Double(i) / 19.0
+            samples.append(sample(t: 1.20 + Double(i) * 0.01, omegaMagnitude: mag))
+        }
+        // Tail at 0.1 for another 500 ms (well below disarm — no re-arm)
+        for i in 0..<50 {
+            samples.append(sample(t: 1.40 + Double(i) * 0.01, omegaMagnitude: 0.1))
+        }
         let det = LiveImpactDetector()
-        let samples = bumpSamples(durationMs: 2400, peak: 3.0, baseline: 0.3)
         let fires = samples.filter { det.consume($0) }.count
-        #expect(fires == 1)
+        #expect(fires == 1, "expected one fire on the impact peak past the 1 s gate, got \(fires)")
     }
 
     @Test("fire-delay gate (1.0 s default) suppresses an early-stroke peak")
