@@ -387,6 +387,10 @@ private struct ResultPhaseView: View {
     /// as a fullScreenCover so the live camera + plane detection have
     /// the whole screen. Doesn't change any stroke state.
     @State private var showARScanningTest: Bool = false
+    /// DEBUG-only AR Slice 2 entry point. Presents `ARPlacementView`
+    /// which adds tap-to-place ball + hole on top of Slice 1's
+    /// scanning. Also doesn't touch any stroke state.
+    @State private var showARPlacementTest: Bool = false
 
     var body: some View {
         let strokeNumber = viewModel.session.totalStrokesCompleted + 1
@@ -488,17 +492,29 @@ private struct ResultPhaseView: View {
             // DEBUG: Slice 1 AR entry point — verification only (no ball,
             // no hole, no stroke integration). Will move to a proper
             // result-panel button once Slice 4 lands.
-            Button {
-                showARScanningTest = true
-            } label: {
-                Text("DEBUG · AR scanning test (Slice 1)")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-                    .padding(.bottom, 16)
+            VStack(spacing: 2) {
+                Button {
+                    showARScanningTest = true
+                } label: {
+                    Text("DEBUG · AR scanning test (Slice 1)")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
+                .fullScreenCover(isPresented: $showARScanningTest) {
+                    ARScanningView()
+                }
+                Button {
+                    showARPlacementTest = true
+                } label: {
+                    Text("DEBUG · AR placement test (Slice 2)")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
+                .fullScreenCover(isPresented: $showARPlacementTest) {
+                    ARPlacementView()
+                }
             }
-            .fullScreenCover(isPresented: $showARScanningTest) {
-                ARScanningView()
-            }
+            .padding(.bottom, 16)
             .accessibilityLabel("Done. Continue to next stroke.")
         }
     }
