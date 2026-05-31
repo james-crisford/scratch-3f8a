@@ -429,10 +429,10 @@ private struct ResultPhaseView: View {
                     .foregroundStyle(.secondary)
                 let n = viewModel.liveHapticFireCount
                 Text(n == 0
-                    ? "No haptic fired during the stroke — judge from your feel."
+                    ? "No haptic during the stroke — judge from your feel."
                     : (n == 1
-                        ? "Felt 1 impact (the strong thump in your stroke)."
-                        : "Felt \(n) impacts — judge the LAST one before you released."))
+                        ? "1 haptic (light tap). Judge whether it landed at the moment you hit the ball."
+                        : "\(n) haptics: a LIGHT tap for backswing top, then a HEAVY thump near impact. Judge only the HEAVY thump."))
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
                     .multilineTextAlignment(.center)

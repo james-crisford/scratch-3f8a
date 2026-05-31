@@ -215,11 +215,21 @@ final class PracticeSessionViewModel {
             }
             samplesInCurrentRecording = samplesDuringRecording.count
             // Fire a real-time haptic at each estimated impact peak so the
-            // user can judge timing in the result panel. The .heavy style is
-            // distinguishable from the .medium "you started recording" tap.
+            // user can judge timing in the result panel.
+            //
+            // Build 13 haptic-style distinction (from B12 first-session data):
+            //   • The FIRST fire in a stroke is usually the backswing or
+            //     transition peak — gets `.light` ("takeaway noted").
+            //   • SECOND and subsequent fires are usually the forward-swing
+            //     / impact peak — get `.heavy` ("THIS is the one to judge").
+            // The .medium tap on touchDown still marks recording start, so the
+            // user can disambiguate by feel: medium-tap → press registered;
+            // light-tap → backswing top; heavy-thump → impact.
             if liveImpactDetector.consume(sample) {
                 liveHapticFireCount += 1
-                onHaptic(.heavy)
+                let style: UIImpactFeedbackGenerator.FeedbackStyle =
+                    (liveHapticFireCount == 1) ? .light : .heavy
+                onHaptic(style)
             }
         }
     }

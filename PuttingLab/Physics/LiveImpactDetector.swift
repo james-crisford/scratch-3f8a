@@ -29,22 +29,19 @@ final class LiveImpactDetector {
     /// fires anyway. Acts as a safety net so the haptic always lands.
     let disarmThreshold: Double
     /// Number of consecutive samples where |ω| < maxMagSinceArmed required
-    /// to confirm we've passed the rotation-rate peak. 3 samples at 100 Hz
-    /// = ~30 ms latency from true peak — calibrated on James's 5 B7
-    /// strokes to land within 0–80 ms of the algorithm's chosen impact
-    /// time (vs. 274–388 ms for the original disarm-cross logic).
-    /// Higher = more noise rejection but more latency.
+    /// to confirm we've passed the rotation-rate peak. Build 13 default = 1
+    /// (~10 ms latency from true peak) after the B12 first-session data
+    /// showed James judging 11/12 strokes "felt late" — the +30 ms B11/B12
+    /// confirmation latency was perceptible on top of the algorithm impact
+    /// already being slightly post-perceived-contact. Higher = more noise
+    /// rejection but more latency.
     let peakConfirmationSamples: Int
     /// Minimum drop from `maxMagSinceArmed` required for the
-    /// peak-confirmation fire path to trigger. Without this, a low-amplitude
-    /// jitter during the rise (e.g. a 0.5% blip from 2.082 → 2.075 → 2.066
-    /// in James's stroke #5 around the arm-threshold plateau) qualifies as
-    /// "3 consecutive below-max samples" and fires prematurely — then the
-    /// 400 ms cool-down blocks the REAL impact peak. 0.05 = require a 5 %
-    /// drop below the running max. Calibrated on stroke #5: real peak 2.873
-    /// minus 5 % = 2.729 → fires at sample 139 (1382 ms, -1 ms vs algo
-    /// impact) instead of the false-positive at sample 123 (1223 ms, blocks
-    /// the real fire for 400 ms cool-down).
+    /// peak-confirmation fire path to trigger. Build 13 default = 0.02 (2 %)
+    /// — tighter than B11/B12's 5 % to fire closer to the actual peak time.
+    /// Still suppresses sub-1 % noise on the arm-threshold plateau (the
+    /// stroke #5 false-fire case from B11) but no longer waits for the
+    /// magnitude to drop a full 5 % from peak before declaring impact.
     let minPeakDropFraction: Double
     /// Minimum gap between successive haptic fires (seconds). Prevents one
     /// noisy peak with a few jittery samples from double-firing.
@@ -71,8 +68,8 @@ final class LiveImpactDetector {
     init(
         armThreshold: Double = 2.0,
         disarmThreshold: Double = 1.0,
-        peakConfirmationSamples: Int = 3,
-        minPeakDropFraction: Double = 0.05,
+        peakConfirmationSamples: Int = 1,
+        minPeakDropFraction: Double = 0.02,
         coolDownSeconds: Double = 0.4,
         warmUpSamplesBelowDisarm: Int = 5
     ) {
