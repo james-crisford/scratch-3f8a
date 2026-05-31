@@ -211,8 +211,11 @@ private struct ARSceneRepresentable: UIViewRepresentable {
             lastHUDUpdate = now
 
             let status = Self.formatTrackingState(frame.camera.trackingState)
-            Task { @MainActor [weak self] in
-                self?.trackingState = status
+            // Capture the Binding (Sendable) locally so the Task doesn't
+            // need to capture `self` (the non-Sendable NSObject Coordinator).
+            let binding = _trackingState
+            Task { @MainActor in
+                binding.wrappedValue = status
             }
         }
 
@@ -223,8 +226,9 @@ private struct ARSceneRepresentable: UIViewRepresentable {
             }
             guard added > 0 else { return }
             let count = detectedPlanes.count
-            Task { @MainActor [weak self] in
-                self?.planeCount = count
+            let binding = _planeCount
+            Task { @MainActor in
+                binding.wrappedValue = count
             }
         }
 
@@ -235,27 +239,31 @@ private struct ARSceneRepresentable: UIViewRepresentable {
             }
             guard removed > 0 else { return }
             let count = detectedPlanes.count
-            Task { @MainActor [weak self] in
-                self?.planeCount = count
+            let binding = _planeCount
+            Task { @MainActor in
+                binding.wrappedValue = count
             }
         }
 
         func sessionWasInterrupted(_ session: ARSession) {
-            Task { @MainActor [weak self] in
-                self?.trackingState = "Interrupted"
+            let binding = _trackingState
+            Task { @MainActor in
+                binding.wrappedValue = "Interrupted"
             }
         }
 
         func sessionInterruptionEnded(_ session: ARSession) {
-            Task { @MainActor [weak self] in
-                self?.trackingState = "Resuming…"
+            let binding = _trackingState
+            Task { @MainActor in
+                binding.wrappedValue = "Resuming…"
             }
         }
 
         func session(_ session: ARSession, didFailWithError error: Error) {
             let message = (error as NSError).localizedDescription
-            Task { @MainActor [weak self] in
-                self?.trackingState = "Failed: \(message)"
+            let binding = _trackingState
+            Task { @MainActor in
+                binding.wrappedValue = "Failed: \(message)"
             }
         }
 
