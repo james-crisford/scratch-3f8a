@@ -382,6 +382,12 @@ private struct ResultPhaseView: View {
     let viewModel: PracticeSessionViewModel
     let result: ImpactResult?
 
+    /// DEBUG-only AR Slice 1 entry point. Set when the small "AR Test"
+    /// link below the Done button is tapped; presents `ARScanningView`
+    /// as a fullScreenCover so the live camera + plane detection have
+    /// the whole screen. Doesn't change any stroke state.
+    @State private var showARScanningTest: Bool = false
+
     var body: some View {
         let strokeNumber = viewModel.session.totalStrokesCompleted + 1
         VStack(spacing: 24) {
@@ -477,7 +483,22 @@ private struct ResultPhaseView: View {
                     .background(.green, in: RoundedRectangle(cornerRadius: 14))
             }
             .padding(.horizontal, 24)
-            .padding(.bottom, 24)
+            .padding(.bottom, 4)
+
+            // DEBUG: Slice 1 AR entry point — verification only (no ball,
+            // no hole, no stroke integration). Will move to a proper
+            // result-panel button once Slice 4 lands.
+            Button {
+                showARScanningTest = true
+            } label: {
+                Text("DEBUG · AR scanning test (Slice 1)")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                    .padding(.bottom, 16)
+            }
+            .fullScreenCover(isPresented: $showARScanningTest) {
+                ARScanningView()
+            }
             .accessibilityLabel("Done. Continue to next stroke.")
         }
     }
