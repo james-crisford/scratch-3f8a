@@ -473,7 +473,12 @@ final class PracticeSessionViewModel {
 /// module mode) or AVFoundation init fails, `player` is nil and
 /// callers skip the play call — no crash, no audio.
 fileprivate enum ImpactSoundLoader {
-    static let player: AVAudioPlayer? = {
+    // Swift 6 strict concurrency: AVAudioPlayer is not Sendable. The only
+    // callers are inside @MainActor closures (the default onImpactSound),
+    // so this static is effectively MainActor-bound — but the compiler
+    // can't prove that from the type. `nonisolated(unsafe)` is the right
+    // escape hatch: we promise we won't touch it off-main.
+    nonisolated(unsafe) static let player: AVAudioPlayer? = {
         guard let url = Bundle.main.url(forResource: "putter_click", withExtension: "wav") else {
             return nil
         }
