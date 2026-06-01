@@ -671,6 +671,11 @@ final class ARPlacementScene {
     static let ballDiameter: Float = 0.0427
     /// Real golf-hole diameter: 4.25 in = 10.795 cm (R&A / USGA rules).
     static let holeDiameter: Float = 0.10795
+    /// Real golf-hole depth: minimum 4 in / 10.16 cm per R&A. We use
+    /// 8 cm so the bottom of the well stays visually well below the
+    /// detected plane even on lightly-textured floors where ARKit
+    /// might place the plane slightly off.
+    static let holeDepth: Float = 0.08
     /// Aim-line thickness — slim enough to feel like a laser line, thick
     /// enough to read at 3+ m of distance.
     static let aimLineThickness: Float = 0.006
@@ -696,24 +701,47 @@ final class ARPlacementScene {
 
     /// Place the hole at a world-frame position. Replaces any prior hole.
     /// Also draws / refreshes the aim line if a ball is already placed.
+    ///
+    /// The hole is rendered as a regulation 4.25" (10.8 cm) wide × 8 cm
+    /// deep dark well, with the TOP RIM flush against the detected
+    /// plane and the body extending DOWNWARD INTO the floor — exactly
+    /// like a real golf hole, per James's B22 feedback. We can't carve
+    /// a real hole into the camera feed (the floor isn't our mesh) but
+    /// a black-interior sunken well reads correctly from any camera
+    /// angle: directly above you see a dark disc; from an angle you
+    /// see depth into the well.
+    ///
+    /// `MeshResource.generateCylinder(height:radius:)` is iOS 18+, so
+    /// we use a corner-rounded `generateBox` whose width == depth ==
+    /// diameter and `cornerRadius == diameter / 2` — geometrically
+    /// indistinguishable from a cylinder at this size.
     func placeHole(at worldPosition: SIMD3<Float>) {
         guard let arView else { return }
         holeAnchor?.removeFromParent()
 
-        // Use a flat plane mesh instead of a 1 mm cylinder — RealityKit
-        // cylinders include top/bottom caps + a (sub-pixel at 1 mm) side
-        // wall that z-fights with detected plane geometry. A single quad
-        // sized to the hole diameter is cleaner and cheaper. Corner
-        // radius = half the side gives a perfect disc.
         let dia = Self.holeDiameter
-        let mesh = MeshResource.generatePlane(width: dia, depth: dia, cornerRadius: dia / 2)
-        let material = SimpleMaterial(color: .black, roughness: 0.8, isMetallic: false)
+        let depth = Self.holeDepth
+        let mesh = MeshResource.generateBox(width: dia,
+                                             height: depth,
+                                             depth: dia,
+                                             cornerRadius: dia / 2)
+        // Near-black, low specular reflection so it visually "absorbs"
+        // light the way the inside of a real cup does. Slightly above
+        // pure black so the well isn't a void on bright floors.
+        let material = SimpleMaterial(
+            color: UIColor(white: 0.04, alpha: 1.0),
+            roughness: 0.95,
+            isMetallic: false
+        )
         let model = ModelEntity(mesh: mesh, materials: [material])
+        // The box's local origin is its centre. To put the TOP face at
+        // the plane (anchor) level, shift the model DOWN by half the
+        // box height. The result: body extends from y=−depth up to y=0
+        // in anchor-local frame, i.e. fully embedded in the floor with
+        // its rim flush at the detected plane.
+        model.position = SIMD3<Float>(0, -depth / 2, 0)
 
-        // Lift the anchor (not the model) 1 mm above the plane. Lifting
-        // the model after rotation would push it sideways in the model's
-        // local frame, not vertically in world space.
-        let anchor = AnchorEntity(world: worldPosition + SIMD3<Float>(0, 0.001, 0))
+        let anchor = AnchorEntity(world: worldPosition)
         anchor.addChild(model)
         arView.scene.addAnchor(anchor)
         holeAnchor = anchor
