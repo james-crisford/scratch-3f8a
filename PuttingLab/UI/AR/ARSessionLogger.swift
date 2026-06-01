@@ -15,7 +15,10 @@ import simd
 @Observable
 final class ARSessionLogger {
     private(set) var events: [Event] = []
-    private let sessionId: String
+    /// Same string used as the saved-JSON filename stem and the paired
+    /// MP4 filename stem. `nonisolated` so other actors (the screen
+    /// recorder, the share sheet) can read it without a hop.
+    let sessionId: String
     private let startedAt: Date
     /// Surfaces failed snapshot writes (e.g. iCloud sync conflict on
     /// Documents/) so the HUD can show the user instead of silently

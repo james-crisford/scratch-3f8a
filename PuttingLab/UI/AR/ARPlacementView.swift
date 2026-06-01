@@ -56,6 +56,11 @@ struct ARPlacementView: View {
     /// slipped here", "plane overlay landed on table not floor").
     @State private var showNoteInput: Bool = false
     @State private var noteText: String = ""
+    /// Screen recorder controls. James asked for video of what's
+    /// happening on screen alongside the JSON so we can correlate
+    /// visuals to sensors. Toggle via the Record button.
+    @State private var recorder: ARScreenRecorder = ARScreenRecorder()
+    @State private var isRecording: Bool = false
 
     /// The scene-graph "controller" we expose to the UIViewRepresentable.
     /// Lives as a single instance bound to the view so tap callbacks +
@@ -80,6 +85,13 @@ struct ARPlacementView: View {
             )
             .ignoresSafeArea()
 
+            // Centre crosshair so the user can SEE the exact world
+            // point they're aiming at before committing — pairs with
+            // the Place button. No tap needed; the placement happens
+            // wherever this reticle is when the button is pressed.
+            crosshair
+                .allowsHitTesting(false)
+
             VStack {
                 topBar
                 Spacer()
@@ -89,6 +101,7 @@ struct ARPlacementView: View {
                 }
                 groundTruthMarkerRow
                 eventLog
+                placeActionButton
                 actionRow
             }
             .padding(.horizontal, 16)
@@ -131,8 +144,28 @@ struct ARPlacementView: View {
         .onAppear {
             firstStillAt = Date()
             logger.log(.sessionStart, "Slice 2 placement view opened")
+            // CI / XCUITest hook: simulator never detects a plane, so
+            // the Place buttons would otherwise be unreachable. The
+            // -uiTestMode launch argument fakes the readyToPlaceBall
+            // state so button-presence tests can find the controls.
+            if CommandLine.arguments.contains("-uiTestMode") {
+                planeCount = 1
+                placementState = .readyToPlaceBall
+                logger.log(.note, "UI test mode: forcing .readyToPlaceBall")
+            }
         }
         .onDisappear {
+            // Stop any in-flight recording so the MP4 finalises and
+            // gets bundled in the next Export All. If recording wasn't
+            // active, stop() is a no-op.
+            if isRecording {
+                recorder.stop { url in
+                    if let url {
+                        logger.log(.note, "Recording auto-stopped on dismiss: \(url.lastPathComponent)")
+                    }
+                    logger.saveSnapshot()
+                }
+            }
             logger.log(.sessionEnd, "Slice 2 placement view dismissed")
             logger.saveSnapshot()
         }
@@ -178,6 +211,37 @@ struct ARPlacementView: View {
         }
     }
 
+    /// Start or stop the ReplayKit screen recording. The MP4 lands at
+    /// Documents/ARSessionRecordings/<sessionId>.mp4 so the JSON and
+    /// the video pair by filename. Export All bundles both.
+    private func toggleRecording() {
+        if isRecording {
+            logger.log(.note, "Recording stop requested")
+            recorder.stop { url in
+                isRecording = false
+                if let url {
+                    logger.log(.note, "Recording saved: \(url.lastPathComponent)",
+                               payload: ["filename": url.lastPathComponent])
+                } else {
+                    logger.log(.failed, "Recording save failed: \(recorder.lastError ?? "unknown")")
+                    showTransientHint("Recording failed")
+                }
+            }
+        } else {
+            logger.log(.note, "Recording start requested")
+            if recorder.start(sessionId: logger.sessionId) != nil {
+                // start() is asynchronous — ReplayKit will prompt for
+                // permission on first ever run. Mark isRecording true
+                // optimistically; the callback inside the recorder
+                // will flip it back on failure.
+                isRecording = true
+            } else {
+                logger.log(.failed, "Recorder unavailable: \(recorder.lastError ?? "unknown")")
+                showTransientHint(recorder.lastError ?? "Recording unavailable")
+            }
+        }
+    }
+
     /// Force the placement state back to waiting after ARKit relocalises
     /// from an interruption (H5 fix). Without this, the cached ball /
     /// hole world coordinates may have shifted under the user and the
@@ -208,6 +272,7 @@ struct ARPlacementView: View {
                 .padding(.vertical, 10)
                 .background(.black.opacity(0.55), in: Capsule())
             }
+            .accessibilityIdentifier("ar.doneButton")
             Spacer()
             Text("AR place · Slice 2")
                 .font(.caption.bold())
@@ -215,6 +280,7 @@ struct ARPlacementView: View {
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
                 .background(.black.opacity(0.55), in: Capsule())
+                .accessibilityIdentifier("ar.titleBadge")
         }
         .padding(.top, 12)
     }
@@ -254,6 +320,21 @@ struct ARPlacementView: View {
                     .foregroundStyle(.white.opacity(0.65))
                 Spacer()
                 Button {
+                    toggleRecording()
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: isRecording ? "stop.circle.fill" : "record.circle")
+                        Text(isRecording ? "Stop" : "Record")
+                    }
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 2)
+                    .background((isRecording ? Color.red : Color.red.opacity(0.6)),
+                                 in: Capsule())
+                }
+                .accessibilityIdentifier("ar.recordButton")
+                Button {
                     // Log first, THEN snapshot — otherwise the saved JSON
                     // doesn't contain the very note it's supposed to tag
                     // (L16 in the audit).
@@ -267,6 +348,7 @@ struct ARPlacementView: View {
                         .padding(.vertical, 2)
                         .background(.green.opacity(0.6), in: Capsule())
                 }
+                .accessibilityIdentifier("ar.saveButton")
                 Button {
                     // Flush the current session FIRST so the share
                     // sheet pickup includes everything up to right now.
@@ -281,6 +363,7 @@ struct ARPlacementView: View {
                         .padding(.vertical, 2)
                         .background(.blue.opacity(0.75), in: Capsule())
                 }
+                .accessibilityIdentifier("ar.exportButton")
             }
             ForEach(Array(recent.enumerated()), id: \.element.id) { _, ev in
                 HStack(alignment: .top, spacing: 6) {
@@ -322,22 +405,131 @@ struct ARPlacementView: View {
             .padding(.top, 6)
     }
 
+    /// Crosshair reticle in the centre of the screen. The Place
+    /// button raycasts from this exact point, so what you aim at is
+    /// what you get — way more accurate than tap-to-place because the
+    /// crosshair gives you a target preview AND the button press
+    /// doesn't move the phone the way a tap on the floor would.
+    private var crosshair: some View {
+        ZStack {
+            Circle()
+                .stroke(.white, lineWidth: 2)
+                .frame(width: 56, height: 56)
+                .shadow(color: .black.opacity(0.6), radius: 2)
+            Image(systemName: "plus")
+                .font(.system(size: 22, weight: .bold))
+                .foregroundStyle(.white)
+                .shadow(color: .black.opacity(0.6), radius: 2)
+        }
+        .opacity(crosshairOpacity)
+        .accessibilityIdentifier("ar.crosshair")
+    }
+
+    /// Dim the crosshair after placement is complete so it doesn't
+    /// distract from the result; hide entirely if no plane yet.
+    private var crosshairOpacity: Double {
+        switch placementState {
+        case .waitingForPlane:  return 0.25
+        case .readyToPlaceBall, .readyToPlaceHole: return 0.95
+        case .complete:         return 0.35
+        }
+    }
+
+    /// Explicit placement button — appears below the event log only in
+    /// states where placement is the next action. The crosshair shows
+    /// where the entity will land; pressing this button does the raycast
+    /// and commits. Tap-on-floor still works as a fallback.
+    @ViewBuilder
+    private var placeActionButton: some View {
+        switch placementState {
+        case .readyToPlaceBall:
+            bigPlaceButton(label: "Place ball at crosshair",
+                            icon: "circle.fill",
+                            tint: .white,
+                            id: "ar.placeBallButton") {
+                placeAtCenter()
+            }
+        case .readyToPlaceHole:
+            bigPlaceButton(label: "Place hole at crosshair",
+                            icon: "scope",
+                            tint: .yellow,
+                            id: "ar.placeHoleButton") {
+                placeAtCenter()
+            }
+        default:
+            EmptyView()
+        }
+    }
+
+    private func bigPlaceButton(label: String,
+                                 icon: String,
+                                 tint: Color,
+                                 id: String,
+                                 action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                Image(systemName: icon)
+                Text(label)
+            }
+            .font(.callout.weight(.bold))
+            .foregroundStyle(.black)
+            .padding(.horizontal, 20)
+            .padding(.vertical, 14)
+            .frame(maxWidth: .infinity)
+            .background(tint, in: RoundedRectangle(cornerRadius: 14))
+        }
+        .padding(.top, 8)
+        .accessibilityIdentifier(id)
+    }
+
+    /// Centre-of-screen raycast + place (mirrors handleTap's flow but
+    /// uses the crosshair point instead of a gesture location).
+    private func placeAtCenter() {
+        guard let world = scene.raycastScreenCenter() else {
+            logger.log(.raycastMiss, "place button: screen-centre raycast missed")
+            showTransientHint("Aim the crosshair at the floor")
+            return
+        }
+        logger.log(.raycastHit, "place button hit \(ARLogFmt.vec(world))",
+                   payload: ["x": String(format: "%.4f", world.x),
+                             "y": String(format: "%.4f", world.y),
+                             "z": String(format: "%.4f", world.z),
+                             "source": "crosshair"])
+        switch placementState {
+        case .waitingForPlane:
+            logger.log(.note, "place button — no plane yet")
+        case .readyToPlaceBall:
+            scene.placeBall(at: world)
+            logger.log(.ballPlaced, "ball via crosshair \(ARLogFmt.vec(world))",
+                       payload: ["source": "crosshair"])
+            placementState = .readyToPlaceHole(world)
+        case .readyToPlaceHole(let ballWorld):
+            scene.placeHole(at: world)
+            let dist = simd_distance(ballWorld, world)
+            logger.log(.holePlaced, "hole via crosshair \(ARLogFmt.vec(world)) · \(ARLogFmt.meters(dist))",
+                       payload: ["source": "crosshair", "distance_m": String(format: "%.4f", dist)])
+            placementState = .complete(ball: ballWorld, hole: world)
+        case .complete:
+            break
+        }
+    }
+
     /// Ground-truth markers — quick-tap buttons that let James label
     /// what HE saw at a moment in time, so when we read the JSON back
     /// later we can correlate sensor data to actual observed events.
     /// Each tap logs a `.note` event with a `GT:` prefix.
     private var groundTruthMarkerRow: some View {
         HStack(spacing: 6) {
-            markerButton(label: "👍 Good") { logger.log(.note, "GT: looks good", payload: ["source": "user_marker", "tag": "good"]) }
-            markerButton(label: "📐 Plane wrong") { logger.log(.note, "GT: plane overlay wrong", payload: ["source": "user_marker", "tag": "plane_wrong"]) }
-            markerButton(label: "🎯 Drifted") { logger.log(.note, "GT: ball/hole drifted", payload: ["source": "user_marker", "tag": "drifted"]) }
-            markerButton(label: "❌ Lost") { logger.log(.note, "GT: tracking lost", payload: ["source": "user_marker", "tag": "lost_tracking"]) }
-            markerButton(label: "📝 Note…") { showNoteInput = true }
+            markerButton(label: "👍 Good", id: "ar.markerGood") { logger.log(.note, "GT: looks good", payload: ["source": "user_marker", "tag": "good"]) }
+            markerButton(label: "📐 Plane wrong", id: "ar.markerPlaneWrong") { logger.log(.note, "GT: plane overlay wrong", payload: ["source": "user_marker", "tag": "plane_wrong"]) }
+            markerButton(label: "🎯 Drifted", id: "ar.markerDrifted") { logger.log(.note, "GT: ball/hole drifted", payload: ["source": "user_marker", "tag": "drifted"]) }
+            markerButton(label: "❌ Lost", id: "ar.markerLost") { logger.log(.note, "GT: tracking lost", payload: ["source": "user_marker", "tag": "lost_tracking"]) }
+            markerButton(label: "📝 Note…", id: "ar.markerNote") { showNoteInput = true }
         }
         .padding(.top, 6)
     }
 
-    private func markerButton(label: String, action: @escaping () -> Void) -> some View {
+    private func markerButton(label: String, id: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(label)
                 .font(.caption2.weight(.semibold))
@@ -346,6 +538,7 @@ struct ARPlacementView: View {
                 .padding(.vertical, 6)
                 .background(.white.opacity(0.18), in: Capsule())
         }
+        .accessibilityIdentifier(id)
     }
 
     private func timeShort(_ d: Date) -> String {
@@ -570,6 +763,27 @@ final class ARPlacementScene {
         anchor.addChild(model)
         arView.scene.addAnchor(anchor)
         lineAnchor = anchor
+    }
+
+    /// Raycast from the centre of the ARView (where the crosshair sits)
+    /// against detected horizontal planes. Returns the world-space hit
+    /// or nil on miss. Used by the explicit Place buttons — strictly
+    /// more accurate than tap-to-place because the crosshair shows
+    /// exactly where the entity will land BEFORE you commit, and the
+    /// button press doesn't shake the phone.
+    func raycastScreenCenter() -> SIMD3<Float>? {
+        guard let arView else { return nil }
+        let center = CGPoint(x: arView.bounds.midX, y: arView.bounds.midY)
+        guard let query = arView.makeRaycastQuery(
+                from: center,
+                allowing: .existingPlaneGeometry,
+                alignment: .horizontal
+              ),
+              let result = arView.session.raycast(query).first else {
+            return nil
+        }
+        let t = result.worldTransform
+        return SIMD3<Float>(t.columns.3.x, t.columns.3.y, t.columns.3.z)
     }
 
     func clearPlacedEntities() {

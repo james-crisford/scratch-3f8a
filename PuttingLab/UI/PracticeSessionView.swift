@@ -303,6 +303,7 @@ private struct ReadyPhaseView: View {
                         .padding(.vertical, 10)
                         .background(.purple.opacity(0.85), in: Capsule())
                 }
+                .accessibilityIdentifier("ready.placeARButton")
                 .fullScreenCover(isPresented: $showARPlacementFromReady,
                                  onDismiss: { viewModel.resumeARFromCover() }) {
                     ARPlacementView()

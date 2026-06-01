@@ -31,8 +31,8 @@ targets:
       path: PuttingLab/Info.plist
       properties:
         CFBundleDisplayName: PuttingLab
-        CFBundleShortVersionString: "0.2.6"
-        CFBundleVersion: "20"
+        CFBundleShortVersionString: "0.2.7"
+        CFBundleVersion: "21"
         LSRequiresIPhoneOS: true
         UILaunchScreen: {}
         UIRequiredDeviceCapabilities:
@@ -69,15 +69,36 @@ targets:
         TEST_HOST: "$(BUILT_PRODUCTS_DIR)/PuttingLab.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/PuttingLab"
         BUNDLE_LOADER: "$(TEST_HOST)"
 
+  PuttingLabUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: PuttingLabUITests
+    dependencies:
+      - target: PuttingLab
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.puttinglab.app.uitests
+        GENERATE_INFOPLIST_FILE: YES
+        CODE_SIGNING_ALLOWED: NO
+        TEST_TARGET_NAME: PuttingLab
+
 schemes:
   PuttingLab:
     build:
       targets:
         PuttingLab: all
         PuttingLabTests: [test]
+        PuttingLabUITests: [test]
     test:
       config: Debug
       gatherCoverageData: true
+      targets:
+        - name: PuttingLabTests
+          parallelizable: true
+        - name: PuttingLabUITests
+          parallelizable: false
       targets:
         - PuttingLabTests
     run:
