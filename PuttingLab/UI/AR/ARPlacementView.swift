@@ -234,6 +234,45 @@ struct ARPlacementView: View {
         }
     }
 
+    /// Collect ONLY the current session's JSON + MP4 — the pair
+    /// keyed by logger.sessionId. Used by the "Send this" button so
+    /// James doesn't re-send historical sessions every time.
+    private func collectCurrentSessionURLs() -> [URL] {
+        guard let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
+            return []
+        }
+        let stem = logger.sessionId
+        var urls: [URL] = []
+        let jsonURL = docs
+            .appendingPathComponent("ARSessionLogs", isDirectory: true)
+            .appendingPathComponent("\(stem).json")
+        if FileManager.default.fileExists(atPath: jsonURL.path) {
+            urls.append(jsonURL)
+        }
+        let mp4URL = docs
+            .appendingPathComponent("ARSessionRecordings", isDirectory: true)
+            .appendingPathComponent("\(stem).mp4")
+        if FileManager.default.fileExists(atPath: mp4URL.path) {
+            urls.append(mp4URL)
+        }
+        return urls
+    }
+
+    /// Stop the recorder and await the MP4 write so the file exists
+    /// before the Share Sheet's directory scan runs. Wrapped here
+    /// instead of inline so both Send buttons can reuse it.
+    private func stopRecordingAsync() async {
+        await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+            recorder.stop { url in
+                isRecording = false
+                if let url {
+                    logger.log(.note, "Recording stopped for send: \(url.lastPathComponent)")
+                }
+                cont.resume()
+            }
+        }
+    }
+
     /// Start or stop the ReplayKit screen recording. The MP4 lands at
     /// Documents/ARSessionRecordings/<sessionId>.mp4 so the JSON and
     /// the video pair by filename. Export All bundles both.
@@ -336,18 +375,20 @@ struct ARPlacementView: View {
     /// what's happening without needing a Mac console.
     private var eventLog: some View {
         let recent = logger.events.suffix(5)
-        return VStack(alignment: .leading, spacing: 2) {
-            HStack {
-                Text("LIVE EVENTS  (last \(min(5, logger.events.count)) of \(logger.events.count))")
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(.white.opacity(0.65))
-                Spacer()
+        return VStack(alignment: .leading, spacing: 4) {
+            // Title on its own row so the 4 action buttons below have
+            // full width — on SE-class iPhones the previous single-row
+            // layout overflowed and clipped the Send buttons.
+            Text("LIVE EVENTS  (last \(min(5, logger.events.count)) of \(logger.events.count))")
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.white.opacity(0.65))
+            HStack(spacing: 6) {
                 Button {
                     toggleRecording()
                 } label: {
                     HStack(spacing: 4) {
                         Image(systemName: isRecording ? "stop.circle.fill" : "record.circle")
-                        Text(isRecording ? "Stop" : "Record")
+                        Text(isRecording ? "Stop rec" : "Record")
                     }
                     .font(.caption2.weight(.semibold))
                     .foregroundStyle(.white)
@@ -358,13 +399,14 @@ struct ARPlacementView: View {
                 }
                 .accessibilityIdentifier("ar.recordButton")
                 Button {
-                    // Log first, THEN snapshot — otherwise the saved JSON
-                    // doesn't contain the very note it's supposed to tag
-                    // (L16 in the audit).
+                    // Mid-session snapshot of just THIS session's
+                    // events. Useful for tagging "look at this point".
+                    // Distinct from Send below — does NOT open a share
+                    // sheet; just flushes JSON to disk.
                     logger.log(.note, "Snapshot saved manually")
                     logger.saveSnapshot()
                 } label: {
-                    Text("Save")
+                    Text("Save now")
                         .font(.caption2.weight(.semibold))
                         .foregroundStyle(.white)
                         .padding(.horizontal, 8)
@@ -373,24 +415,50 @@ struct ARPlacementView: View {
                 }
                 .accessibilityIdentifier("ar.saveButton")
                 Button {
-                    // Flush the current session FIRST so the share
-                    // sheet pickup includes everything up to right now.
-                    // Both saveSnapshot + collect happen off-main; we
-                    // await the save so the just-written JSON is on
-                    // disk before the directory scan runs.
-                    logger.log(.note, "Export triggered")
+                    // SEND THIS ONLY: just the current sessionId's
+                    // JSON + MP4 pair (or just JSON if recording was
+                    // not active). Prevents re-sending old sessions.
+                    logger.log(.note, "Send-this-only triggered")
                     Task {
+                        // Stop any in-flight recording so the MP4 is
+                        // finalised before we collect it.
+                        if isRecording {
+                            await stopRecordingAsync()
+                        }
+                        await logger.saveSnapshotAndWait()
+                        shareSheetURLs = collectCurrentSessionURLs()
+                        showShareSheet = true
+                    }
+                } label: {
+                    Text("Send this")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 2)
+                        .background(.blue.opacity(0.85), in: Capsule())
+                }
+                .accessibilityIdentifier("ar.sendThisButton")
+                Button {
+                    // SEND ALL: every JSON + MP4 in Documents/. Use
+                    // when starting from scratch or refreshing the
+                    // whole dataset. Shows count to make repeats
+                    // visible before tapping.
+                    logger.log(.note, "Send-all triggered")
+                    Task {
+                        if isRecording {
+                            await stopRecordingAsync()
+                        }
                         await logger.saveSnapshotAndWait()
                         shareSheetURLs = await ARLogExport.collectAllLogURLs()
                         showShareSheet = true
                     }
                 } label: {
-                    Text("Export all")
+                    Text("Send all")
                         .font(.caption2.weight(.semibold))
                         .foregroundStyle(.white)
                         .padding(.horizontal, 8)
                         .padding(.vertical, 2)
-                        .background(.blue.opacity(0.75), in: Capsule())
+                        .background(.indigo.opacity(0.85), in: Capsule())
                 }
                 .accessibilityIdentifier("ar.exportButton")
             }
