@@ -37,6 +37,26 @@ struct ARPlacementView: View {
         case complete(ball: SIMD3<Float>, hole: SIMD3<Float>)
     }
 
+    /// Pre-share confirmation summary. Built by scanning
+    /// Documents/ARSessionLogs + Documents/ARSessionRecordings before
+    /// the Share Sheet opens. Surfaces count + per-session breakdown
+    /// + total size so James knows exactly what he's about to send.
+    struct SendPreflight: Equatable, Sendable {
+        enum Scope: String, Sendable { case thisOnly, all }
+        struct Item: Identifiable, Equatable, Sendable {
+            var id: String { sessionId }
+            let sessionId: String
+            let timestamp: String         // human "21:17:00" extracted from filename
+            let hasJSON: Bool
+            let hasMP4: Bool
+            let bytes: Int64
+        }
+        let scope: Scope
+        let items: [Item]
+        let totalBytes: Int64
+        var totalFiles: Int { items.reduce(0) { $0 + ($1.hasJSON ? 1 : 0) + ($1.hasMP4 ? 1 : 0) } }
+    }
+
     @State private var placementState: PlacementState = .waitingForPlane
     @State private var trackingState: String = "Starting…"
     @State private var planeCount: Int = 0
@@ -56,6 +76,13 @@ struct ARPlacementView: View {
     /// a background scan so the main thread doesn't block on the
     /// filesystem walk (Gemini B21 finding #2).
     @State private var shareSheetURLs: [URL] = []
+    /// Pre-share preflight confirmation. James asked for an explicit
+    /// "what am I sending" view because Send all silently bundles
+    /// every historical session and the iOS Share Sheet shows opaque
+    /// sessionId hashes. We show this BEFORE the Share Sheet so the
+    /// user can see count + total size + per-session breakdown.
+    @State private var showSendPreflight: Bool = false
+    @State private var sendPreflight: SendPreflight = SendPreflight(scope: .thisOnly, items: [], totalBytes: 0)
     /// Free-form note input modal for ground-truth tagging (e.g. "phone
     /// slipped here", "plane overlay landed on table not floor").
     @State private var showNoteInput: Bool = false
@@ -203,6 +230,9 @@ struct ARPlacementView: View {
         .sheet(isPresented: $showShareSheet) {
             ARLogShareSheet(urls: shareSheetURLs)
         }
+        .sheet(isPresented: $showSendPreflight) {
+            preflightSheet
+        }
         .alert("Add a ground-truth note", isPresented: $showNoteInput) {
             TextField("e.g. plane landed on table not floor", text: $noteText)
             Button("Cancel", role: .cancel) { noteText = "" }
@@ -232,6 +262,149 @@ struct ARPlacementView: View {
                 transientHint = nil
             }
         }
+    }
+
+    /// Pre-share preview. Lists every session about to be shared
+    /// with its timestamp, file types present (JSON / MP4), per-item
+    /// size, and a total. James can scroll, confirm, or cancel
+    /// before the iOS Share Sheet opens. Avoids accidentally
+    /// re-sending the same historical sessions on every Send all.
+    private var preflightSheet: some View {
+        NavigationStack {
+            List {
+                Section {
+                    HStack {
+                        Image(systemName: sendPreflight.scope == .all ? "tray.full.fill" : "doc.fill")
+                            .foregroundStyle(sendPreflight.scope == .all ? .indigo : .blue)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(sendPreflight.scope == .all ? "Sending ALL sessions" : "Sending THIS session only")
+                                .font(.headline)
+                            Text("\(sendPreflight.items.count) session" + (sendPreflight.items.count == 1 ? "" : "s") +
+                                 " · \(sendPreflight.totalFiles) file" + (sendPreflight.totalFiles == 1 ? "" : "s") +
+                                 " · \(formatBytes(sendPreflight.totalBytes))")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                if sendPreflight.items.isEmpty {
+                    Text("No files to send. Save the snapshot or record a session first.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Section("Sessions (newest first)") {
+                        ForEach(sendPreflight.items) { item in
+                            HStack(spacing: 10) {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(item.timestamp).font(.callout.monospaced())
+                                    Text(String(item.sessionId.suffix(6)))
+                                        .font(.caption2.monospaced())
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                if item.hasJSON {
+                                    Label("JSON", systemImage: "doc.text")
+                                        .font(.caption2)
+                                        .foregroundStyle(.green)
+                                }
+                                if item.hasMP4 {
+                                    Label("MP4", systemImage: "video")
+                                        .font(.caption2)
+                                        .foregroundStyle(.red)
+                                }
+                                Text(formatBytes(item.bytes))
+                                    .font(.caption.monospaced())
+                                    .foregroundStyle(.secondary)
+                                    .frame(width: 70, alignment: .trailing)
+                            }
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Confirm send")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        showSendPreflight = false
+                        logger.log(.note, "Send cancelled at preflight")
+                    }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button {
+                        showSendPreflight = false
+                        // Open the actual iOS Share Sheet on the next
+                        // runloop so the dismiss animation completes
+                        // first — otherwise iOS races them and the
+                        // share sheet flicks open behind the preflight.
+                        DispatchQueue.main.async {
+                            showShareSheet = true
+                            logger.log(.note, "Send confirmed at preflight, opening share sheet")
+                        }
+                    } label: {
+                        Text("Send")
+                            .bold()
+                    }
+                    .disabled(sendPreflight.items.isEmpty)
+                    .accessibilityIdentifier("ar.preflightSendButton")
+                }
+            }
+        }
+    }
+
+    /// Walk the URL list (already populated by collectCurrentSessionURLs
+    /// or ARLogExport.collectAllLogURLs) and group by sessionId stem so
+    /// the preflight sheet can show JSON+MP4 pairs as one row.
+    private func buildPreflight(scope: SendPreflight.Scope, urls: [URL]) -> SendPreflight {
+        var grouped: [String: (hasJSON: Bool, hasMP4: Bool, bytes: Int64)] = [:]
+        for url in urls {
+            let stem = url.deletingPathExtension().lastPathComponent
+            let ext = url.pathExtension.lowercased()
+            let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize).map(Int64.init) ?? 0
+            var entry = grouped[stem] ?? (false, false, 0)
+            if ext == "json" { entry.hasJSON = true }
+            if ext == "mp4"  { entry.hasMP4 = true }
+            entry.bytes += size
+            grouped[stem] = entry
+        }
+        let items: [SendPreflight.Item] = grouped
+            .map { stem, info in
+                SendPreflight.Item(
+                    sessionId: stem,
+                    timestamp: extractTimestamp(from: stem),
+                    hasJSON: info.hasJSON,
+                    hasMP4: info.hasMP4,
+                    bytes: info.bytes
+                )
+            }
+            .sorted { $0.timestamp > $1.timestamp }
+        let total = items.reduce(Int64(0)) { $0 + $1.bytes }
+        return SendPreflight(scope: scope, items: items, totalBytes: total)
+    }
+
+    /// Pull a human-readable HH:mm:ss out of an `ar-slice2-placement-
+    /// 2026-06-01T21-17-00.123Z-27E805` sessionId stem. Fallback to
+    /// the full stem if parsing fails.
+    private func extractTimestamp(from stem: String) -> String {
+        // Stem shape: ar-slice2-placement-YYYY-MM-DDTHH-MM-SS.MMMZ-XXXXXX
+        // We want "HH:MM:SS" of the second-to-last "-" segment cluster.
+        let parts = stem.split(separator: "-")
+        guard parts.count >= 7 else { return stem }
+        // Layout: ar slice2 placement YYYY MM DDTHH MM SS.MMMZ XXXXXX
+        let hourPart = parts[5]  // e.g. "01T21" — last two chars are hour
+        let minute   = parts[6]
+        let secMs    = parts[7]  // "00.123Z"
+        let hour     = String(hourPart.suffix(2))
+        let sec      = String(secMs.prefix(2))
+        return "\(hour):\(minute):\(sec)"
+    }
+
+    /// Format bytes as KB / MB to one decimal place for the preflight.
+    private func formatBytes(_ b: Int64) -> String {
+        let kb = Double(b) / 1024.0
+        if kb < 1024 { return String(format: "%.0f KB", kb) }
+        let mb = kb / 1024.0
+        return String(format: "%.1f MB", mb)
     }
 
     /// Collect ONLY the current session's JSON + MP4 — the pair
@@ -416,18 +589,17 @@ struct ARPlacementView: View {
                 .accessibilityIdentifier("ar.saveButton")
                 Button {
                     // SEND THIS ONLY: just the current sessionId's
-                    // JSON + MP4 pair (or just JSON if recording was
-                    // not active). Prevents re-sending old sessions.
-                    logger.log(.note, "Send-this-only triggered")
+                    // JSON + MP4 pair. Now goes through the preflight
+                    // confirmation sheet first so James can see exactly
+                    // what's about to land in the Share Sheet.
+                    logger.log(.note, "Send-this-only requested")
                     Task {
-                        // Stop any in-flight recording so the MP4 is
-                        // finalised before we collect it.
-                        if isRecording {
-                            await stopRecordingAsync()
-                        }
+                        if isRecording { await stopRecordingAsync() }
                         await logger.saveSnapshotAndWait()
-                        shareSheetURLs = collectCurrentSessionURLs()
-                        showShareSheet = true
+                        let urls = collectCurrentSessionURLs()
+                        sendPreflight = buildPreflight(scope: .thisOnly, urls: urls)
+                        shareSheetURLs = urls
+                        showSendPreflight = true
                     }
                 } label: {
                     Text("Send this")
@@ -439,18 +611,20 @@ struct ARPlacementView: View {
                 }
                 .accessibilityIdentifier("ar.sendThisButton")
                 Button {
-                    // SEND ALL: every JSON + MP4 in Documents/. Use
-                    // when starting from scratch or refreshing the
-                    // whole dataset. Shows count to make repeats
-                    // visible before tapping.
-                    logger.log(.note, "Send-all triggered")
+                    // SEND ALL: every JSON + MP4 in Documents/. James
+                    // explicitly asked for clarity here — the previous
+                    // version silently bundled all historical sessions
+                    // so the same data got resent on every export. The
+                    // preflight sheet lists every session by timestamp
+                    // before the Share Sheet opens.
+                    logger.log(.note, "Send-all requested")
                     Task {
-                        if isRecording {
-                            await stopRecordingAsync()
-                        }
+                        if isRecording { await stopRecordingAsync() }
                         await logger.saveSnapshotAndWait()
-                        shareSheetURLs = await ARLogExport.collectAllLogURLs()
-                        showShareSheet = true
+                        let urls = await ARLogExport.collectAllLogURLs()
+                        sendPreflight = buildPreflight(scope: .all, urls: urls)
+                        shareSheetURLs = urls
+                        showSendPreflight = true
                     }
                 } label: {
                     Text("Send all")
