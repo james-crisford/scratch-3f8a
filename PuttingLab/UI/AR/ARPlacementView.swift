@@ -456,7 +456,11 @@ final class ARPlacementScene {
         }
     }
 
-    /// Draw a thin cylinder between ball and hole as an aim guide.
+    /// Draw a thin box between ball and hole as an aim guide. Was a
+    /// cylinder originally but `MeshResource.generateCylinder` is iOS
+    /// 18+ only and PuttingLab targets iOS 17. A 12 mm-square box at
+    /// 1-3 m viewing distance is visually indistinguishable from a
+    /// cylinder for this purpose.
     private func drawAimLine(from: SIMD3<Float>, to: SIMD3<Float>) {
         guard let arView else { return }
         lineAnchor?.removeFromParent()
@@ -465,40 +469,39 @@ final class ARPlacementScene {
         let length = simd_distance(from, to)
         guard length > 0.001 else { return }  // skip degenerate zero-length
 
-        let mesh = MeshResource.generateCylinder(height: length,
-                                                  radius: Self.aimLineThickness)
+        let side = Self.aimLineThickness * 2  // diameter ≈ side length
+        let mesh = MeshResource.generateBox(width: length,
+                                             height: side,
+                                             depth: side,
+                                             cornerRadius: side / 2)
         let material = SimpleMaterial(color: .yellow.withAlphaComponent(0.75),
                                        roughness: 0.5, isMetallic: false)
         let model = ModelEntity(mesh: mesh, materials: [material])
 
-        // Cylinder's default axis is Y. Rotate so it points from ball→hole
+        // Box's long axis is X. Rotate so +X points from ball→hole
         // along the horizontal direction. `direction` lives between two
         // points on a (roughly) horizontal plane — by construction it
-        // should not be near anti-parallel to +Y. The dot < -0.9999
-        // branch is defensive only (e.g. if a vertical plane were ever
-        // misidentified as horizontal); flagged as M15 in the 2026-05-31
-        // audit. Kept as belt-and-braces because the cost is one branch.
+        // should not be near anti-parallel to +X. The anti-parallel
+        // branch is defensive only (M15 in the 2026-05-31 audit).
         let direction = simd_normalize(to - from)
-        let yAxis = SIMD3<Float>(0, 1, 0)
+        let xAxis = SIMD3<Float>(1, 0, 0)
         let rotation: simd_quatf
-        let dot = simd_dot(yAxis, direction)
+        let dot = simd_dot(xAxis, direction)
         if dot > 0.9999 {
-            rotation = simd_quatf(angle: 0, axis: yAxis)
+            rotation = simd_quatf(angle: 0, axis: xAxis)
         } else if dot < -0.9999 {
-            // Anti-parallel: rotate 180° around X to flip +Y → -Y.
-            rotation = simd_quatf(angle: .pi, axis: SIMD3<Float>(1, 0, 0))
+            // Anti-parallel: rotate 180° around Y to flip +X → -X.
+            rotation = simd_quatf(angle: .pi, axis: SIMD3<Float>(0, 1, 0))
         } else {
-            let axis = simd_normalize(simd_cross(yAxis, direction))
+            let axis = simd_normalize(simd_cross(xAxis, direction))
             let angle = acos(dot)
             rotation = simd_quatf(angle: angle, axis: axis)
         }
         model.transform.rotation = rotation
 
-        // Lift the ANCHOR by 2 mm (in world space), not the model. After
-        // the rotation above, the model's local Y axis points horizontally
-        // along the ball→hole direction — so a local (0, 0.002, 0) offset
-        // would push the line sideways. Lifting the anchor keeps the 2 mm
-        // offset truly vertical regardless of orientation.
+        // Lift the ANCHOR by 2 mm (in world space), not the model. Local
+        // offsets get rotated; world offsets stay vertical regardless of
+        // the model's orientation.
         let anchor = AnchorEntity(world: mid + SIMD3<Float>(0, 0.002, 0))
         anchor.addChild(model)
         arView.scene.addAnchor(anchor)
