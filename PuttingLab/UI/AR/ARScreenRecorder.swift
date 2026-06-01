@@ -61,8 +61,10 @@ final class ARScreenRecorder {
     /// Stop recording and write the MP4 to the URL chosen by `start()`.
     /// Idempotent — no-op when no recording is in flight (e.g. on view
     /// dismiss with recording already stopped). Returns the final file
-    /// URL via the completion if the write succeeded.
-    func stop(completion: @escaping (URL?) -> Void) {
+    /// URL via the completion if the write succeeded. Completion is
+    /// `@Sendable` so it can cross the ReplayKit-callback / Task hop
+    /// without tripping Swift 6 strict-concurrency.
+    func stop(completion: @escaping @Sendable (URL?) -> Void) {
         let recorder = RPScreenRecorder.shared()
         guard recorder.isRecording, let url = pendingOutputURL else {
             completion(nil)
