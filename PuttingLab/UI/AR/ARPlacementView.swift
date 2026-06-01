@@ -510,14 +510,30 @@ struct ARPlacementView: View {
             logger.log(.note, "place button — no plane yet")
         case .readyToPlaceBall:
             scene.placeBall(at: world)
+            // Crosshair-path ballPlaced/holePlaced events were missing
+            // x/y/z in payload (vs tap-path events which had them) —
+            // discovered when analysing first user data dump. Downstream
+            // analysers parsing payload only got the source tag; the
+            // position was buried in the message string. Now identical
+            // shape to the tap path so we can JSON-parse both.
             logger.log(.ballPlaced, "ball via crosshair \(ARLogFmt.vec(world))",
-                       payload: ["source": "crosshair"])
+                       payload: ["source": "crosshair",
+                                 "x": String(format: "%.4f", world.x),
+                                 "y": String(format: "%.4f", world.y),
+                                 "z": String(format: "%.4f", world.z)])
             placementState = .readyToPlaceHole(world)
         case .readyToPlaceHole(let ballWorld):
             scene.placeHole(at: world)
             let dist = simd_distance(ballWorld, world)
             logger.log(.holePlaced, "hole via crosshair \(ARLogFmt.vec(world)) · \(ARLogFmt.meters(dist))",
-                       payload: ["source": "crosshair", "distance_m": String(format: "%.4f", dist)])
+                       payload: ["source": "crosshair",
+                                 "x": String(format: "%.4f", world.x),
+                                 "y": String(format: "%.4f", world.y),
+                                 "z": String(format: "%.4f", world.z),
+                                 "distance_m": String(format: "%.4f", dist),
+                                 "ball_x": String(format: "%.4f", ballWorld.x),
+                                 "ball_y": String(format: "%.4f", ballWorld.y),
+                                 "ball_z": String(format: "%.4f", ballWorld.z)])
             placementState = .complete(ball: ballWorld, hole: world)
         case .complete:
             break
