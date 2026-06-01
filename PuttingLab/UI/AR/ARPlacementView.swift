@@ -156,6 +156,25 @@ struct ARPlacementView: View {
                 planeCount = 1
                 placementState = .readyToPlaceBall
                 logger.log(.note, "UI test mode: forcing .readyToPlaceBall")
+            } else {
+                // Auto-start screen recording so every AR session
+                // captures video alongside the JSON. James does not
+                // have to remember to tap Record — the data is
+                // always there for cross-reference. Skipped under
+                // -uiTestMode to avoid ReplayKit's permission prompt
+                // breaking the XCUITest run.
+                logger.log(.note, "Auto-recording on session open")
+                if recorder.start(sessionId: logger.sessionId) != nil {
+                    isRecording = true
+                } else {
+                    // ReplayKit unavailable (rare — Mac Catalyst,
+                    // tvOS, restricted mode). Don't block the AR
+                    // flow; just surface a hint.
+                    if let err = recorder.lastError {
+                        logger.log(.failed, "Auto-record unavailable: \(err)")
+                        showTransientHint("Recording unavailable: \(err)")
+                    }
+                }
             }
         }
         .onDisappear {
