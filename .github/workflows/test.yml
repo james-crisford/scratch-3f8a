@@ -142,21 +142,28 @@ jobs:
       - name: Fail if zero tests executed
         if: success()
         run: |
-          # Guard: B23-era CI silently ran 0 tests because project.yml had
+          # Guard: B19-B26 silently ran 0 tests because project.yml had
           # a duplicate `targets:` key in schemes.PuttingLab.test that
           # YAML-clobbered the proper TestableReference list. xcodebuild
           # exited 0 with "Executed 0 tests". Catch that here so we never
           # ship audit fixes again without them actually being verified.
-          if grep -E "Executed 0 tests" test.log >/dev/null 2>&1; then
-            echo "::error::xcodebuild ran Executed 0 tests — scheme TestAction is empty. Check project.yml schemes."
+          #
+          # Implementation note: xcodebuild emits multiple "Executed N
+          # tests" lines, including 0-count entries for empty
+          # sub-suites ("Selected tests" re-run after the main pass).
+          # We must find the MAX N across all lines, not the first or
+          # last. If every line is 0, the test scheme is genuinely
+          # broken.
+          MAX_EXECUTED=$(grep -oE "Executed [0-9]+ tests?" test.log 2>/dev/null \
+                          | awk '{print $2}' \
+                          | sort -n \
+                          | tail -1)
+          if [ -z "$MAX_EXECUTED" ] || [ "$MAX_EXECUTED" -lt 1 ]; then
+            echo "::error::xcodebuild ran zero tests across every reporting line — scheme TestAction is empty. Check project.yml schemes for duplicate targets keys."
+            grep -E "Executed [0-9]+ tests?" test.log | head -10
             exit 1
           fi
-          EXECUTED=$(grep -oE "Executed [0-9]+ tests" test.log | tail -1 | awk '{print $2}')
-          if [ -z "$EXECUTED" ] || [ "$EXECUTED" -lt 1 ]; then
-            echo "::error::Could not determine test execution count from test.log"
-            exit 1
-          fi
-          echo "✓ Executed $EXECUTED tests"
+          echo "✓ Max execution count across suites: $MAX_EXECUTED tests"
 
       - name: Upload test result bundle
         if: always()
