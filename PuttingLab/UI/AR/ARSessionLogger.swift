@@ -19,7 +19,10 @@ final class ARSessionLogger {
     /// MP4 filename stem. `nonisolated` so other actors (the screen
     /// recorder, the share sheet) can read it without a hop.
     let sessionId: String
-    private let startedAt: Date
+    /// Exposed so the frame-extractor (B32) can anchor video time
+    /// against the session-start instant when there's no embedded
+    /// MP4 timecode. Set once in init, never mutated afterwards.
+    let startedAt: Date
     /// Surfaces failed snapshot writes (e.g. iCloud sync conflict on
     /// Documents/) so the HUD can show the user instead of silently
     /// swallowing the error. nil = last save succeeded or no save yet.

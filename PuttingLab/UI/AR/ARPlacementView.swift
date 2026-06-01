@@ -49,12 +49,17 @@ struct ARPlacementView: View {
             let timestamp: String         // human "21:17:00" extracted from filename
             let hasJSON: Bool
             let hasMP4: Bool
+            let frameCount: Int           // B32 extracted JPG frames
             let bytes: Int64
         }
         let scope: Scope
         let items: [Item]
         let totalBytes: Int64
-        var totalFiles: Int { items.reduce(0) { $0 + ($1.hasJSON ? 1 : 0) + ($1.hasMP4 ? 1 : 0) } }
+        var totalFiles: Int {
+            items.reduce(0) {
+                $0 + ($1.hasJSON ? 1 : 0) + ($1.hasMP4 ? 1 : 0) + $1.frameCount
+            }
+        }
     }
 
     @State private var placementState: PlacementState = .waitingForPlane
@@ -312,6 +317,12 @@ struct ARPlacementView: View {
                                         .font(.caption2)
                                         .foregroundStyle(.red)
                                 }
+                                if item.frameCount > 0 {
+                                    Label("\(item.frameCount) frames",
+                                           systemImage: "photo.stack")
+                                        .font(.caption2)
+                                        .foregroundStyle(.orange)
+                                }
                                 Text(formatBytes(item.bytes))
                                     .font(.caption.monospaced())
                                     .foregroundStyle(.secondary)
@@ -356,14 +367,25 @@ struct ARPlacementView: View {
     /// or ARLogExport.collectAllLogURLs) and group by sessionId stem so
     /// the preflight sheet can show JSON+MP4 pairs as one row.
     private func buildPreflight(scope: SendPreflight.Scope, urls: [URL]) -> SendPreflight {
-        var grouped: [String: (hasJSON: Bool, hasMP4: Bool, bytes: Int64)] = [:]
+        var grouped: [String: (hasJSON: Bool, hasMP4: Bool, frames: Int, bytes: Int64)] = [:]
         for url in urls {
-            let stem = url.deletingPathExtension().lastPathComponent
+            let name = url.lastPathComponent
             let ext = url.pathExtension.lowercased()
             let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize).map(Int64.init) ?? 0
-            var entry = grouped[stem] ?? (false, false, 0)
+            // Frame JPGs have shape `<stem>-frame-NNN-<kind>-<HHMMSS>.jpg`.
+            // We need to peel the suffix off so they group under the
+            // parent sessionId row instead of inventing N siblings.
+            let stem: String
+            if ext == "jpg",
+               let frameIdx = name.range(of: "-frame-", options: .backwards) {
+                stem = String(name[..<frameIdx.lowerBound])
+            } else {
+                stem = url.deletingPathExtension().lastPathComponent
+            }
+            var entry = grouped[stem] ?? (false, false, 0, 0)
             if ext == "json" { entry.hasJSON = true }
             if ext == "mp4"  { entry.hasMP4 = true }
+            if ext == "jpg"  { entry.frames += 1 }
             entry.bytes += size
             grouped[stem] = entry
         }
@@ -374,6 +396,7 @@ struct ARPlacementView: View {
                     timestamp: extractTimestamp(from: stem),
                     hasJSON: info.hasJSON,
                     hasMP4: info.hasMP4,
+                    frameCount: info.frames,
                     bytes: info.bytes
                 )
             }
@@ -422,28 +445,61 @@ struct ARPlacementView: View {
         if FileManager.default.fileExists(atPath: jsonURL.path) {
             urls.append(jsonURL)
         }
-        let mp4URL = docs
-            .appendingPathComponent("ARSessionRecordings", isDirectory: true)
-            .appendingPathComponent("\(stem).mp4")
+        let recordingsDir = docs.appendingPathComponent("ARSessionRecordings", isDirectory: true)
+        let mp4URL = recordingsDir.appendingPathComponent("\(stem).mp4")
         if FileManager.default.fileExists(atPath: mp4URL.path) {
             urls.append(mp4URL)
+        }
+        // B32: pull every key-frame JPG matching this sessionId stem.
+        // The extractor names them `<stem>-frame-NNN-<kind>-<time>.jpg`
+        // so a simple prefix filter catches them all without a
+        // sessionId-scoped subdirectory.
+        if let items = try? FileManager.default.contentsOfDirectory(
+            at: recordingsDir,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        ) {
+            let prefix = "\(stem)-frame-"
+            let frames = items
+                .filter { $0.lastPathComponent.hasPrefix(prefix) && $0.pathExtension == "jpg" }
+                .sorted { $0.lastPathComponent < $1.lastPathComponent }
+            urls.append(contentsOf: frames)
         }
         return urls
     }
 
     /// Stop the recorder and await the MP4 write so the file exists
-    /// before the Share Sheet's directory scan runs. Wrapped here
-    /// instead of inline so both Send buttons can reuse it.
+    /// before the Share Sheet's directory scan runs. Once the MP4 is
+    /// on disk we kick off key-frame extraction (B32) so the bundle
+    /// includes JPG stills at every meaningful moment + a 1 Hz
+    /// periodic tick — the multimodal reviewer (Claude) can ingest
+    /// the JPGs directly without local video tooling.
     private func stopRecordingAsync() async {
-        await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+        let savedURL: URL? = await withCheckedContinuation { (cont: CheckedContinuation<URL?, Never>) in
             recorder.stop { url in
                 isRecording = false
                 if let url {
                     logger.log(.note, "Recording stopped for send: \(url.lastPathComponent)")
                 }
-                cont.resume()
+                cont.resume(returning: url)
             }
         }
+        guard let mp4URL = savedURL else { return }
+        // Snapshot the events array on MainActor before fanning out
+        // to the background extractor — Event is Sendable, the array
+        // copy is safe to send across the actor boundary.
+        let snapshot = logger.events
+        let started = logger.startedAt
+        logger.log(.note, "Key-frame extraction started")
+        await ARScreenRecorder.extractKeyFrames(
+            mp4URL: mp4URL,
+            sessionStartedAt: started,
+            events: snapshot
+        )
+        logger.log(.note, "Key-frame extraction complete")
+        // Flush the new .note events so the JSON the Share Sheet
+        // grabs records that the JPGs exist.
+        await logger.saveSnapshotAndWait()
     }
 
     /// Start or stop the ReplayKit screen recording. The MP4 lands at

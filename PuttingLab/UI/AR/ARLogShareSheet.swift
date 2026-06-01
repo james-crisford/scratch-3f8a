@@ -24,9 +24,12 @@ struct ARLogShareSheet: UIViewControllerRepresentable {
 /// thread (Gemini B21 finding #2). Callers should `await`.
 enum ARLogExport {
     static func collectAllLogURLs() async -> [URL] {
-        let jsons = await collect(dirName: "ARSessionLogs", ext: "json")
-        let mp4s  = await collect(dirName: "ARSessionRecordings", ext: "mp4")
-        return jsons + mp4s
+        let jsons  = await collect(dirName: "ARSessionLogs", ext: "json")
+        let mp4s   = await collect(dirName: "ARSessionRecordings", ext: "mp4")
+        // B32: extracted key-frame JPGs sit in the same recordings
+        // dir as the MP4 with the sessionId stem. Bundle them too.
+        let frames = await collect(dirName: "ARSessionRecordings", ext: "jpg")
+        return jsons + mp4s + frames
     }
 
     private static func collect(dirName: String, ext: String) async -> [URL] {
