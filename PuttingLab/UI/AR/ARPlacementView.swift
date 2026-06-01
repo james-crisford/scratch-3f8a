@@ -49,6 +49,13 @@ struct ARPlacementView: View {
     /// Drives the silent-wait hint after 2 s (M12 in the audit).
     @State private var firstStillAt: Date?
     @State private var showStillnessHint: Bool = false
+    /// Drives the export Share Sheet over the full ARSessionLogs JSON
+    /// set so James can AirDrop / Mail / Files-out everything in one tap.
+    @State private var showShareSheet: Bool = false
+    /// Free-form note input modal for ground-truth tagging (e.g. "phone
+    /// slipped here", "plane overlay landed on table not floor").
+    @State private var showNoteInput: Bool = false
+    @State private var noteText: String = ""
 
     /// The scene-graph "controller" we expose to the UIViewRepresentable.
     /// Lives as a single instance bound to the view so tap callbacks +
@@ -80,6 +87,7 @@ struct ARPlacementView: View {
                 if showStillnessHint && planeCount == 0 {
                     stillnessHint
                 }
+                groundTruthMarkerRow
                 eventLog
                 actionRow
             }
@@ -135,6 +143,22 @@ struct ARPlacementView: View {
             if !showStillnessHint && Date().timeIntervalSince(firstStillAt) > 2.0 {
                 showStillnessHint = true
             }
+        }
+        .sheet(isPresented: $showShareSheet) {
+            ARLogShareSheet(urls: ARLogExport.collectAllLogURLs())
+        }
+        .alert("Add a ground-truth note", isPresented: $showNoteInput) {
+            TextField("e.g. plane landed on table not floor", text: $noteText)
+            Button("Cancel", role: .cancel) { noteText = "" }
+            Button("Tag") {
+                let trimmed = noteText.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty {
+                    logger.log(.note, "GT: \(trimmed)", payload: ["source": "user_note"])
+                }
+                noteText = ""
+            }
+        } message: {
+            Text("Logged into the session JSON with a 'GT:' prefix so we can correlate what you saw to what the sensors recorded.")
         }
     }
 
@@ -243,6 +267,20 @@ struct ARPlacementView: View {
                         .padding(.vertical, 2)
                         .background(.green.opacity(0.6), in: Capsule())
                 }
+                Button {
+                    // Flush the current session FIRST so the share
+                    // sheet pickup includes everything up to right now.
+                    logger.log(.note, "Export triggered")
+                    logger.saveSnapshot()
+                    showShareSheet = true
+                } label: {
+                    Text("Export all")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 2)
+                        .background(.blue.opacity(0.75), in: Capsule())
+                }
             }
             ForEach(Array(recent.enumerated()), id: \.element.id) { _, ev in
                 HStack(alignment: .top, spacing: 6) {
@@ -282,6 +320,32 @@ struct ARPlacementView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(.orange.opacity(0.6), in: RoundedRectangle(cornerRadius: 10))
             .padding(.top, 6)
+    }
+
+    /// Ground-truth markers — quick-tap buttons that let James label
+    /// what HE saw at a moment in time, so when we read the JSON back
+    /// later we can correlate sensor data to actual observed events.
+    /// Each tap logs a `.note` event with a `GT:` prefix.
+    private var groundTruthMarkerRow: some View {
+        HStack(spacing: 6) {
+            markerButton(label: "👍 Good") { logger.log(.note, "GT: looks good", payload: ["source": "user_marker", "tag": "good"]) }
+            markerButton(label: "📐 Plane wrong") { logger.log(.note, "GT: plane overlay wrong", payload: ["source": "user_marker", "tag": "plane_wrong"]) }
+            markerButton(label: "🎯 Drifted") { logger.log(.note, "GT: ball/hole drifted", payload: ["source": "user_marker", "tag": "drifted"]) }
+            markerButton(label: "❌ Lost") { logger.log(.note, "GT: tracking lost", payload: ["source": "user_marker", "tag": "lost_tracking"]) }
+            markerButton(label: "📝 Note…") { showNoteInput = true }
+        }
+        .padding(.top, 6)
+    }
+
+    private func markerButton(label: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(label)
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
+                .background(.white.opacity(0.18), in: Capsule())
+        }
     }
 
     private func timeShort(_ d: Date) -> String {

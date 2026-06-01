@@ -237,6 +237,7 @@ private struct InstructionsPhaseView: View {
 
 private struct ReadyPhaseView: View {
     let viewModel: PracticeSessionViewModel
+    @State private var showARPlacementFromReady: Bool = false
 
     var body: some View {
         let batch = viewModel.session.currentBatch
@@ -286,12 +287,34 @@ private struct ReadyPhaseView: View {
 
             Spacer()
 
-            Button {
-                viewModel.tapBackToInstructions()
-            } label: {
-                Label("Re-read instructions", systemImage: "arrow.uturn.backward")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
+            VStack(spacing: 10) {
+                // AR calibration / placement entry — first-class access from
+                // the Ready phase so testing AR doesn't require taking a
+                // stroke first. Pauses ARTrackingManager around the cover
+                // (same pattern as the result-panel DEBUG buttons).
+                Button {
+                    viewModel.pauseARForCover()
+                    showARPlacementFromReady = true
+                } label: {
+                    Label("Place AR reference", systemImage: "viewfinder.circle")
+                        .font(.callout.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 10)
+                        .background(.purple.opacity(0.85), in: Capsule())
+                }
+                .fullScreenCover(isPresented: $showARPlacementFromReady,
+                                 onDismiss: { viewModel.resumeARFromCover() }) {
+                    ARPlacementView()
+                }
+
+                Button {
+                    viewModel.tapBackToInstructions()
+                } label: {
+                    Label("Re-read instructions", systemImage: "arrow.uturn.backward")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
             }
             .padding(.bottom, 16)
         }
