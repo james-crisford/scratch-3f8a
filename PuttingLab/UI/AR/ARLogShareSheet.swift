@@ -19,35 +19,33 @@ struct ARLogShareSheet: UIViewControllerRepresentable {
 /// `Documents/ARSessionLogs/` and every MP4 the ARScreenRecorder has
 /// saved into `Documents/ARSessionRecordings/`. Returns an empty array
 /// if neither directory has been created yet (first-launch case).
+///
+/// Marked `nonisolated` so the filesystem walk doesn't lock the main
+/// thread (Gemini B21 finding #2). Callers should `await`.
 enum ARLogExport {
-    @MainActor
-    static func collectAllLogURLs() -> [URL] {
-        let jsons = collect(dirName: "ARSessionLogs", ext: "json")
-        let mp4s  = collect(dirName: "ARSessionRecordings", ext: "mp4")
-        // Concatenate so the Share Sheet shows the recordings AND the
-        // structured data together. Reviewer can pair them by filename
-        // because both use the same logger sessionId stem.
+    static func collectAllLogURLs() async -> [URL] {
+        let jsons = await collect(dirName: "ARSessionLogs", ext: "json")
+        let mp4s  = await collect(dirName: "ARSessionRecordings", ext: "mp4")
         return jsons + mp4s
     }
 
-    @MainActor
-    private static func collect(dirName: String, ext: String) -> [URL] {
-        guard let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
-            return []
-        }
-        let dir = docs.appendingPathComponent(dirName, isDirectory: true)
-        guard let items = try? FileManager.default.contentsOfDirectory(at: dir,
-                                                                       includingPropertiesForKeys: [.contentModificationDateKey],
-                                                                       options: [.skipsHiddenFiles]) else {
-            return []
-        }
-        // Newest first so the share-sheet preview lands on the most
-        // recent run — usually the one James just finished.
-        return items.filter { $0.pathExtension == ext }
-            .sorted { (a, b) in
-                let da = (try? a.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
-                let db = (try? b.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
-                return da > db
+    private static func collect(dirName: String, ext: String) async -> [URL] {
+        await Task.detached(priority: .userInitiated) {
+            guard let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
+                return [URL]()
             }
+            let dir = docs.appendingPathComponent(dirName, isDirectory: true)
+            guard let items = try? FileManager.default.contentsOfDirectory(at: dir,
+                                                                           includingPropertiesForKeys: [.contentModificationDateKey],
+                                                                           options: [.skipsHiddenFiles]) else {
+                return [URL]()
+            }
+            return items.filter { $0.pathExtension == ext }
+                .sorted { a, b in
+                    let da = (try? a.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+                    let db = (try? b.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+                    return da > db
+                }
+        }.value
     }
 }

@@ -73,16 +73,38 @@ final class ARSessionLogger {
     /// button, etc. Errors surface via `lastSaveError` so the HUD can
     /// show the user rather than silently writing to /tmp where they
     /// can't reach it.
+    ///
+    /// JSON encoding + atomic disk write happen on a detached background
+    /// task so a long event log can't freeze the main thread (Gemini
+    /// B21 finding #2). Fire-and-forget; for cases where the caller
+    /// needs the write to land before reading the URL (e.g. Export),
+    /// use `saveSnapshotAndWait()` instead.
     func saveSnapshot() {
+        Task { await saveSnapshotAndWait() }
+    }
+
+    /// Async variant — awaits the disk write. Used by the Export
+    /// button so the just-saved JSON is on disk before the share-sheet
+    /// scan picks it up.
+    func saveSnapshotAndWait() async {
+        let snapshotSessionId = sessionId
         let snapshot = Snapshot(
-            sessionId: sessionId,
+            sessionId: snapshotSessionId,
             startedAt: startedAt,
             endedAt: Date(),
             events: events
         )
+        let result = await Self.writeSnapshotToDisk(snapshot, sessionId: snapshotSessionId)
+        lastSaveError = result
+    }
+
+    /// Background-thread file write. Returns `nil` on success, or an
+    /// error description on failure. Static + nonisolated so it doesn't
+    /// hop back to MainActor mid-encode.
+    private nonisolated static func writeSnapshotToDisk(_ snapshot: Snapshot,
+                                                         sessionId: String) async -> String? {
         guard let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
-            lastSaveError = "Documents directory unavailable"
-            return
+            return "Documents directory unavailable"
         }
         let dir = docs.appendingPathComponent("ARSessionLogs", isDirectory: true)
         do {
@@ -93,9 +115,9 @@ final class ARSessionLogger {
             encoder.outputFormatting = [.sortedKeys, .prettyPrinted]
             let data = try encoder.encode(snapshot)
             try data.write(to: url, options: .atomic)
-            lastSaveError = nil
+            return nil
         } catch {
-            lastSaveError = error.localizedDescription
+            return error.localizedDescription
         }
     }
 

@@ -1,4 +1,5 @@
 import Foundation
+import Observation
 import ReplayKit
 
 /// Wraps ReplayKit so an AR slice can record what's actually on screen
@@ -11,6 +12,7 @@ import ReplayKit
 /// permission. No Info.plist key is required. The mic is left OFF so
 /// James's voice notes don't accidentally end up in the file.
 @MainActor
+@Observable
 final class ARScreenRecorder {
     /// Where the next stop() will save its MP4. Set in start() so the
     /// caller's sessionId stays in scope across the async stop callback.

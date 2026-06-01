@@ -52,6 +52,10 @@ struct ARPlacementView: View {
     /// Drives the export Share Sheet over the full ARSessionLogs JSON
     /// set so James can AirDrop / Mail / Files-out everything in one tap.
     @State private var showShareSheet: Bool = false
+    /// URLs handed to the Share Sheet — populated asynchronously from
+    /// a background scan so the main thread doesn't block on the
+    /// filesystem walk (Gemini B21 finding #2).
+    @State private var shareSheetURLs: [URL] = []
     /// Free-form note input modal for ground-truth tagging (e.g. "phone
     /// slipped here", "plane overlay landed on table not floor").
     @State private var showNoteInput: Bool = false
@@ -178,7 +182,7 @@ struct ARPlacementView: View {
             }
         }
         .sheet(isPresented: $showShareSheet) {
-            ARLogShareSheet(urls: ARLogExport.collectAllLogURLs())
+            ARLogShareSheet(urls: shareSheetURLs)
         }
         .alert("Add a ground-truth note", isPresented: $showNoteInput) {
             TextField("e.g. plane landed on table not floor", text: $noteText)
@@ -352,9 +356,15 @@ struct ARPlacementView: View {
                 Button {
                     // Flush the current session FIRST so the share
                     // sheet pickup includes everything up to right now.
+                    // Both saveSnapshot + collect happen off-main; we
+                    // await the save so the just-written JSON is on
+                    // disk before the directory scan runs.
                     logger.log(.note, "Export triggered")
-                    logger.saveSnapshot()
-                    showShareSheet = true
+                    Task {
+                        await logger.saveSnapshotAndWait()
+                        shareSheetURLs = await ARLogExport.collectAllLogURLs()
+                        showShareSheet = true
+                    }
                 } label: {
                     Text("Export all")
                         .font(.caption2.weight(.semibold))
