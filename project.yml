@@ -31,8 +31,8 @@ targets:
       path: PuttingLab/Info.plist
       properties:
         CFBundleDisplayName: PuttingLab
-        CFBundleShortVersionString: "0.3.2"
-        CFBundleVersion: "26"
+        CFBundleShortVersionString: "0.3.3"
+        CFBundleVersion: "27"
         LSRequiresIPhoneOS: true
         UILaunchScreen: {}
         UIRequiredDeviceCapabilities:
@@ -42,7 +42,7 @@ targets:
           - magnetometer
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
-        NSCameraUsageDescription: "PuttingLab uses the camera for AR tracking to anchor your putting line. We never record or upload images."
+        NSCameraUsageDescription: "PuttingLab uses the camera for AR tracking to anchor your putting line. During engineering test sessions the AR view may also record the on-screen camera feed locally to your device for tuning; you control recording with an on-screen button. Nothing is uploaded automatically."
         NSMotionUsageDescription: "PuttingLab reads motion data from your iPhone's sensors to detect your swing."
     settings:
       base:
@@ -99,8 +99,6 @@ schemes:
           parallelizable: true
         - name: PuttingLabUITests
           parallelizable: false
-      targets:
-        - PuttingLabTests
     run:
       config: Debug
     archive:

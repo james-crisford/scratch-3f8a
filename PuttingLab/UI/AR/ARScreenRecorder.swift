@@ -84,6 +84,13 @@ final class ARScreenRecorder {
                     self.lastError = nil
                     let saved = self.pendingOutputURL
                     self.pendingOutputURL = nil
+                    if var savedCopy = saved {
+                        // Don't back the MP4 up to iCloud — they're
+                        // 5-30 MB per minute and would burn the user's
+                        // quota fast. Local file remains user-visible
+                        // via the Files app + Share Sheet.
+                        try? ARSessionLogger.setExcludedFromBackup(url: &savedCopy)
+                    }
                     completion(saved)
                 }
             }

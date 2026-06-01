@@ -109,16 +109,33 @@ final class ARSessionLogger {
         let dir = docs.appendingPathComponent("ARSessionLogs", isDirectory: true)
         do {
             try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-            let url = dir.appendingPathComponent("\(sessionId).json")
+            var url = dir.appendingPathComponent("\(sessionId).json")
             let encoder = JSONEncoder()
             encoder.dateEncodingStrategy = .iso8601
             encoder.outputFormatting = [.sortedKeys, .prettyPrinted]
             let data = try encoder.encode(snapshot)
             try data.write(to: url, options: .atomic)
+            // Tell iCloud Backup to skip this file — at 1 MP4-equivalent
+            // per session a heavy user fills their 5 GB iCloud quota in
+            // ~3 sessions if these are backed up. Also exclude the
+            // ARSessionLogs directory itself so future writes inherit.
+            var dirCopy = dir
+            try? setExcludedFromBackup(url: &url)
+            try? setExcludedFromBackup(url: &dirCopy)
             return nil
         } catch {
             return error.localizedDescription
         }
+    }
+
+    /// Mark a file URL as `.isExcludedFromBackup = true` so the file
+    /// stays on-device but does not consume iCloud Backup quota.
+    /// Static + nonisolated so it composes with the background-task
+    /// snapshot writer.
+    nonisolated static func setExcludedFromBackup(url: inout URL) throws {
+        var values = URLResourceValues()
+        values.isExcludedFromBackup = true
+        try url.setResourceValues(values)
     }
 
     struct Snapshot: Codable, Sendable {

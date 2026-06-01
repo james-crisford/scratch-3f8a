@@ -513,13 +513,15 @@ private struct ResultPhaseView: View {
             .padding(.horizontal, 24)
             .padding(.bottom, 4)
 
-            // DEBUG: Slice 1 + Slice 2 AR entry points — verification only.
-            // Each cover spins up its own ARSession; iOS only supports one
-            // active at a time, so we pause ARTrackingManager before
-            // presenting and restart it on dismiss. Without this the
-            // practice-screen AR-pose channel is dead after every cover
-            // close until the app is backgrounded (H4 in the 2026-05-31
-            // audit). Replaced by a single shared ARSession in Slice 3.
+            // DEBUG: Slice 1 + Slice 2 AR entry points — DEBUG builds
+            // only. The Ready phase already has the user-facing "Place
+            // AR reference" button; these two duplicate-but-labelled
+            // entries existed for engineering tear-down. Apple
+            // Guidelines 2.3.1 / 5.1.1 prohibit "DEBUG"-labelled UI in
+            // production submissions — and the audit-2026-06-01 found
+            // the wrappers below would also nominally leak engineering
+            // affordances to TestFlight reviewers.
+            #if DEBUG
             VStack(spacing: 2) {
                 Button {
                     viewModel.pauseARForCover()
@@ -548,6 +550,7 @@ private struct ResultPhaseView: View {
             }
             .padding(.bottom, 16)
             .accessibilityLabel("Done. Continue to next stroke.")
+            #endif
         }
     }
 

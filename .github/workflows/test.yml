@@ -139,6 +139,25 @@ jobs:
           echo "=== Test summary ==="
           grep -E "(Test Suite|Test Case|passed|failed|TEST FAILED|TEST SUCCEEDED|Executed)" test.log | tail -50 || echo "(no test.log)"
 
+      - name: Fail if zero tests executed
+        if: success()
+        run: |
+          # Guard: B23-era CI silently ran 0 tests because project.yml had
+          # a duplicate `targets:` key in schemes.PuttingLab.test that
+          # YAML-clobbered the proper TestableReference list. xcodebuild
+          # exited 0 with "Executed 0 tests". Catch that here so we never
+          # ship audit fixes again without them actually being verified.
+          if grep -E "Executed 0 tests" test.log >/dev/null 2>&1; then
+            echo "::error::xcodebuild ran Executed 0 tests — scheme TestAction is empty. Check project.yml schemes."
+            exit 1
+          fi
+          EXECUTED=$(grep -oE "Executed [0-9]+ tests" test.log | tail -1 | awk '{print $2}')
+          if [ -z "$EXECUTED" ] || [ "$EXECUTED" -lt 1 ]; then
+            echo "::error::Could not determine test execution count from test.log"
+            exit 1
+          fi
+          echo "✓ Executed $EXECUTED tests"
+
       - name: Upload test result bundle
         if: always()
         uses: actions/upload-artifact@v4
