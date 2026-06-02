@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>PuttingLab Hole Iterator — Three.js</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #0a0d12;
+    color: #e5e9ee;
+    font-family: -apple-system, "SF Pro Display", Inter, system-ui, sans-serif;
+    padding: 24px;
+  }
+  h1 { font-size: 22px; margin-bottom: 4px; letter-spacing: -0.4px; }
+  .sub { color: #8a93a3; font-size: 13px; margin-bottom: 20px; }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+  }
+  .tile {
+    background: #141a23;
+    border: 1px solid #1f2733;
+    border-radius: 12px;
+    padding: 14px;
+  }
+  .tile h2 {
+    font-size: 12px;
+    color: #a3acba;
+    margin-bottom: 10px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  canvas {
+    display: block;
+    width: 100%;
+    height: 360px;
+    border-radius: 8px;
+    background: #d6cdb7;
+  }
+  .caption {
+    margin-top: 10px;
+    font-size: 12px;
+    color: #8a93a3;
+    line-height: 1.45;
+  }
+  .meta {
+    margin-top: 20px;
+    background: #141a23;
+    border: 1px solid #1f2733;
+    border-radius: 12px;
+    padding: 16px 20px;
+    font-size: 13px;
+    line-height: 1.6;
+  }
+  .meta b { color: #ffffff; }
+  .meta code {
+    background: #0a0d12;
+    padding: 1px 6px;
+    border-radius: 4px;
+    color: #f0a070;
+  }
+</style>
+</head>
+<body>
+
+<h1>PuttingLab — Hole Iteration Viewport</h1>
+<div class="sub">Live Three.js render of the B40 hole geometry. Same dimensions + materials the app uses. Six views so you can sanity-check what the camera will see.</div>
+
+<div class="grid">
+  <div class="tile">
+    <h2>1. Top-Down</h2>
+    <canvas id="v1"></canvas>
+    <div class="caption">Bird's-eye. White halo, dark cup interior, flagstick centred.</div>
+  </div>
+  <div class="tile">
+    <h2>2. Putting Stance (35°)</h2>
+    <canvas id="v2"></canvas>
+    <div class="caption">Camera at typical phone-aim angle. Depth into the cup should read here.</div>
+  </div>
+  <div class="tile">
+    <h2>3. Close-Up Hover (20°)</h2>
+    <canvas id="v3"></canvas>
+    <div class="caption">Inspecting the cup. Wall gradient + AO at the rim sells the depth.</div>
+  </div>
+  <div class="tile">
+    <h2>4. Side Profile (5°)</h2>
+    <canvas id="v4"></canvas>
+    <div class="caption">Almost flat to floor. Tests whether the rim+wall reads from a low angle.</div>
+  </div>
+  <div class="tile">
+    <h2>5. Diagonal Walk-By (45°)</h2>
+    <canvas id="v5"></canvas>
+    <div class="caption">Mid-walk-by angle. Flag visibility check.</div>
+  </div>
+  <div class="tile">
+    <h2>6. Behind the Ball (look toward hole)</h2>
+    <canvas id="v6"></canvas>
+    <div class="caption">Standard putting POV — ball in foreground, hole + flagstick beyond.</div>
+  </div>
+</div>
+
+<div class="meta">
+  <p><b>B40 geometry (locked):</b></p>
+  <p>• Rim disc: <code>12.9 cm</code> dia, white UnlitMaterial, flush at floor</p>
+  <p>• Cup wall: <code>10.8 cm</code> dia × <code>8 cm</code> depth, white UnlitMaterial, goes DOWN into floor</p>
+  <p>• Cup bottom: <code>10.3 cm</code> dia disc, dark warm-gray SimpleMaterial, at −8 cm</p>
+  <p>• Flagstick: <code>1.5 cm</code> dia × <code>70 cm</code> tall, white UnlitMaterial</p>
+  <p>• Flag: triangle <code>15 cm × 10 cm</code>, red UnlitMaterial, mid-pole +X side</p>
+  <p>• Ball (View 6): <code>4.27 cm</code> dia sphere, white UnlitMaterial, 1.49 m from hole</p>
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js"
+  }
+}
+</script>
+<script type="module">
+import * as THREE from 'three';
+
+// ============================================================
+// PuttingLab B40 hole — exact geometry the app uses, rendered
+// in Three.js so we can iterate the design without rebuilding
+// the iOS app.
+// ============================================================
+
+// Real-world golf dimensions (matches ARPlacementView.swift)
+const BALL_DIA      = 0.0427;   // 4.27 cm regulation
+const HOLE_DIA      = 0.10795;  // 10.8 cm regulation cup
+const HOLE_DEPTH    = 0.08;     // 8 cm cup depth
+const RIM_OUTER     = HOLE_DIA * 1.20;  // 12.9 cm halo
+const POLE_DIA      = 0.015;
+const POLE_HEIGHT   = 0.70;
+const FLAG_W        = 0.15;
+const FLAG_H        = 0.10;
+
+function buildHole(scene) {
+  // --- WHITE RIM HALO ---
+  const rimGeo = new THREE.CircleGeometry(RIM_OUTER / 2, 64);
+  rimGeo.rotateX(-Math.PI / 2);
+  const rimMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+  const rim = new THREE.Mesh(rimGeo, rimMat);
+  rim.position.y = 0.0005;
+  scene.add(rim);
+
+  // --- CYLINDRICAL CUP WALL (open top + bottom) ---
+  // White at the top (just below the rim) → mid-gray at the bottom.
+  // Fakes the lighting-attenuation gradient that real photos show
+  // on a regulation cup. Pure UnlitMaterial + texture so colour
+  // never gets darkened to gray globally (as B39 SimpleMaterial did).
+  const wallTex = (() => {
+    const c = document.createElement('canvas');
+    c.width = 4; c.height = 256;
+    const ctx = c.getContext('2d');
+    const grad = ctx.createLinearGradient(0, 0, 0, 256);
+    grad.addColorStop(0.00, '#ffffff');
+    grad.addColorStop(0.35, '#e8e8e8');
+    grad.addColorStop(0.70, '#7a7470');
+    grad.addColorStop(1.00, '#2a2420');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, 4, 256);
+    const t = new THREE.CanvasTexture(c);
+    t.colorSpace = THREE.SRGBColorSpace;
+    return t;
+  })();
+  const wallGeo = new THREE.CylinderGeometry(
+    HOLE_DIA / 2, HOLE_DIA / 2, HOLE_DEPTH,
+    64, 1, true  // openEnded
+  );
+  const wallMat = new THREE.MeshBasicMaterial({
+    map: wallTex, side: THREE.DoubleSide
+  });
+  const wall = new THREE.Mesh(wallGeo, wallMat);
+  wall.position.y = -HOLE_DEPTH / 2;
+  scene.add(wall);
+
+  // --- AMBIENT-OCCLUSION RING at the rim opening ---
+  // (sells the depth perception — real ARKit will produce this
+  // via geometry shading; here we approximate with a thin dark ring)
+  const aoGeo = new THREE.RingGeometry(HOLE_DIA / 2 * 0.97, HOLE_DIA / 2, 64);
+  aoGeo.rotateX(-Math.PI / 2);
+  const aoMat = new THREE.MeshBasicMaterial({
+    color: 0x000000, transparent: true, opacity: 0.55, side: THREE.DoubleSide
+  });
+  const aoRing = new THREE.Mesh(aoGeo, aoMat);
+  aoRing.position.y = 0.0008;
+  scene.add(aoRing);
+
+  // --- DARK BOTTOM ---
+  const bottomGeo = new THREE.CircleGeometry(HOLE_DIA / 2 * 0.95, 64);
+  bottomGeo.rotateX(-Math.PI / 2);
+  const bottomMat = new THREE.MeshBasicMaterial({
+    color: 0x0d0a07  // very dark, unlit so it stays dark regardless
+  });
+  const bottom = new THREE.Mesh(bottomGeo, bottomMat);
+  bottom.position.y = -HOLE_DEPTH + 0.001;
+  scene.add(bottom);
+
+  // --- FLAGSTICK ---
+  const poleGeo = new THREE.CylinderGeometry(
+    POLE_DIA / 2, POLE_DIA / 2, POLE_HEIGHT, 16
+  );
+  const poleMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+  const pole = new THREE.Mesh(poleGeo, poleMat);
+  pole.position.y = POLE_HEIGHT / 2;
+  scene.add(pole);
+
+  // --- TRIANGLE FLAG ---
+  const flagGeo = new THREE.BufferGeometry();
+  // Right triangle: pole bottom → pole top → tip (+X)
+  const flagVerts = new Float32Array([
+    POLE_DIA / 2, 0,        0,
+    POLE_DIA / 2, FLAG_H,   0,
+    POLE_DIA / 2 + FLAG_W, FLAG_H / 2, 0,
+  ]);
+  flagGeo.setAttribute('position', new THREE.BufferAttribute(flagVerts, 3));
+  flagGeo.setIndex([0, 2, 1, 0, 1, 2]);  // front + back
+  flagGeo.computeVertexNormals();
+  const flagMat = new THREE.MeshBasicMaterial({
+    color: 0xd61a1a, side: THREE.DoubleSide
+  });
+  const flag = new THREE.Mesh(flagGeo, flagMat);
+  flag.position.y = POLE_HEIGHT - FLAG_H - 0.02;
+  scene.add(flag);
+}
+
+function buildBall(scene, x, z) {
+  const ballGeo = new THREE.SphereGeometry(BALL_DIA / 2, 32, 32);
+  const ballMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+  const ball = new THREE.Mesh(ballGeo, ballMat);
+  ball.position.set(x, BALL_DIA / 2, z);
+  scene.add(ball);
+  // Soft contact shadow under the ball — sells the "on the floor"
+  // reading. Real ARKit will produce shadowing via shadow casters;
+  // we approximate here.
+  const shadowGeo = new THREE.CircleGeometry(BALL_DIA * 0.55, 24);
+  shadowGeo.rotateX(-Math.PI / 2);
+  const shadowMat = new THREE.MeshBasicMaterial({
+    color: 0x000000, transparent: true, opacity: 0.3
+  });
+  const shadow = new THREE.Mesh(shadowGeo, shadowMat);
+  shadow.position.set(x, 0.001, z);
+  scene.add(shadow);
+}
+
+function buildFloor(scene) {
+  // Light-gray wood-grain plank floor (matches Gemini's read of
+  // the actual room in CAC00F)
+  const floorGeo = new THREE.PlaneGeometry(8, 8, 1, 1);
+  floorGeo.rotateX(-Math.PI / 2);
+
+  // Procedural wood-plank texture via canvas
+  const c = document.createElement('canvas');
+  c.width = 512; c.height = 512;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#d6cdb7';
+  ctx.fillRect(0, 0, 512, 512);
+  ctx.strokeStyle = 'rgba(140,120,90,0.35)';
+  ctx.lineWidth = 1;
+  for (let y = 0; y < 512; y += 28) {
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.lineTo(512, y);
+    ctx.stroke();
+  }
+  // tiny noise specks
+  for (let i = 0; i < 800; i++) {
+    ctx.fillStyle = `rgba(0,0,0,${Math.random() * 0.06})`;
+    ctx.fillRect(Math.random() * 512, Math.random() * 512, 1.5, 1.5);
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(4, 4);
+
+  const floorMat = new THREE.MeshStandardMaterial({
+    map: tex, roughness: 0.85, metalness: 0.0
+  });
+  const floor = new THREE.Mesh(floorGeo, floorMat);
+  scene.add(floor);
+}
+
+function renderView(canvasId, cameraPos, lookAt, includeBall) {
+  const canvas = document.getElementById(canvasId);
+  const w = canvas.clientWidth;
+  const h = canvas.clientHeight;
+  canvas.width = w * 2;   // hi-DPI for screenshots
+  canvas.height = h * 2;
+
+  const renderer = new THREE.WebGLRenderer({
+    canvas, antialias: true, preserveDrawingBuffer: true
+  });
+  renderer.setSize(w, h, false);
+  renderer.setPixelRatio(2);
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0xb0a890);
+
+  // Indoor ambient + a soft key light (matches Gemini's
+  // "diffuse and even" lighting on the CAC00F floor)
+  scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+  const key = new THREE.DirectionalLight(0xffffff, 0.7);
+  key.position.set(1, 2, 0.5);
+  scene.add(key);
+  const fill = new THREE.DirectionalLight(0xffffff, 0.3);
+  fill.position.set(-1, 1, -0.5);
+  scene.add(fill);
+
+  buildFloor(scene);
+  buildHole(scene);
+  if (includeBall) buildBall(scene, 0, 1.49);  // ball 1.49 m from hole, in front of camera
+
+  const camera = new THREE.PerspectiveCamera(50, w / h, 0.01, 50);
+  camera.position.set(cameraPos.x, cameraPos.y, cameraPos.z);
+  camera.lookAt(lookAt.x, lookAt.y, lookAt.z);
+
+  renderer.render(scene, camera);
+}
+
+// Six viewpoints — camera distances tuned so the cup fills the frame
+// at realistic phone-aim angles. Real-world scale is preserved (the
+// floor plane is metres) but cameras are placed close so the 10.8 cm
+// cup actually fills the canvas.
+window.addEventListener('load', () => {
+  // 1. TOP-DOWN — close-in bird's-eye. Cup fills frame.
+  renderView('v1', { x: 0, y: 0.18, z: 0.001 }, { x: 0, y: 0, z: 0 }, false);
+  // 2. PUTTING STANCE — 35° from 30 cm up, 28 cm back.
+  renderView('v2', { x: 0, y: 0.30, z: 0.28 }, { x: 0, y: 0.12, z: 0 }, false);
+  // 3. CLOSE-UP HOVER — 25° from 9 cm up, 18 cm back. Maximum
+  //    depth-into-cup visibility from a near angle.
+  renderView('v3', { x: 0, y: 0.10, z: 0.18 }, { x: 0, y: -0.01, z: 0 }, false);
+  // 4. SIDE PROFILE — 8° from 5 cm up, 25 cm back. Flagstick goes
+  //    off the top; rim reads from low angle.
+  renderView('v4', { x: 0, y: 0.05, z: 0.25 }, { x: 0, y: 0.20, z: 0 }, false);
+  // 5. DIAGONAL WALK-BY — 40° from 28 cm up, 25 cm off-axis.
+  renderView('v5', { x: 0.22, y: 0.28, z: 0.22 }, { x: 0, y: 0.05, z: 0 }, false);
+  // 6. BEHIND THE BALL — ball at z=+1.49, camera 25 cm behind
+  //    ball, 25 cm up. Putter's view from address.
+  renderView('v6', { x: 0, y: 0.25, z: 1.75 }, { x: 0, y: 0.15, z: 0 }, true);
+});
+</script>
+
+</body>
+</html>
