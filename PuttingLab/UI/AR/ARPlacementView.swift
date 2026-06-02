@@ -2,6 +2,8 @@ import SwiftUI
 import ARKit
 import RealityKit
 import simd
+import UIKit
+import Darwin
 
 /// AR Slice 2 — tap-to-place ball + hole on a detected horizontal plane.
 ///
@@ -205,6 +207,7 @@ struct ARPlacementView: View {
         .onAppear {
             firstStillAt = Date()
             logger.log(.sessionStart, "Slice 2 placement view opened")
+            logDeviceInfo()
             // CI / XCUITest hook: simulator never detects a plane, so
             // the Place buttons would otherwise be unreachable. The
             // -uiTestMode launch argument fakes the readyToPlaceBall
@@ -1094,13 +1097,21 @@ final class ARPlacementScene {
     static let aimLineThickness: Float = 0.006
 
     /// Place the ball at a world-frame position. Replaces any prior ball.
+    ///
+    /// B40: switched from `SimpleMaterial(color: .white)` to
+    /// `UnlitMaterial(color: .white)` so the ball isn't darkened by
+    /// ARKit's lighting estimation — Gemini's CAC00F analysis flagged
+    /// the white ball as rendering matte-gray in indoor conditions.
+    /// Unlit pins the colour at the declared value regardless of scene
+    /// lighting, which is exactly what we want for a high-visibility
+    /// golf ball.
     func placeBall(at worldPosition: SIMD3<Float>) {
         guard let arView else { return }
         ballAnchor?.removeFromParent()
 
         let radius = Self.ballDiameter / 2
         let mesh = MeshResource.generateSphere(radius: radius)
-        let material = SimpleMaterial(color: .white, roughness: 0.4, isMetallic: false)
+        let material = UnlitMaterial(color: .white)
         let model = ModelEntity(mesh: mesh, materials: [material])
         // Lift the sphere by its radius so it sits ON the plane, not into it.
         model.position = SIMD3<Float>(0, radius, 0)
@@ -1110,6 +1121,12 @@ final class ARPlacementScene {
         arView.scene.addAnchor(anchor)
         ballAnchor = anchor
         ballWorldPosition = worldPosition  // cache for the aim-line draw
+
+        logger.log(.materialApplied, "ball material applied",
+                   payload: ["entity": "ball",
+                             "material": "UnlitMaterial",
+                             "color": "white",
+                             "radius_m": Double(radius)])
     }
 
     /// Place the hole at a world-frame position. Replaces any prior hole.
@@ -1132,171 +1149,177 @@ final class ARPlacementScene {
         guard let arView else { return }
         holeAnchor?.removeFromParent()
 
-        // Real golf-cup composite — B36 rebuild based on James's
-        // direct feedback on the reference photos:
+        // B40 hole rebuild — addresses Gemini's CAC00F findings:
         //
-        //  1. "nothing is raised above the ground apart from the flag"
-        //     → the cup rim is FLUSH at plane level, not raised.
-        //     The flagstick is the only thing that rises.
-        //  2. "where are you getting black from the hole" → real
-        //     cup interiors are dark gray / brown shadow, not pure
-        //     black. The black look in photos comes from contrast
-        //     with bright grass, not the underlying material.
+        //   * White SimpleMaterials were rendering as gray under
+        //     ARKit lighting estimation. → switch to UnlitMaterial
+        //     for all white parts (rim, wall, flagstick) so colour
+        //     is pinned to declared value.
+        //   * The disc-stack (rim + liner + shadow + bottom) read
+        //     as a flat 2D decal because every layer sits at
+        //     approximately plane height. → replace with a TRUE
+        //     3D recess: white cylindrical wall going DOWN 8 cm
+        //     into the floor, with a dark bottom at the base. From
+        //     above this reads as a regulation white-rimmed cup
+        //     with a shadowed interior; from an angle it reads
+        //     as actual depth.
+        //   * Flag was a rigid 2D rectangle. → custom triangle
+        //     mesh via MeshDescriptor (iOS 13+).
         //
-        // Layers (all centred on the anchor):
-        //
-        //   [1] White rim disc — flat at plane level, ≈ 12.9 cm dia.
-        //       Roughness high so it reads as plastic, not chrome.
-        //       Provides the unambiguous white halo of a regulation
-        //       cup.
-        //   [2] Dark interior disc — flat at plane level (1 mm above
-        //       white rim to avoid z-fight), 10.8 cm dia. Dark warm
-        //       gray (not pure black) so it reads as the shadowed
-        //       cup interior rather than a void.
-        //   [3] Recessed bottom disc — 10 cm below the plane,
-        //       slightly inset diameter, a touch darker than the
-        //       interior. Without occlusion this isn't really
-        //       visible to the user (no top opening), but it
-        //       anchors the perceived depth in the JSON for
-        //       physics + carries any future depth-cue rendering.
-        //   [4] Flagstick — thin white pole rising 70 cm out of
-        //       the centre of the cup. This is the dominant "I am
-        //       a golf hole" visual cue from any distance.
-        //   [5] Flag — small red rectangle near the top of the
-        //       flagstick, on the +X side. Standard golf flag.
+        // Layer list:
+        //   [1] White rim disc — flush at plane (the halo).
+        //   [2] White cylinder wall — 8 cm deep, descends into
+        //       floor. Inner faces visible from above through the
+        //       rim opening; reads as cup-interior plastic.
+        //   [3] Dark bottom disc — at -8 cm, the cup floor.
+        //   [4] White flagstick — 70 cm tall pole.
+        //   [5] Red triangle flag — vertex mesh, looks like a
+        //       real flag.
 
-        let dia = Self.holeDiameter
-        let depth = Self.holeDepth
-        let rimOuter = dia * 1.20                        // ≈ 12.9 cm — white halo
-        let innerInset: Float = 0.0                      // hole opening = full dia
-        let bottomInset: Float = 0.008                   // bottom slightly inset for nesting
+        let dia = Self.holeDiameter           // 10.8 cm — regulation cup
+        let depth = Self.holeDepth            // 8 cm — regulation depth
+        let rimOuter = dia * 1.20             // ≈ 12.9 cm — white halo
 
         let anchor = AnchorEntity(world: worldPosition)
 
-        // [1] FLUSH WHITE RIM — flat plane mesh at plane level. Sits
-        //     0.5 mm above the floor plane to avoid z-fighting with
-        //     the green plane overlay.
+        // [1] WHITE RIM — flat disc at plane level. UnlitMaterial
+        //     pins it visibly white regardless of lighting.
         let rimMesh = MeshResource.generatePlane(width: rimOuter,
                                                   depth: rimOuter,
                                                   cornerRadius: rimOuter / 2)
-        let rimMaterial = SimpleMaterial(color: UIColor(white: 0.92, alpha: 1.0),
-                                          roughness: 0.55,
-                                          isMetallic: false)
+        let rimMaterial = UnlitMaterial(color: .white)
         let rimModel = ModelEntity(mesh: rimMesh, materials: [rimMaterial])
         rimModel.position = SIMD3<Float>(0, 0.0005, 0)
         anchor.addChild(rimModel)
 
-        // [2] WHITE LINER — sits inside the rim, also flat at plane
-        //     level. James's correction (B36→B37): the INSIDE of a
-        //     real golf cup is mostly WHITE plastic, not dark. The
-        //     dark you see in photos is the shadow at the very
-        //     bottom where light doesn't reach — not the liner
-        //     material itself. So the middle ring of the composite
-        //     stays plastic-white, slightly cooler / less saturated
-        //     than the rim so the boundary still reads as a separate
-        //     surface from any angle.
-        let linerDia = dia - innerInset * 2
-        let linerMesh = MeshResource.generatePlane(width: linerDia,
-                                                    depth: linerDia,
-                                                    cornerRadius: linerDia / 2)
-        let linerMaterial = SimpleMaterial(
-            color: UIColor(white: 0.88, alpha: 1.0),
-            roughness: 0.65,
-            isMetallic: false
-        )
-        let linerModel = ModelEntity(mesh: linerMesh, materials: [linerMaterial])
-        linerModel.position = SIMD3<Float>(0, 0.0015, 0)
-        anchor.addChild(linerModel)
+        // [2] CYLINDER WALL — corner-rounded box at the cup's
+        //     diameter, height = depth, dropped 1/2 depth so the
+        //     top sits at plane height and the bottom at -depth.
+        //     White UnlitMaterial = plastic cup liner.
+        //     iOS 17 lacks MeshResource.generateCylinder so we use
+        //     the corner-radius-as-half-side trick.
+        let wallMesh = MeshResource.generateBox(width: dia,
+                                                 height: depth,
+                                                 depth: dia,
+                                                 cornerRadius: dia / 2)
+        let wallMaterial = UnlitMaterial(color: .white)
+        let wallModel = ModelEntity(mesh: wallMesh, materials: [wallMaterial])
+        wallModel.position = SIMD3<Float>(0, -depth / 2, 0)
+        anchor.addChild(wallModel)
 
-        // [3] SHADOW DISC — smaller dark disc nested inside the
-        //     white liner, sits 1 mm above plane level so it draws
-        //     on top of the liner. Represents the visible shadow
-        //     where the cup goes deep enough that no light reaches
-        //     — this is what makes the composite read as "hole"
-        //     rather than "flat white target". Roughly 60% of the
-        //     liner diameter; warm dark gray to avoid the
-        //     uncanny-clinical pure black that flagged in earlier
-        //     reviews.
-        let shadowDia = linerDia * 0.6
-        let shadowMesh = MeshResource.generatePlane(width: shadowDia,
-                                                     depth: shadowDia,
-                                                     cornerRadius: shadowDia / 2)
-        let shadowMaterial = SimpleMaterial(
-            color: UIColor(red: 0.12, green: 0.10, blue: 0.08, alpha: 1.0),
-            roughness: 1.0,
-            isMetallic: false
-        )
-        let shadowModel = ModelEntity(mesh: shadowMesh, materials: [shadowMaterial])
-        shadowModel.position = SIMD3<Float>(0, 0.002, 0)
-        anchor.addChild(shadowModel)
-
-        // [4] RECESSED BOTTOM — small disc deep below the plane.
-        //     Same regulation depth as before; keeps the world
-        //     geometry consistent for future ball-roll physics.
-        //     Not occlusion-visible behind the shadow disc above but
-        //     anchors the depth concept.
-        let bottomDia = shadowDia - bottomInset * 2
+        // [3] DARK BOTTOM — disc at the base of the cup. Warm
+        //     dark gray (not pure black) to avoid uncanny look.
+        //     SimpleMaterial fine here — we WANT it shaded /
+        //     darker, that's the whole point.
+        let bottomDia = dia * 0.95
         let bottomMesh = MeshResource.generatePlane(width: bottomDia,
                                                      depth: bottomDia,
                                                      cornerRadius: bottomDia / 2)
         let bottomMaterial = SimpleMaterial(
-            color: UIColor(red: 0.06, green: 0.05, blue: 0.04, alpha: 1.0),
+            color: UIColor(red: 0.10, green: 0.08, blue: 0.06, alpha: 1.0),
             roughness: 1.0,
             isMetallic: false
         )
         let bottomModel = ModelEntity(mesh: bottomMesh, materials: [bottomMaterial])
-        bottomModel.position = SIMD3<Float>(0, -depth, 0)
+        // Sits 1 mm above the wall's bottom face so it shows.
+        bottomModel.position = SIMD3<Float>(0, -depth + 0.001, 0)
         anchor.addChild(bottomModel)
 
-        // [4] FLAGSTICK — thin near-cylindrical pole rising 70 cm
-        //     above the plane. iOS 17 lacks MeshResource.generateCylinder
-        //     so we use a square box with corner-radius = half its
-        //     side: visually indistinguishable from a cylinder at
-        //     1.5 cm diameter. White material, slight off-white to
-        //     match the cup rim.
-        let poleSide: Float = 0.015                       // 1.5 cm thickness
-        let poleHeight: Float = 0.70                      // 70 cm tall
+        // [4] FLAGSTICK — 70 cm white pole, UnlitMaterial white.
+        let poleSide: Float = 0.015
+        let poleHeight: Float = 0.70
         let poleMesh = MeshResource.generateBox(width: poleSide,
                                                   height: poleHeight,
                                                   depth: poleSide,
                                                   cornerRadius: poleSide / 2)
-        let poleMaterial = SimpleMaterial(color: UIColor(white: 0.92, alpha: 1.0),
-                                            roughness: 0.6,
-                                            isMetallic: false)
+        let poleMaterial = UnlitMaterial(color: .white)
         let poleModel = ModelEntity(mesh: poleMesh, materials: [poleMaterial])
         poleModel.position = SIMD3<Float>(0, poleHeight / 2, 0)
         anchor.addChild(poleModel)
 
-        // [5] FLAG — small red rectangle near the top of the pole,
-        //     offset to the +X side. Triangular flags are more
-        //     accurate visually but require a custom mesh; a thin
-        //     box is a clean approximation that reads "flag" from
-        //     any angle. 15 cm wide × 10 cm tall × 1 mm thick.
+        // [5] TRIANGLE FLAG — custom MeshDescriptor. Right-angle
+        //     triangle with the vertical edge attached to the
+        //     pole and the tip extending out +X. 15 cm long × 10
+        //     cm tall.
         let flagW: Float = 0.15
         let flagH: Float = 0.10
-        let flagThk: Float = 0.001
-        let flagMesh = MeshResource.generateBox(width: flagW,
-                                                  height: flagH,
-                                                  depth: flagThk)
-        let flagMaterial = SimpleMaterial(
-            color: UIColor(red: 0.85, green: 0.10, blue: 0.10, alpha: 1.0),
-            roughness: 0.7,
-            isMetallic: false
-        )
+        let flagMesh = Self.makeTriangleFlagMesh(width: flagW, height: flagH)
+        let flagMaterial = UnlitMaterial(color: UIColor(red: 0.90,
+                                                         green: 0.10,
+                                                         blue: 0.10,
+                                                         alpha: 1.0))
         let flagModel = ModelEntity(mesh: flagMesh, materials: [flagMaterial])
-        // Flag's right edge at pole centre; left edge extends out +X.
-        // Top of flag near the top of the pole, 8 cm below the tip.
-        flagModel.position = SIMD3<Float>(flagW / 2 + poleSide / 2,
-                                            poleHeight - 0.08,
+        flagModel.position = SIMD3<Float>(poleSide / 2,
+                                            poleHeight - flagH - 0.02,
                                             0)
         anchor.addChild(flagModel)
 
         arView.scene.addAnchor(anchor)
         holeAnchor = anchor
 
+        logger.log(.materialApplied, "hole materials applied",
+                   payload: ["entity": "hole",
+                             "rim": "UnlitMaterial.white",
+                             "wall": "UnlitMaterial.white",
+                             "bottom": "SimpleMaterial.dark",
+                             "flagstick": "UnlitMaterial.white",
+                             "flag": "UnlitMaterial.red.triangle",
+                             "depth_m": Double(depth),
+                             "diameter_m": Double(dia)])
+
         if let ballWorldPosition {
             drawAimLine(from: ballWorldPosition, to: worldPosition)
         }
+    }
+
+    /// Build a flat triangle mesh for the flag. iOS 13+ via
+    /// `MeshDescriptor` + `MeshResource.generate(from:)`.
+    /// Triangle has vertices at pole (top + bottom) and tip (+X,
+    /// mid-height). Renders single-sided; the unlit material on
+    /// both faces means orientation doesn't matter for legibility.
+    private static func makeTriangleFlagMesh(width: Float, height: Float) -> MeshResource {
+        var descriptor = MeshDescriptor(name: "flag")
+        descriptor.positions = MeshBuffer([
+            SIMD3<Float>(0, 0, 0),              // pole bottom of flag
+            SIMD3<Float>(0, height, 0),         // pole top of flag
+            SIMD3<Float>(width, height / 2, 0), // tip
+        ])
+        // Two triangles (front + back) so it shows from either side.
+        descriptor.primitives = .triangles([
+            0, 2, 1,   // front-facing (CCW)
+            0, 1, 2,   // back-facing (CW)
+        ])
+        return (try? MeshResource.generate(from: [descriptor]))
+            ?? MeshResource.generateBox(width: width, height: height, depth: 0.001)
+    }
+
+    /// Log a one-shot deviceInfo event at session start. Captures
+    /// the iPhone model, iOS version, and AR capabilities so we can
+    /// tailor render fidelity per device. Surfaced by Gemini's
+    /// CAC00F review as a logger gap (couldn't identify the iPhone
+    /// from the JSON alone).
+    private func logDeviceInfo() {
+        let device = UIDevice.current
+        var hwModel = "unknown"
+        var systemInfo = utsname()
+        uname(&systemInfo)
+        let mirror = Mirror(reflecting: systemInfo.machine)
+        let identifier = mirror.children.compactMap { element -> String? in
+            guard let value = element.value as? Int8, value != 0 else { return nil }
+            return String(UnicodeScalar(UInt8(value)))
+        }.joined()
+        if !identifier.isEmpty { hwModel = identifier }
+
+        let supportsMesh = ARWorldTrackingConfiguration.supportsSceneReconstruction(.mesh)
+        let supportsPersonSegmentation = ARWorldTrackingConfiguration.supportsFrameSemantics(.personSegmentation)
+
+        logger.log(.deviceInfo, "device info",
+                   payload: ["device_model": hwModel,
+                             "device_name": device.name,
+                             "ios_version": device.systemVersion,
+                             "lidar_mesh_supported": supportsMesh,
+                             "person_segmentation_supported": supportsPersonSegmentation,
+                             "user_interface_idiom": device.userInterfaceIdiom == .phone ? "phone" : "other"])
     }
 
     /// Draw a thin box between ball and hole as an aim guide. Was a
@@ -1517,6 +1540,12 @@ private struct ARPlacementSceneRepresentable: UIViewRepresentable {
         /// We only log if 1 s has passed since the last update event for
         /// that specific plane.
         private var lastPlaneUpdateLog: [UUID: Date] = [:]
+        /// Set of plane IDs whose classification has already been
+        /// logged via `.planeClassification`. We emit one event per
+        /// plane the first time it passes through the overlay path,
+        /// so the JSON records ARKit's verdict (floor / table / wall /
+        /// none / …) per plane without churn.
+        private var loggedClassifications: Set<UUID> = []
 
         /// Cached overlay record. Re-uses the same ModelEntity across
         /// the 10 Hz didUpdate ticks instead of allocating a fresh
@@ -1649,6 +1678,48 @@ private struct ARPlacementSceneRepresentable: UIViewRepresentable {
             // these while initialising and generatePlane crashes on
             // non-finite or zero/negative inputs (L26).
             guard width.isFinite, depth.isFinite, width > 0.01, depth > 0.01 else { return }
+
+            // B40 gating — Gemini's CAC00F review flagged 2 extra small
+            // planes (7BD084 = 0.39 m², 809333 = 0.30 m²) as visual
+            // distractions next to the primary floor plane (20.88 m²).
+            // Only show overlay for planes that are:
+            //   - horizontal (vertical planes can't be putted on)
+            //   - area >= 1.0 m² (filters table-top sized noise)
+            //   - not explicitly classified as wall/ceiling/door/window
+            // ARKit detection itself continues for all planes — this
+            // only affects the visible green overlay. Raycasts still
+            // hit any plane regardless. Log classification once per
+            // plane so we can review filter decisions in the JSON.
+            let area = width * depth
+            let classification = plane.classification
+            if !loggedClassifications.contains(plane.identifier) {
+                loggedClassifications.insert(plane.identifier)
+                logger.log(.planeClassification,
+                           "plane \(plane.identifier.uuidString.prefix(6)) class=\(classification)",
+                           payload: [
+                               "id": plane.identifier.uuidString,
+                               "classification": "\(classification)",
+                               "area_m2": Double(area),
+                               "alignment": plane.alignment == .horizontal ? "horizontal" : "vertical",
+                           ])
+            }
+            let rejected: Bool = {
+                if plane.alignment != .horizontal { return true }
+                if area < 1.0 { return true }
+                switch classification {
+                case .wall, .ceiling, .door, .window: return true
+                default: return false
+                }
+            }()
+            if rejected {
+                // Remove any pre-existing overlay for this plane if it
+                // previously qualified and now doesn't (rare — a plane
+                // can be reclassified by ARKit as more data accrues).
+                if planeOverlays[plane.identifier] != nil {
+                    removePlaneOverlay(id: plane.identifier)
+                }
+                return
+            }
 
             let rotation = simd_quatf(angle: plane.planeExtent.rotationOnYAxis,
                                        axis: SIMD3<Float>(0, 1, 0))

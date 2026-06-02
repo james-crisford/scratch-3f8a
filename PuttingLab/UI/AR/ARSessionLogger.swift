@@ -181,6 +181,12 @@ final class ARSessionLogger {
             case interruptionEnded
             case failed
             case note
+            case deviceInfo
+            case materialApplied
+            case planeStable
+            case planeClassification
+            case recordingStateChanged
+            case lightEstimate
         }
     }
 }
