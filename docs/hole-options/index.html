@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>PuttingLab — 10 Hole Design Options</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #0a0d12;
+    color: #e5e9ee;
+    font-family: -apple-system, "SF Pro Display", Inter, system-ui, sans-serif;
+    padding: 32px;
+    line-height: 1.5;
+  }
+  h1 { font-size: 30px; margin-bottom: 6px; letter-spacing: -0.5px; }
+  .sub { color: #8a93a3; font-size: 14px; margin-bottom: 28px; max-width: 1100px; }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 14px;
+  }
+  .tile {
+    background: #141a23;
+    border: 1px solid #1f2733;
+    border-radius: 14px;
+    padding: 14px;
+  }
+  .tile h2 {
+    font-size: 12px;
+    color: #ffffff;
+    margin-bottom: 4px;
+    font-weight: 600;
+  }
+  .tile .num { color: #8a93a3; font-size: 11px; margin-bottom: 10px; }
+  canvas {
+    display: block;
+    width: 100%;
+    height: 220px;
+    border-radius: 10px;
+    background: #d6cdb7;
+  }
+  .desc {
+    margin-top: 10px;
+    font-size: 12px;
+    color: #8a93a3;
+    line-height: 1.4;
+  }
+  .badge {
+    display: inline-block;
+    padding: 2px 7px;
+    border-radius: 5px;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 8px;
+  }
+  .badge.now { background: #1a3a1a; color: #6fdf6f; }
+  .badge.tweak { background: #2a2a3f; color: #9fafff; }
+  .badge.bold { background: #3f1f1f; color: #ff8f6f; }
+</style>
+</head>
+<body>
+
+<h1>10 Hole Design Options</h1>
+<div class="sub">
+  Side-by-side comparison of every direction we could take the hole render. Column 1 is what's
+  currently shipping in B42. Columns 2–10 are alternatives — pick any combination, or use one as
+  a starting point and we iterate from there.
+</div>
+
+<div class="grid">
+
+  <div class="tile">
+    <span class="badge now">Shipping</span>
+    <h2>01. B42 Baseline</h2>
+    <div class="num">Current spec</div>
+    <canvas id="o01"></canvas>
+    <div class="desc">White rim + 3D recessed cup + white flagstick + red triangle flag. Locked at B40 materials. What you'll see in build 43.</div>
+  </div>
+
+  <div class="tile">
+    <span class="badge tweak">Tweak</span>
+    <h2>02. Soft AO Shadow</h2>
+    <div class="num">+ depth perception</div>
+    <canvas id="o02"></canvas>
+    <div class="desc">Replaces hard AO ring with a radial gradient (dark at rim → fade at +1cm). Sells "recessed" much more strongly. Identical render cost.</div>
+  </div>
+
+  <div class="tile">
+    <span class="badge tweak">Tweak</span>
+    <h2>03. Striped Flagstick</h2>
+    <div class="num">+ course-realism</div>
+    <canvas id="o03"></canvas>
+    <div class="desc">5 alternating red/white bands on the pole, mimicking USGA marker tape. Reads as "real golf course".</div>
+  </div>
+
+  <div class="tile">
+    <span class="badge tweak">Tweak</span>
+    <h2>04. Fabric Striped Flag</h2>
+    <div class="num">+ realism</div>
+    <canvas id="o04"></canvas>
+    <div class="desc">Tournament-pin pattern — 3 horizontal red bands on white with fabric noise. Could pair with #03.</div>
+  </div>
+
+  <div class="tile">
+    <span class="badge bold">Bold</span>
+    <h2>05. Glowing Cup Rim ⚡</h2>
+    <div class="num">"lights up"</div>
+    <canvas id="o05"></canvas>
+    <div class="desc">Bright cyan halo glowing around the rim. UnlitMaterial at full brightness — looks like a tracker beacon. Could ALSO pulse if we want animation.</div>
+  </div>
+
+  <div class="tile">
+    <span class="badge bold">Bold</span>
+    <h2>06. Pulse Rim (peak frame)</h2>
+    <div class="num">animated halo</div>
+    <canvas id="o06"></canvas>
+    <div class="desc">Same as #05 but breathing — soft 1 Hz pulse from 20% → 70% opacity. Shown here at peak.</div>
+  </div>
+
+  <div class="tile">
+    <span class="badge bold">Bold</span>
+    <h2>07. Bullseye Target Rings</h2>
+    <div class="num">putting practice aid</div>
+    <canvas id="o07"></canvas>
+    <div class="desc">3 concentric rings around the cup (50cm, 1m, 2m radii) to gauge near-misses. Faint white outlines. Genuinely useful for practice.</div>
+  </div>
+
+  <div class="tile">
+    <span class="badge bold">Bold</span>
+    <h2>08. Premium Gold Rim</h2>
+    <div class="num">luxury aesthetic</div>
+    <canvas id="o08"></canvas>
+    <div class="desc">Gold rim ring + matte black flagstick + small gold ferrule near cup. Reads premium / private-course.</div>
+  </div>
+
+  <div class="tile">
+    <span class="badge bold">Bold</span>
+    <h2>09. Minimalist Void</h2>
+    <div class="num">stripped down</div>
+    <canvas id="o09"></canvas>
+    <div class="desc">No white rim halo, no concentric layers. Just a pure dark recess + a slim flagstick. Most "design app" feel.</div>
+  </div>
+
+  <div class="tile">
+    <span class="badge bold">Bold</span>
+    <h2>10. Deluxe Combo</h2>
+    <div class="num">everything stacked</div>
+    <canvas id="o10"></canvas>
+    <div class="desc">Soft AO + striped flagstick + striped flag + subtle glow ring + bullseye targets. Maxed-out visual fidelity. ~3 hr code work.</div>
+  </div>
+
+</div>
+
+<script type="importmap">
+{ "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js" } }
+</script>
+<script type="module">
+import * as THREE from 'three';
+
+const HOLE_DIA = 0.10795;
+const HOLE_DEPTH = 0.08;
+const RIM_OUTER = HOLE_DIA * 1.20;
+const POLE_DIA = 0.015;
+const POLE_HEIGHT = 0.70;
+const FLAG_W = 0.15;
+const FLAG_H = 0.10;
+
+// --- Texture factories ---
+function floorTex() {
+  const c = document.createElement('canvas'); c.width=c.height=512;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#d6cdb7'; ctx.fillRect(0,0,512,512);
+  ctx.strokeStyle = 'rgba(140,120,90,0.35)'; ctx.lineWidth = 1;
+  for (let y=0; y<512; y+=28) { ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(512,y); ctx.stroke(); }
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.repeat.set(4,4);
+  return t;
+}
+function wallTex() {
+  const c = document.createElement('canvas'); c.width=4; c.height=256;
+  const ctx = c.getContext('2d');
+  const g = ctx.createLinearGradient(0,0,0,256);
+  g.addColorStop(0,'#fff'); g.addColorStop(0.35,'#e8e8e8');
+  g.addColorStop(0.7,'#7a7470'); g.addColorStop(1,'#2a2420');
+  ctx.fillStyle = g; ctx.fillRect(0,0,4,256);
+  return new THREE.CanvasTexture(c);
+}
+function stripedPoleTex(colours) {
+  const c = document.createElement('canvas'); c.width=4; c.height=256;
+  const ctx = c.getContext('2d');
+  const bands = colours || ['#fff', '#d61a1a', '#fff', '#d61a1a', '#fff'];
+  const h = 256 / bands.length;
+  bands.forEach((cl, i) => { ctx.fillStyle = cl; ctx.fillRect(0, i*h, 4, h); });
+  return new THREE.CanvasTexture(c);
+}
+function fabricFlagTex() {
+  const c = document.createElement('canvas'); c.width=256; c.height=128;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#fff'; ctx.fillRect(0,0,256,128);
+  ctx.fillStyle = '#d61a1a';
+  ctx.fillRect(0, 14, 256, 22);
+  ctx.fillRect(0, 53, 256, 22);
+  ctx.fillRect(0, 92, 256, 22);
+  for (let i=0; i<400; i++) {
+    ctx.fillStyle = `rgba(0,0,0,${Math.random()*0.06})`;
+    ctx.fillRect(Math.random()*256, Math.random()*128, 1, 1);
+  }
+  return new THREE.CanvasTexture(c);
+}
+function softAOTex() {
+  const c = document.createElement('canvas'); c.width=c.height=128;
+  const ctx = c.getContext('2d');
+  const g = ctx.createRadialGradient(64,64,30, 64,64,64);
+  g.addColorStop(0,'rgba(0,0,0,0.55)');
+  g.addColorStop(1,'rgba(0,0,0,0)');
+  ctx.fillStyle = g; ctx.fillRect(0,0,128,128);
+  return new THREE.CanvasTexture(c);
+}
+function glowTex(colour, peak) {
+  const c = document.createElement('canvas'); c.width=c.height=256;
+  const ctx = c.getContext('2d');
+  const g = ctx.createRadialGradient(128,128,50, 128,128,128);
+  g.addColorStop(0, `rgba(${colour}, ${peak ?? 0.85})`);
+  g.addColorStop(0.5, `rgba(${colour}, ${(peak ?? 0.85) * 0.5})`);
+  g.addColorStop(1, `rgba(${colour}, 0)`);
+  ctx.fillStyle = g; ctx.fillRect(0,0,256,256);
+  return new THREE.CanvasTexture(c);
+}
+
+// --- Builders ---
+function buildFloor(scene) {
+  const f = new THREE.Mesh(
+    new THREE.PlaneGeometry(10,10).rotateX(-Math.PI/2),
+    new THREE.MeshStandardMaterial({ map: floorTex(), roughness: 0.85 })
+  );
+  scene.add(f);
+}
+function addRim(scene, opts) {
+  const colour = opts.gold ? 0xd4a847 : 0xffffff;
+  if (opts.minimal) return;
+  const rim = new THREE.Mesh(
+    new THREE.CircleGeometry(RIM_OUTER/2, 64).rotateX(-Math.PI/2),
+    new THREE.MeshBasicMaterial({ color: colour })
+  );
+  rim.position.y = 0.0005;
+  scene.add(rim);
+}
+function addWall(scene) {
+  const w = new THREE.Mesh(
+    new THREE.CylinderGeometry(HOLE_DIA/2, HOLE_DIA/2, HOLE_DEPTH, 64, 1, true),
+    new THREE.MeshBasicMaterial({ map: wallTex(), side: THREE.DoubleSide })
+  );
+  w.position.y = -HOLE_DEPTH/2;
+  scene.add(w);
+}
+function addBottom(scene) {
+  const b = new THREE.Mesh(
+    new THREE.CircleGeometry(HOLE_DIA/2*0.95, 64).rotateX(-Math.PI/2),
+    new THREE.MeshBasicMaterial({ color: 0x0d0a07 })
+  );
+  b.position.y = -HOLE_DEPTH + 0.001;
+  scene.add(b);
+}
+function addAO(scene, opts) {
+  if (opts.minimal) return;
+  if (opts.softAO) {
+    const ao = new THREE.Mesh(
+      new THREE.PlaneGeometry(RIM_OUTER*1.6, RIM_OUTER*1.6).rotateX(-Math.PI/2),
+      new THREE.MeshBasicMaterial({ map: softAOTex(), transparent: true, depthWrite: false })
+    );
+    ao.position.y = 0.0009;
+    scene.add(ao);
+  } else {
+    const ao = new THREE.Mesh(
+      new THREE.RingGeometry(HOLE_DIA/2*0.97, HOLE_DIA/2, 64).rotateX(-Math.PI/2),
+      new THREE.MeshBasicMaterial({ color: 0, transparent: true, opacity: 0.55, side: THREE.DoubleSide })
+    );
+    ao.position.y = 0.0008;
+    scene.add(ao);
+  }
+}
+function addGlow(scene, colour, peak, radiusMul) {
+  // Bright halo around the rim, transparent + additive blending so it lights up.
+  const size = RIM_OUTER * (radiusMul || 2.5);
+  const glow = new THREE.Mesh(
+    new THREE.PlaneGeometry(size, size).rotateX(-Math.PI/2),
+    new THREE.MeshBasicMaterial({
+      map: glowTex(colour, peak),
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending
+    })
+  );
+  glow.position.y = 0.0007;
+  scene.add(glow);
+}
+function addFlagstick(scene, opts) {
+  let mat;
+  if (opts.stripedPole) mat = new THREE.MeshBasicMaterial({ map: stripedPoleTex() });
+  else if (opts.blackPole) mat = new THREE.MeshBasicMaterial({ color: 0x121212 });
+  else mat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+  const pole = new THREE.Mesh(
+    new THREE.CylinderGeometry(POLE_DIA/2, POLE_DIA/2, POLE_HEIGHT, 16),
+    mat
+  );
+  pole.position.y = POLE_HEIGHT/2;
+  scene.add(pole);
+
+  // Premium gold ferrule (small ring near base) if requested
+  if (opts.goldFerrule) {
+    const ferrule = new THREE.Mesh(
+      new THREE.CylinderGeometry(POLE_DIA*0.85, POLE_DIA*0.85, 0.02, 16),
+      new THREE.MeshBasicMaterial({ color: 0xd4a847 })
+    );
+    ferrule.position.y = 0.01;
+    scene.add(ferrule);
+  }
+}
+function addFlag(scene, opts) {
+  if (opts.noFlag) return;
+  const geo = new THREE.BufferGeometry();
+  const v = new Float32Array([
+    POLE_DIA/2, 0, 0,
+    POLE_DIA/2, FLAG_H, 0,
+    POLE_DIA/2 + FLAG_W, FLAG_H/2, 0
+  ]);
+  const uvs = new Float32Array([0,0, 0,1, 1,0.5]);
+  geo.setAttribute('position', new THREE.BufferAttribute(v, 3));
+  geo.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+  geo.setIndex([0,2,1,0,1,2]);
+  geo.computeVertexNormals();
+  const mat = opts.fabricFlag
+    ? new THREE.MeshBasicMaterial({ map: fabricFlagTex(), side: THREE.DoubleSide })
+    : new THREE.MeshBasicMaterial({ color: opts.darkFlag ? 0x121212 : 0xd61a1a, side: THREE.DoubleSide });
+  const f = new THREE.Mesh(geo, mat);
+  f.position.y = POLE_HEIGHT - FLAG_H - 0.02;
+  scene.add(f);
+}
+function addBullseye(scene) {
+  // 3 concentric faint white rings on the floor at 50cm / 1m / 2m radii
+  [0.5, 1.0, 2.0].forEach((r, i) => {
+    const ring = new THREE.Mesh(
+      new THREE.RingGeometry(r - 0.01, r, 96).rotateX(-Math.PI/2),
+      new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.35 - i*0.07, side: THREE.DoubleSide })
+    );
+    ring.position.y = 0.0006;
+    scene.add(ring);
+  });
+}
+
+// --- Per-option render ---
+function render(canvasId, opts) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+  const w = canvas.clientWidth, h = canvas.clientHeight;
+  canvas.width = w*2; canvas.height = h*2;
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
+  renderer.setSize(w, h, false);
+  renderer.setPixelRatio(2);
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0xb0a890);
+  scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+  const k = new THREE.DirectionalLight(0xffffff, 0.7);
+  k.position.set(1,2,0.5); scene.add(k);
+  const f = new THREE.DirectionalLight(0xffffff, 0.3);
+  f.position.set(-1,1,-0.5); scene.add(f);
+
+  buildFloor(scene);
+  if (opts.bullseye) addBullseye(scene);
+  if (opts.glow) addGlow(scene, opts.glowColour || '120, 220, 255', opts.glowPeak ?? 0.85, opts.glowRadius);
+  addRim(scene, opts);
+  addWall(scene);
+  addBottom(scene);
+  addAO(scene, opts);
+  addFlagstick(scene, opts);
+  addFlag(scene, opts);
+
+  // Putting-stance camera consistent across all 10
+  const cam = new THREE.PerspectiveCamera(50, w/h, 0.005, 50);
+  cam.position.set(0, 0.32, 0.30);
+  cam.lookAt(0, 0.15, 0);
+  renderer.render(scene, cam);
+}
+
+window.addEventListener('load', () => {
+  render('o01', {});
+  render('o02', {softAO: true});
+  render('o03', {stripedPole: true});
+  render('o04', {fabricFlag: true});
+  render('o05', {glow: true, glowColour: '120, 220, 255', glowPeak: 0.85});
+  render('o06', {glow: true, glowColour: '120, 220, 255', glowPeak: 0.55, glowRadius: 3.5});
+  render('o07', {bullseye: true});
+  render('o08', {gold: true, blackPole: true, goldFerrule: true, darkFlag: false});
+  render('o09', {minimal: true});
+  render('o10', {
+    softAO: true,
+    stripedPole: true,
+    fabricFlag: true,
+    glow: true, glowColour: '120, 220, 255', glowPeak: 0.40, glowRadius: 2.2,
+    bullseye: true
+  });
+});
+</script>
+
+</body>
+</html>
