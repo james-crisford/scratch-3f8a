@@ -1088,10 +1088,12 @@ struct ARPlacementView: View {
                                  "hole_x": String(format: "%.4f", preservedHole.x),
                                  "hole_y": String(format: "%.4f", preservedHole.y),
                                  "hole_z": String(format: "%.4f", preservedHole.z)])
-            // Re-draw the aim line to the preserved hole — placeBall
-            // doesn't know about the hole, so call placeHole again at
-            // the same coord to refresh the line + ensure z-ordering.
-            scene.placeHole(at: preservedHole)
+            // B42 safety net fix: redraw the aim line via the
+            // dedicated helper rather than rebuilding the entire
+            // hole entity. Avoids the visible flicker + double
+            // `materialApplied` event that the placeHole-replay
+            // approach caused.
+            scene.refreshAimLine(from: world, to: preservedHole)
             placementState = .complete(ball: world, hole: preservedHole)
         // B42: Move-hole UX — preserved ball stays, new hole drops.
         case .replacingHole(let preservedBall):
@@ -1777,6 +1779,17 @@ final class ARPlacementScene {
         lineAnchor?.removeFromParent()
         holeAnchor = nil
         lineAnchor = nil
+    }
+
+    /// B42 safety net: redraw the aim line between an existing ball
+    /// and hole without touching either entity. Used by the
+    /// Move-ball completion path so we don't have to rebuild the
+    /// hole just to get the aim line back. Public wrapper around
+    /// the private drawAimLine — keeps the hole + ball untouched
+    /// while still anchoring the aim line geometry.
+    func refreshAimLine(from ball: SIMD3<Float>, to hole: SIMD3<Float>) {
+        drawAimLine(from: ball, to: hole)
+        ballWorldPosition = ball
     }
 
     /// Live LiDAR mesh anchor count — proxied to `meshManager`
@@ -2518,7 +2531,10 @@ private struct ARPlacementSceneRepresentable: UIViewRepresentable {
                                          "y": String(format: "%.4f", world.y),
                                          "z": String(format: "%.4f", world.z),
                                          "distance_m": String(format: "%.4f", dist)])
-                    scene.placeHole(at: preservedHole)
+                    // B42: refresh aim line without rebuilding the
+                    // hole entity (avoids flicker + duplicate
+                    // materialApplied event).
+                    scene.refreshAimLine(from: world, to: preservedHole)
                     _placementState.wrappedValue = .complete(ball: world, hole: preservedHole)
                     lastPlacementAt = Date()
                 case .replacingHole(let preservedBall):
