@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>PuttingLab — Option 8 Gold (depth-emphasised)</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #0a0d12;
+    color: #e5e9ee;
+    font-family: -apple-system, "SF Pro Display", Inter, system-ui, sans-serif;
+    padding: 32px;
+    line-height: 1.5;
+  }
+  h1 { font-size: 28px; margin-bottom: 6px; letter-spacing: -0.5px; }
+  .sub { color: #8a93a3; font-size: 14px; margin-bottom: 28px; max-width: 1000px; }
+  h2 { font-size: 16px; margin: 24px 0 12px; color: #c8d0db; }
+  .row {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 14px;
+    margin-bottom: 18px;
+  }
+  .tile {
+    background: #141a23;
+    border: 1px solid #1f2733;
+    border-radius: 12px;
+    padding: 14px;
+  }
+  .tile.full { grid-column: span 3; }
+  .tile h3 {
+    font-size: 11px;
+    color: #a3acba;
+    margin-bottom: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+  }
+  canvas {
+    display: block;
+    width: 100%;
+    height: 380px;
+    border-radius: 10px;
+    background: #d6cdb7;
+  }
+  canvas.tall { height: 460px; }
+  .caption {
+    margin-top: 10px;
+    font-size: 12.5px;
+    color: #8a93a3;
+  }
+  .xsection {
+    background: #1a2030;
+    border-radius: 10px;
+    padding: 24px;
+    text-align: center;
+  }
+  .xsection svg { max-width: 100%; height: auto; }
+</style>
+</head>
+<body>
+
+<h1>Option 8 — Premium Gold (depth-emphasised)</h1>
+<div class="sub">
+  Showing the gold rim from FIVE camera angles plus a side-cutaway diagram so the cup's 3D
+  recess is unambiguous. The actual app will render the same geometry — we control how steep the
+  user holds the phone but ARKit reports the real surface, so the cup IS physically 8 cm deep in
+  the floor regardless of view angle.
+</div>
+
+<h2>Five rendered viewpoints</h2>
+<div class="row">
+  <div class="tile">
+    <h3>1. Top-down (overhead)</h3>
+    <canvas id="v1"></canvas>
+    <div class="caption">Gold rim halo + dark cup interior + tiny black bottom visible at centre. The gold "ring" is the rim seen from above.</div>
+  </div>
+  <div class="tile">
+    <h3>2. 35° putting stance</h3>
+    <canvas id="v2"></canvas>
+    <div class="caption">Typical phone-aim angle. Cup mouth foreshortened to an ellipse — but you can see partial wall depth + shadow.</div>
+  </div>
+  <div class="tile">
+    <h3>3. 55° steep angle ★</h3>
+    <canvas id="v3"></canvas>
+    <div class="caption"><b>Best 3D-read angle.</b> Cup mouth opens up clearly — you can see WALL going down + bottom at the back. This is what the user will see if they tilt the phone down.</div>
+  </div>
+</div>
+<div class="row">
+  <div class="tile">
+    <h3>4. 75° near-overhead close-up</h3>
+    <canvas id="v4"></canvas>
+    <div class="caption">Looking almost straight down into the cup from close range. Dark wall gradient + bottom black. Unmistakably recessed.</div>
+  </div>
+  <div class="tile">
+    <h3>5. Low grazing (12°)</h3>
+    <canvas id="v5"></canvas>
+    <div class="caption">Almost flat to the floor. Rim becomes a profile slice. Flagstick + shadow dominate.</div>
+  </div>
+  <div class="tile">
+    <h3>6. Side cutaway (impossible IRL)</h3>
+    <canvas id="v6"></canvas>
+    <div class="caption">Camera placed below floor level for design-review only. Shows the physical cylindrical recess + bottom + flagstick base.</div>
+  </div>
+</div>
+
+<h2>Cross-section diagram (mechanical drawing)</h2>
+<div class="tile">
+  <div class="xsection">
+    <svg viewBox="0 0 800 320" xmlns="http://www.w3.org/2000/svg">
+      <!-- Floor surface line -->
+      <line x1="40" y1="120" x2="760" y2="120" stroke="#d6cdb7" stroke-width="3"/>
+      <text x="400" y="110" fill="#d6cdb7" font-family="monospace" font-size="13" text-anchor="middle">Floor surface (Y=0)</text>
+
+      <!-- Gold rim cross-section: two small rectangles flush with floor either side of opening -->
+      <rect x="280" y="115" width="35" height="6" fill="#d4a847"/>
+      <rect x="485" y="115" width="35" height="6" fill="#d4a847"/>
+      <text x="320" y="142" fill="#d4a847" font-family="monospace" font-size="11" text-anchor="end">12.9 cm</text>
+      <text x="480" y="142" fill="#d4a847" font-family="monospace" font-size="11">gold rim</text>
+
+      <!-- Cup walls (white): two vertical lines going down -->
+      <line x1="315" y1="120" x2="315" y2="280" stroke="#fff" stroke-width="3"/>
+      <line x1="485" y1="120" x2="485" y2="280" stroke="#fff" stroke-width="3"/>
+
+      <!-- Cup bottom -->
+      <line x1="315" y1="280" x2="485" y2="280" stroke="#1a1410" stroke-width="6"/>
+      <text x="400" y="300" fill="#a3acba" font-family="monospace" font-size="11" text-anchor="middle">cup bottom (Y = -8 cm, dark)</text>
+
+      <!-- Cup interior label -->
+      <text x="400" y="200" fill="#fff" font-family="monospace" font-size="12" text-anchor="middle">10.8 cm × 8 cm deep recess</text>
+      <text x="400" y="215" fill="#fff" font-family="monospace" font-size="11" text-anchor="middle">(white cylindrical wall)</text>
+
+      <!-- Flagstick going up from bottom -->
+      <rect x="397" y="20" width="6" height="260" fill="#121212"/>
+      <text x="420" y="40" fill="#121212" font-family="monospace" font-size="11">flagstick</text>
+      <text x="420" y="54" fill="#121212" font-family="monospace" font-size="11">70 cm × 1.5 cm</text>
+
+      <!-- Gold ferrule at base -->
+      <rect x="394" y="118" width="12" height="6" fill="#d4a847"/>
+      <text x="420" y="128" fill="#d4a847" font-family="monospace" font-size="10">gold ferrule</text>
+
+      <!-- Red flag -->
+      <polygon points="403,25 460,40 403,55" fill="#d61a1a"/>
+      <text x="465" y="42" fill="#d61a1a" font-family="monospace" font-size="11">flag 15×10cm</text>
+
+      <!-- Dimension arrows -->
+      <line x1="60" y1="120" x2="60" y2="280" stroke="#9fafff" stroke-width="1"/>
+      <line x1="55" y1="120" x2="65" y2="120" stroke="#9fafff" stroke-width="1"/>
+      <line x1="55" y1="280" x2="65" y2="280" stroke="#9fafff" stroke-width="1"/>
+      <text x="70" y="205" fill="#9fafff" font-family="monospace" font-size="11">8 cm depth</text>
+    </svg>
+  </div>
+  <div class="caption" style="text-align:center; margin-top:12px;">
+    Cross-section through the centre. Floor is the horizontal line at Y=0. The cup walls extend
+    DOWN 8 cm into the floor. The flagstick rises 70 cm up from the cup base. Gold rim sits flush
+    at the floor level; gold ferrule wraps the flagstick base where it emerges.
+  </div>
+</div>
+
+<script type="importmap">
+{ "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js" } }
+</script>
+<script type="module">
+import * as THREE from 'three';
+
+const HOLE_DIA = 0.10795;
+const HOLE_DEPTH = 0.08;
+const RIM_OUTER = HOLE_DIA * 1.20;
+const POLE_DIA = 0.015;
+const POLE_HEIGHT = 0.70;
+const FLAG_W = 0.15;
+const FLAG_H = 0.10;
+
+function floorTex() {
+  const c = document.createElement('canvas'); c.width=c.height=512;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#d6cdb7'; ctx.fillRect(0,0,512,512);
+  ctx.strokeStyle = 'rgba(140,120,90,0.35)'; ctx.lineWidth = 1;
+  for (let y=0; y<512; y+=28) { ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(512,y); ctx.stroke(); }
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.repeat.set(4,4);
+  return t;
+}
+
+// Wall texture that strongly sells depth even at shallow angles —
+// white at top transitioning aggressively to near-black at bottom.
+function wallTex() {
+  const c = document.createElement('canvas'); c.width=4; c.height=256;
+  const ctx = c.getContext('2d');
+  const g = ctx.createLinearGradient(0,0,0,256);
+  g.addColorStop(0, '#f5f5f5');
+  g.addColorStop(0.25, '#c8c8c8');
+  g.addColorStop(0.55, '#6a6464');
+  g.addColorStop(0.85, '#1f1a16');
+  g.addColorStop(1, '#0a0805');
+  ctx.fillStyle = g; ctx.fillRect(0,0,4,256);
+  return new THREE.CanvasTexture(c);
+}
+
+function buildScene() {
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0xb0a890);
+  scene.add(new THREE.HemisphereLight(0xffffff, 0xbfb38f, 0.6));
+  const key = new THREE.DirectionalLight(0xffffff, 1.6);
+  key.position.set(1.5, 3.0, 1.0);
+  key.castShadow = true;
+  key.shadow.mapSize.width = 2048;
+  key.shadow.mapSize.height = 2048;
+  key.shadow.camera.near = 0.1;
+  key.shadow.camera.far = 6;
+  key.shadow.camera.left = -1;
+  key.shadow.camera.right = 1;
+  key.shadow.camera.top = 1;
+  key.shadow.camera.bottom = -1;
+  scene.add(key);
+  scene.add(new THREE.DirectionalLight(0xfff0d0, 0.35).position.set(-1, 2, -1));
+
+  // Floor
+  const floor = new THREE.Mesh(
+    new THREE.PlaneGeometry(10,10).rotateX(-Math.PI/2),
+    new THREE.MeshStandardMaterial({ map: floorTex(), roughness: 0.85 })
+  );
+  floor.receiveShadow = true;
+  scene.add(floor);
+
+  // Gold rim — METALLIC, with the inner edge defining the cup mouth
+  const rim = new THREE.Mesh(
+    new THREE.RingGeometry(HOLE_DIA/2, RIM_OUTER/2, 96).rotateX(-Math.PI/2),
+    new THREE.MeshStandardMaterial({
+      color: 0xd4a847,
+      roughness: 0.28,
+      metalness: 0.95,
+      side: THREE.DoubleSide
+    })
+  );
+  rim.position.y = 0.0012;
+  rim.receiveShadow = true;
+  scene.add(rim);
+
+  // Cup wall — heavily textured vertical gradient so depth reads at
+  // ANY camera angle, even when the camera can barely see down into
+  // the cup. The texture is on a UnlitMaterial so it shows the
+  // declared gradient regardless of scene lighting (avoids the
+  // "everything looks the same indoors" failure mode).
+  const wall = new THREE.Mesh(
+    new THREE.CylinderGeometry(HOLE_DIA/2 * 0.99, HOLE_DIA/2 * 0.99, HOLE_DEPTH, 96, 1, true),
+    new THREE.MeshBasicMaterial({ map: wallTex(), side: THREE.DoubleSide })
+  );
+  wall.position.y = -HOLE_DEPTH/2;
+  scene.add(wall);
+
+  // Cup bottom — pure dark, anchors the depth
+  const bottom = new THREE.Mesh(
+    new THREE.CircleGeometry(HOLE_DIA/2 * 0.98, 64).rotateX(-Math.PI/2),
+    new THREE.MeshBasicMaterial({ color: 0x050302 })
+  );
+  bottom.position.y = -HOLE_DEPTH + 0.0008;
+  scene.add(bottom);
+
+  // Soft AO ring just inside the rim — strong dark line where the
+  // rim meets the wall, sells the depth at the cup mouth.
+  const ao = new THREE.Mesh(
+    new THREE.RingGeometry(HOLE_DIA/2 * 0.95, HOLE_DIA/2, 96).rotateX(-Math.PI/2),
+    new THREE.MeshBasicMaterial({ color: 0, transparent: true, opacity: 0.7, side: THREE.DoubleSide })
+  );
+  ao.position.y = 0.0014;
+  scene.add(ao);
+
+  // Flagstick (black, premium)
+  const pole = new THREE.Mesh(
+    new THREE.CylinderGeometry(POLE_DIA/2, POLE_DIA/2, POLE_HEIGHT, 16),
+    new THREE.MeshStandardMaterial({ color: 0x121212, roughness: 0.45, metalness: 0.6 })
+  );
+  pole.position.y = POLE_HEIGHT/2;
+  pole.castShadow = true;
+  scene.add(pole);
+
+  // Gold ferrule
+  const ferrule = new THREE.Mesh(
+    new THREE.CylinderGeometry(POLE_DIA*0.85, POLE_DIA*0.85, 0.022, 16),
+    new THREE.MeshStandardMaterial({ color: 0xd4a847, roughness: 0.3, metalness: 0.95 })
+  );
+  ferrule.position.y = 0.017;
+  ferrule.castShadow = true;
+  scene.add(ferrule);
+
+  // Red flag
+  const flagGeo = new THREE.BufferGeometry();
+  const v = new Float32Array([
+    POLE_DIA/2, 0, 0,
+    POLE_DIA/2, FLAG_H, 0,
+    POLE_DIA/2 + FLAG_W, FLAG_H/2, 0
+  ]);
+  flagGeo.setAttribute('position', new THREE.BufferAttribute(v, 3));
+  flagGeo.setIndex([0,2,1,0,1,2]);
+  flagGeo.computeVertexNormals();
+  const flag = new THREE.Mesh(
+    flagGeo,
+    new THREE.MeshStandardMaterial({ color: 0xd61a1a, side: THREE.DoubleSide, roughness: 0.7 })
+  );
+  flag.position.y = POLE_HEIGHT - FLAG_H - 0.02;
+  flag.castShadow = true;
+  scene.add(flag);
+
+  return scene;
+}
+
+function render(canvasId, view) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+  const w = canvas.clientWidth || 380, h = canvas.clientHeight || 380;
+  canvas.width = w*2; canvas.height = h*2;
+  const offscreen = document.createElement('canvas');
+  offscreen.width = w*2; offscreen.height = h*2;
+  const renderer = new THREE.WebGLRenderer({ canvas: offscreen, antialias: true, preserveDrawingBuffer: true });
+  renderer.setSize(w, h, false);
+  renderer.setPixelRatio(2);
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+
+  const scene = buildScene();
+  const cam = new THREE.PerspectiveCamera(45, w/h, 0.001, 50);
+  cam.position.set(view.cam.x, view.cam.y, view.cam.z);
+  cam.lookAt(view.look.x, view.look.y, view.look.z);
+  renderer.render(scene, cam);
+
+  canvas.getContext('2d').drawImage(offscreen, 0, 0, canvas.width, canvas.height);
+  renderer.dispose();
+  renderer.forceContextLoss();
+}
+
+window.addEventListener('load', () => {
+  setTimeout(() => {
+    // 1. Top-down (overhead, almost-straight-down)
+    render('v1', { cam: {x:0, y:0.20, z:0.001}, look: {x:0, y:0, z:0} });
+    // 2. 35° putting stance
+    render('v2', { cam: {x:0, y:0.30, z:0.30}, look: {x:0, y:0.12, z:0} });
+    // 3. 55° steep — the BEST 3D view
+    render('v3', { cam: {x:0, y:0.32, z:0.18}, look: {x:0, y:-0.04, z:0} });
+    // 4. 75° near-overhead close-up
+    render('v4', { cam: {x:0, y:0.22, z:0.06}, look: {x:0, y:-0.04, z:0} });
+    // 5. Low grazing 12°
+    render('v5', { cam: {x:0.05, y:0.07, z:0.32}, look: {x:0, y:0.06, z:0} });
+    // 6. Side cutaway (camera in side, far below floor)
+    render('v6', { cam: {x:0.45, y:-0.04, z:0.18}, look: {x:0, y:-0.04, z:0} });
+  }, 150);
+});
+</script>
+
+</body>
+</html>
