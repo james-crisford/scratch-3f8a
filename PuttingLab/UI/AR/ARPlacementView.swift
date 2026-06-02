@@ -1391,16 +1391,30 @@ final class ARPlacementScene {
     func raycastScreenCenter() -> SIMD3<Float>? {
         guard let arView else { return nil }
         let center = CGPoint(x: arView.bounds.midX, y: arView.bounds.midY)
-        guard let query = arView.makeRaycastQuery(
-                from: center,
-                allowing: .existingPlaneGeometry,
-                alignment: .horizontal
-              ),
-              let result = arView.session.raycast(query).first else {
-            return nil
+
+        // B41: prefer the LiDAR mesh when available — placements snap
+        // to the actual scanned floor, not an inferred rectangular
+        // plane. Fall back to plane geometry, then to .estimatedPlane
+        // for the first 5 s of any session before either has
+        // populated.
+        let priorities: [ARRaycastQuery.Target] = [
+            .existingMeshGeometry,
+            .existingPlaneGeometry,
+            .estimatedPlane,
+        ]
+        for target in priorities {
+            guard let query = arView.makeRaycastQuery(
+                    from: center,
+                    allowing: target,
+                    alignment: .horizontal
+                  ),
+                  let result = arView.session.raycast(query).first else {
+                continue
+            }
+            let t = result.worldTransform
+            return SIMD3<Float>(t.columns.3.x, t.columns.3.y, t.columns.3.z)
         }
-        let t = result.worldTransform
-        return SIMD3<Float>(t.columns.3.x, t.columns.3.y, t.columns.3.z)
+        return nil
     }
 
     func clearPlacedEntities() {
@@ -1451,6 +1465,36 @@ private struct ARPlacementSceneRepresentable: UIViewRepresentable {
         let config = ARWorldTrackingConfiguration()
         config.planeDetection = [.horizontal]
         config.environmentTexturing = .none
+
+        // B41 — LiDAR mesh as primary surface tracker.
+        // `.meshWithClassification` gives a real triangle mesh of
+        // every surface plus a per-face label (floor / wall /
+        // ceiling / …) that we filter to floor-only for the green
+        // overlay. Killed the rectangle-plane jitter Gemini surfaced
+        // in CAC00F. Plane detection is kept ON in parallel as a
+        // raycast fallback for the first ~5 s before the mesh
+        // populates. Non-LiDAR phones fall back to plane detection
+        // plus `.smoothedSceneDepth` for tighter inferred-depth
+        // raycasts.
+        if ARWorldTrackingConfiguration.supportsSceneReconstruction(.meshWithClassification) {
+            config.sceneReconstruction = .meshWithClassification
+            context.coordinator.lidarActive = true
+            logger.log(.note, "LiDAR scene reconstruction enabled (meshWithClassification)")
+        } else if ARWorldTrackingConfiguration.supportsSceneReconstruction(.mesh) {
+            // Older LiDAR-equipped devices that don't support the
+            // classification variant — we still get raw mesh.
+            config.sceneReconstruction = .mesh
+            context.coordinator.lidarActive = true
+            logger.log(.note, "LiDAR mesh enabled (no classification)")
+        } else if ARWorldTrackingConfiguration.supportsFrameSemantics(.smoothedSceneDepth) {
+            config.frameSemantics = [.smoothedSceneDepth]
+            context.coordinator.lidarActive = false
+            logger.log(.note, "LiDAR unavailable, plane+depth fallback (smoothedSceneDepth)")
+        } else {
+            context.coordinator.lidarActive = false
+            logger.log(.note, "LiDAR unavailable, plane-only fallback")
+        }
+
         arView.session.delegateQueue = .main
         arView.session.delegate = context.coordinator
         arView.session.run(config, options: [])
@@ -1555,6 +1599,30 @@ private struct ARPlacementSceneRepresentable: UIViewRepresentable {
         /// none / …) per plane without churn.
         private var loggedClassifications: Set<UUID> = []
 
+        // MARK: B41 LiDAR scene reconstruction
+
+        /// Mesh manager that owns every cached `ARMeshAnchor` and
+        /// rebuilds the floor-only triangle list. Optional only for
+        /// init ordering — wired immediately in init body.
+        let meshManager = ARMeshManager()
+        /// True if `ARWorldTrackingConfiguration.sceneReconstruction
+        /// = .meshWithClassification` was enabled this session. False
+        /// on non-LiDAR devices (regular iPhones).
+        var lidarActive: Bool = false
+        /// Single anchor + entity carrying the live LiDAR floor
+        /// overlay. Rebuilt whenever the mesh manager reports a
+        /// change in floor-triangle count.
+        private var meshOverlayAnchor: AnchorEntity?
+        private var meshOverlayEntity: ModelEntity?
+        /// Throttle for `.meshUpdated` log emission. ARKit updates
+        /// mesh anchors at ~1-2 Hz; we log at most every 2 s per
+        /// anchor.
+        private var lastMeshUpdateLog: [UUID: Date] = [:]
+        /// Throttle for the global `.meshStats` event. Emit at most
+        /// every 5 s so we get one stats sample per pan-and-scan
+        /// burst without polluting the log.
+        private var lastMeshStatsAt: Date = .distantPast
+
         /// Cached overlay record. Re-uses the same ModelEntity across
         /// the 10 Hz didUpdate ticks instead of allocating a fresh
         /// MeshResource + SimpleMaterial + ModelEntity every time (M7
@@ -1608,53 +1676,85 @@ private struct ARPlacementSceneRepresentable: UIViewRepresentable {
         nonisolated func session(_ session: ARSession, didAdd anchors: [ARAnchor]) {
             MainActor.assumeIsolated {
                 var added = 0
+                var meshDirty = false
                 for a in anchors {
-                    guard let plane = a as? ARPlaneAnchor else { continue }
-                    if detectedPlanes.insert(a.identifier).inserted {
-                        added += 1
-                        addOrUpdatePlaneOverlay(plane)
-                        logger.log(.planeAdded,
-                                   "plane \(plane.identifier.uuidString.prefix(6)) " +
-                                   "ext=\(String(format: "%.2f×%.2f", plane.planeExtent.width, plane.planeExtent.height))m",
+                    if let plane = a as? ARPlaneAnchor {
+                        if detectedPlanes.insert(a.identifier).inserted {
+                            added += 1
+                            addOrUpdatePlaneOverlay(plane)
+                            logger.log(.planeAdded,
+                                       "plane \(plane.identifier.uuidString.prefix(6)) " +
+                                       "ext=\(String(format: "%.2f×%.2f", plane.planeExtent.width, plane.planeExtent.height))m",
+                                       payload: [
+                                           "id": plane.identifier.uuidString,
+                                           "width": String(format: "%.3f", plane.planeExtent.width),
+                                           "height": String(format: "%.3f", plane.planeExtent.height),
+                                           "alignment": plane.alignment == .horizontal ? "horizontal" : "vertical",
+                                       ])
+                        }
+                    } else if let meshAnchor = a as? ARMeshAnchor {
+                        if meshManager.updateAnchor(meshAnchor) {
+                            meshDirty = true
+                        }
+                        logger.log(.meshAdded,
+                                   "mesh \(meshAnchor.identifier.uuidString.prefix(6)) faces=\(meshAnchor.geometry.faces.count)",
                                    payload: [
-                                       "id": plane.identifier.uuidString,
-                                       "width": String(format: "%.3f", plane.planeExtent.width),
-                                       "height": String(format: "%.3f", plane.planeExtent.height),
-                                       "alignment": plane.alignment == .horizontal ? "horizontal" : "vertical",
+                                       "id": meshAnchor.identifier.uuidString,
+                                       "face_count": "\(meshAnchor.geometry.faces.count)",
                                    ])
                     }
                 }
-                guard added > 0 else { return }
-                _planeCount.wrappedValue = detectedPlanes.count
+                if meshDirty { rebuildMeshOverlay() }
+                if added > 0 { _planeCount.wrappedValue = detectedPlanes.count }
+                emitMeshStatsIfDue()
             }
         }
 
         nonisolated func session(_ session: ARSession, didUpdate anchors: [ARAnchor]) {
             MainActor.assumeIsolated {
                 let now = Date()
+                var meshDirty = false
                 for a in anchors {
-                    guard let plane = a as? ARPlaneAnchor,
-                          detectedPlanes.contains(a.identifier) else { continue }
-                    addOrUpdatePlaneOverlay(plane)
-                    let last = lastPlaneUpdateLog[a.identifier] ?? .distantPast
-                    if now.timeIntervalSince(last) > 1.0 {
-                        lastPlaneUpdateLog[a.identifier] = now
-                        logger.log(.planeUpdated,
-                                   "plane \(plane.identifier.uuidString.prefix(6)) " +
-                                   "ext=\(String(format: "%.2f×%.2f", plane.planeExtent.width, plane.planeExtent.height))m",
-                                   payload: [
-                                       "id": plane.identifier.uuidString,
-                                       "width": String(format: "%.3f", plane.planeExtent.width),
-                                       "height": String(format: "%.3f", plane.planeExtent.height),
-                                   ])
+                    if let plane = a as? ARPlaneAnchor,
+                       detectedPlanes.contains(a.identifier) {
+                        addOrUpdatePlaneOverlay(plane)
+                        let last = lastPlaneUpdateLog[a.identifier] ?? .distantPast
+                        if now.timeIntervalSince(last) > 1.0 {
+                            lastPlaneUpdateLog[a.identifier] = now
+                            logger.log(.planeUpdated,
+                                       "plane \(plane.identifier.uuidString.prefix(6)) " +
+                                       "ext=\(String(format: "%.2f×%.2f", plane.planeExtent.width, plane.planeExtent.height))m",
+                                       payload: [
+                                           "id": plane.identifier.uuidString,
+                                           "width": String(format: "%.3f", plane.planeExtent.width),
+                                           "height": String(format: "%.3f", plane.planeExtent.height),
+                                       ])
+                        }
+                    } else if let meshAnchor = a as? ARMeshAnchor {
+                        if meshManager.updateAnchor(meshAnchor) {
+                            meshDirty = true
+                        }
+                        let last = lastMeshUpdateLog[meshAnchor.identifier] ?? .distantPast
+                        if now.timeIntervalSince(last) > 2.0 {
+                            lastMeshUpdateLog[meshAnchor.identifier] = now
+                            logger.log(.meshUpdated,
+                                       "mesh \(meshAnchor.identifier.uuidString.prefix(6)) faces=\(meshAnchor.geometry.faces.count)",
+                                       payload: [
+                                           "id": meshAnchor.identifier.uuidString,
+                                           "face_count": "\(meshAnchor.geometry.faces.count)",
+                                       ])
+                        }
                     }
                 }
+                if meshDirty { rebuildMeshOverlay() }
+                emitMeshStatsIfDue()
             }
         }
 
         nonisolated func session(_ session: ARSession, didRemove anchors: [ARAnchor]) {
             MainActor.assumeIsolated {
                 var removed = 0
+                var meshDirty = false
                 for a in anchors {
                     if detectedPlanes.remove(a.identifier) != nil {
                         removed += 1
@@ -1662,10 +1762,65 @@ private struct ARPlacementSceneRepresentable: UIViewRepresentable {
                         lastPlaneUpdateLog.removeValue(forKey: a.identifier)
                         logger.log(.planeRemoved,
                                    "plane \(a.identifier.uuidString.prefix(6))")
+                    } else if a is ARMeshAnchor {
+                        if meshManager.removeAnchor(a.identifier) {
+                            meshDirty = true
+                            lastMeshUpdateLog.removeValue(forKey: a.identifier)
+                            logger.log(.meshRemoved,
+                                       "mesh \(a.identifier.uuidString.prefix(6))")
+                        }
                     }
                 }
-                guard removed > 0 else { return }
-                _planeCount.wrappedValue = detectedPlanes.count
+                if meshDirty { rebuildMeshOverlay() }
+                if removed > 0 { _planeCount.wrappedValue = detectedPlanes.count }
+            }
+        }
+
+        /// Emit a `meshStats` event at most once every 5 s. Called
+        /// from didAdd / didUpdate so we always get a stats sample
+        /// soon after a mesh change without scheduling a timer.
+        private func emitMeshStatsIfDue() {
+            let now = Date()
+            guard now.timeIntervalSince(lastMeshStatsAt) > 5.0 else { return }
+            // Skip emission if mesh hasn't been touched at all this
+            // session (non-LiDAR phones never get any meshAnchors).
+            guard meshManager.anchorCount > 0 || lidarActive else { return }
+            lastMeshStatsAt = now
+            logger.log(.meshStats,
+                       "mesh stats — floor=\(String(format: "%.2f", meshManager.floorAreaM2)) m² triangles=\(meshManager.floorTriangleCount)",
+                       payload: meshManager.currentStats(lidarActive: lidarActive))
+        }
+
+        /// Rebuild the single green floor-overlay entity from the
+        /// mesh manager's current floor-triangle list. Called only
+        /// when the triangle count actually changed (not on every
+        /// throttled didUpdate tick).
+        private func rebuildMeshOverlay() {
+            guard let arView else { return }
+            guard let resource = meshManager.buildFloorMesh() else {
+                // No floor triangles yet — leave any existing
+                // overlay in place (better to keep stale than to
+                // flicker an empty state).
+                return
+            }
+            // Translucent green, UnlitMaterial so the colour stays
+            // green regardless of ARKit lighting. Same material
+            // recipe the rim/wall use, but green with 35% alpha.
+            let overlayColor = UIColor(red: 0.20, green: 0.95,
+                                        blue: 0.40, alpha: 0.35)
+            var material = UnlitMaterial(color: overlayColor)
+            material.blending = .transparent(opacity: .init(floatLiteral: 0.35))
+
+            if let entity = meshOverlayEntity {
+                entity.model?.mesh = resource
+                entity.model?.materials = [material]
+            } else {
+                let entity = ModelEntity(mesh: resource, materials: [material])
+                let anchor = AnchorEntity(world: .zero)
+                anchor.addChild(entity)
+                arView.scene.addAnchor(anchor)
+                meshOverlayAnchor = anchor
+                meshOverlayEntity = entity
             }
         }
 
@@ -1780,13 +1935,19 @@ private struct ARPlacementSceneRepresentable: UIViewRepresentable {
 
         /// Called from `dismantleUIView` so we don't leak overlays after
         /// the cover is dismissed (the ARView itself is released, but
-        /// explicit cleanup is cheap insurance).
+        /// explicit cleanup is cheap insurance). B41: also tears
+        /// down the LiDAR mesh overlay.
         func clearAllPlaneOverlays() {
             for (_, overlay) in planeOverlays {
                 overlay.anchor.removeFromParent()
             }
             planeOverlays.removeAll()
             lastPlaneUpdateLog.removeAll()
+            meshOverlayAnchor?.removeFromParent()
+            meshOverlayAnchor = nil
+            meshOverlayEntity = nil
+            meshManager.clear()
+            lastMeshUpdateLog.removeAll()
         }
 
         nonisolated func session(_ session: ARSession, didFailWithError error: Error) {
@@ -1856,17 +2017,28 @@ private struct ARPlacementSceneRepresentable: UIViewRepresentable {
                 let point = recognizer.location(in: arView)
                 logger.log(.tap, "screen \(String(format: "(%.0f, %.0f)", point.x, point.y))")
 
-                // Raycast against existing detected horizontal planes only.
-                // `.existingPlaneGeometry` ensures we hit a confirmed plane,
-                // not an estimated one — important during verification.
-                guard let query = arView.makeRaycastQuery(
-                    from: point,
-                    allowing: .existingPlaneGeometry,
-                    alignment: .horizontal
-                ),
-                let result = arView.session.raycast(query).first
-                else {
-                    logger.log(.raycastMiss, "no horizontal plane under tap")
+                // B41: prefer LiDAR mesh, then plane geometry, then
+                // estimated plane. Same priority chain as the
+                // crosshair raycast so tap-to-place and Place-button
+                // give identical results.
+                let tapTargets: [ARRaycastQuery.Target] = [
+                    .existingMeshGeometry,
+                    .existingPlaneGeometry,
+                    .estimatedPlane,
+                ]
+                var raycastResult: ARRaycastResult?
+                for target in tapTargets {
+                    if let query = arView.makeRaycastQuery(
+                            from: point,
+                            allowing: target,
+                            alignment: .horizontal),
+                       let r = arView.session.raycast(query).first {
+                        raycastResult = r
+                        break
+                    }
+                }
+                guard let result = raycastResult else {
+                    logger.log(.raycastMiss, "no horizontal surface under tap")
                     // Route the rejected-tap feedback to the parent
                     // view's transientHint overlay (C2). The previous
                     // path wrote to trackingState directly and was

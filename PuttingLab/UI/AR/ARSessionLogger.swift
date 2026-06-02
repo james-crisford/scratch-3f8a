@@ -187,6 +187,10 @@ final class ARSessionLogger {
             case planeClassification
             case recordingStateChanged
             case lightEstimate
+            case meshAdded
+            case meshUpdated
+            case meshRemoved
+            case meshStats
         }
     }
 }
