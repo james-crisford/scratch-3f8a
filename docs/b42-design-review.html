@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>PuttingLab B42 — Design Review</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #0a0d12;
+    color: #e5e9ee;
+    font-family: -apple-system, "SF Pro Display", Inter, system-ui, sans-serif;
+    padding: 32px;
+    line-height: 1.5;
+  }
+  h1 { font-size: 28px; margin-bottom: 6px; letter-spacing: -0.5px; }
+  h2 { font-size: 18px; margin: 32px 0 14px; color: #c8d0db; letter-spacing: -0.2px; }
+  .sub { color: #8a93a3; font-size: 14px; margin-bottom: 28px; }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+    margin-bottom: 12px;
+  }
+  .grid.two { grid-template-columns: repeat(2, 1fr); }
+  .tile {
+    background: #141a23;
+    border: 1px solid #1f2733;
+    border-radius: 14px;
+    padding: 16px;
+  }
+  .tile h3 {
+    font-size: 11px;
+    color: #a3acba;
+    margin-bottom: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+  }
+  canvas {
+    display: block;
+    width: 100%;
+    height: 320px;
+    border-radius: 10px;
+    background: #d6cdb7;
+  }
+  canvas.tall { height: 420px; }
+  .caption {
+    margin-top: 10px;
+    font-size: 12.5px;
+    color: #8a93a3;
+  }
+</style>
+</head>
+<body>
+
+<h1>PuttingLab B42 — Hole + Ball Design Review</h1>
+<div class="sub">
+  Locked B40 geometry rendered in Three.js so you can sanity-check the
+  design before installing build 43. These are the EXACT dimensions
+  and materials the app uses — anything you see here is what your
+  iPhone 13 Pro Max will render under indoor light.
+</div>
+
+<h2>The Hole — six angles</h2>
+<div class="grid">
+  <div class="tile"><h3>1. Top-down</h3><canvas id="h1"></canvas>
+    <div class="caption">Bird's eye. White rim halo + dark cup interior + flagstick centre.</div></div>
+  <div class="tile"><h3>2. Putting stance (30°)</h3><canvas id="h2"></canvas>
+    <div class="caption">Camera at iPhone-aim angle. Depth into the cup should read.</div></div>
+  <div class="tile"><h3>3. Close-up (15°)</h3><canvas id="h3"></canvas>
+    <div class="caption">Inspecting the cup. Wall gradient sells depth.</div></div>
+  <div class="tile"><h3>4. Side profile (5°)</h3><canvas id="h4"></canvas>
+    <div class="caption">Almost flat to the floor. Rim reads as a flush disc.</div></div>
+  <div class="tile"><h3>5. Diagonal walk-by (40°)</h3><canvas id="h5"></canvas>
+    <div class="caption">Off-axis view. Flag visibility check.</div></div>
+  <div class="tile"><h3>6. Wide putt-view</h3><canvas id="h6"></canvas>
+    <div class="caption">Standard putting POV. Ball foreground, hole + flag in distance.</div></div>
+</div>
+
+<h2>The Ball — three angles</h2>
+<div class="grid">
+  <div class="tile"><h3>1. Front close-up</h3><canvas id="b1"></canvas>
+    <div class="caption">4.27 cm regulation. Smooth white UnlitMaterial. Resting on floor.</div></div>
+  <div class="tile"><h3>2. Top-down</h3><canvas id="b2"></canvas>
+    <div class="caption">Pure white disc. Shadow grounds it on the floor.</div></div>
+  <div class="tile"><h3>3. Side</h3><canvas id="b3"></canvas>
+    <div class="caption">Profile view. No dimples — current spec is a smooth sphere.</div></div>
+</div>
+
+<h2>Aim line — ball to hole at 1.49 m</h2>
+<div class="grid two">
+  <div class="tile"><h3>From behind the ball</h3><canvas id="a1" class="tall"></canvas>
+    <div class="caption">Yellow translucent box, 12 mm thick. Straight line from ball centre to cup centre.</div></div>
+  <div class="tile"><h3>From above</h3><canvas id="a2" class="tall"></canvas>
+    <div class="caption">Bird's-eye showing the full ball / aim-line / cup composition.</div></div>
+</div>
+
+<script type="importmap">
+{ "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js" } }
+</script>
+<script type="module">
+import * as THREE from 'three';
+
+const BALL_DIA = 0.0427;
+const HOLE_DIA = 0.10795;
+const HOLE_DEPTH = 0.08;
+const RIM_OUTER = HOLE_DIA * 1.20;
+const POLE_DIA = 0.015;
+const POLE_HEIGHT = 0.70;
+const FLAG_W = 0.15;
+const FLAG_H = 0.10;
+const AIM_LINE_THICKNESS = 0.006;
+
+function makeFloorTex() {
+  const c = document.createElement('canvas');
+  c.width = 512; c.height = 512;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#d6cdb7'; ctx.fillRect(0,0,512,512);
+  ctx.strokeStyle = 'rgba(140,120,90,0.35)';
+  ctx.lineWidth = 1;
+  for (let y = 0; y < 512; y += 28) { ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(512,y); ctx.stroke(); }
+  for (let i = 0; i < 800; i++) {
+    ctx.fillStyle = `rgba(0,0,0,${Math.random()*0.06})`;
+    ctx.fillRect(Math.random()*512, Math.random()*512, 1.5, 1.5);
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = THREE.RepeatWrapping; t.wrapT = THREE.RepeatWrapping;
+  t.repeat.set(4,4);
+  return t;
+}
+
+function makeWallTex() {
+  const c = document.createElement('canvas');
+  c.width = 4; c.height = 256;
+  const ctx = c.getContext('2d');
+  const grad = ctx.createLinearGradient(0,0,0,256);
+  grad.addColorStop(0, '#ffffff');
+  grad.addColorStop(0.35, '#e8e8e8');
+  grad.addColorStop(0.7, '#7a7470');
+  grad.addColorStop(1, '#2a2420');
+  ctx.fillStyle = grad; ctx.fillRect(0,0,4,256);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
+function buildHole(scene) {
+  // Rim
+  const rim = new THREE.Mesh(
+    new THREE.CircleGeometry(RIM_OUTER/2, 64).rotateX(-Math.PI/2),
+    new THREE.MeshBasicMaterial({ color: 0xffffff })
+  );
+  rim.position.y = 0.0005;
+  scene.add(rim);
+  // Wall
+  const wallGeo = new THREE.CylinderGeometry(HOLE_DIA/2, HOLE_DIA/2, HOLE_DEPTH, 64, 1, true);
+  const wall = new THREE.Mesh(wallGeo,
+    new THREE.MeshBasicMaterial({ map: makeWallTex(), side: THREE.DoubleSide })
+  );
+  wall.position.y = -HOLE_DEPTH/2;
+  scene.add(wall);
+  // AO ring
+  const ao = new THREE.Mesh(
+    new THREE.RingGeometry(HOLE_DIA/2*0.97, HOLE_DIA/2, 64).rotateX(-Math.PI/2),
+    new THREE.MeshBasicMaterial({ color: 0, transparent: true, opacity: 0.55, side: THREE.DoubleSide })
+  );
+  ao.position.y = 0.0008;
+  scene.add(ao);
+  // Bottom
+  const bottom = new THREE.Mesh(
+    new THREE.CircleGeometry(HOLE_DIA/2*0.95, 64).rotateX(-Math.PI/2),
+    new THREE.MeshBasicMaterial({ color: 0x0d0a07 })
+  );
+  bottom.position.y = -HOLE_DEPTH + 0.001;
+  scene.add(bottom);
+  // Flagstick
+  const pole = new THREE.Mesh(
+    new THREE.CylinderGeometry(POLE_DIA/2, POLE_DIA/2, POLE_HEIGHT, 16),
+    new THREE.MeshBasicMaterial({ color: 0xffffff })
+  );
+  pole.position.y = POLE_HEIGHT/2;
+  scene.add(pole);
+  // Triangle flag
+  const flagGeo = new THREE.BufferGeometry();
+  const v = new Float32Array([
+    POLE_DIA/2, 0, 0,
+    POLE_DIA/2, FLAG_H, 0,
+    POLE_DIA/2 + FLAG_W, FLAG_H/2, 0
+  ]);
+  flagGeo.setAttribute('position', new THREE.BufferAttribute(v, 3));
+  flagGeo.setIndex([0,2,1,0,1,2]);
+  flagGeo.computeVertexNormals();
+  const flag = new THREE.Mesh(flagGeo,
+    new THREE.MeshBasicMaterial({ color: 0xd61a1a, side: THREE.DoubleSide })
+  );
+  flag.position.y = POLE_HEIGHT - FLAG_H - 0.02;
+  scene.add(flag);
+}
+
+function buildBall(scene, x, z) {
+  const ball = new THREE.Mesh(
+    new THREE.SphereGeometry(BALL_DIA/2, 32, 32),
+    new THREE.MeshBasicMaterial({ color: 0xffffff })
+  );
+  ball.position.set(x, BALL_DIA/2, z);
+  scene.add(ball);
+  // Soft shadow
+  const shadow = new THREE.Mesh(
+    new THREE.CircleGeometry(BALL_DIA*0.55, 24).rotateX(-Math.PI/2),
+    new THREE.MeshBasicMaterial({ color: 0, transparent: true, opacity: 0.3 })
+  );
+  shadow.position.set(x, 0.001, z);
+  scene.add(shadow);
+}
+
+function buildAimLine(scene, ballX, ballZ, holeX, holeZ) {
+  const dx = holeX - ballX;
+  const dz = holeZ - ballZ;
+  const length = Math.sqrt(dx*dx + dz*dz);
+  const midX = (ballX + holeX) / 2;
+  const midZ = (ballZ + holeZ) / 2;
+  const angle = Math.atan2(dz, dx);
+  const side = AIM_LINE_THICKNESS * 2;
+  const line = new THREE.Mesh(
+    new THREE.BoxGeometry(length, side, side),
+    new THREE.MeshBasicMaterial({ color: 0xfff050, transparent: true, opacity: 0.75 })
+  );
+  line.position.set(midX, side/2, midZ);
+  line.rotation.y = -angle;  // rotate around Y so X-axis aligns ball→hole
+  scene.add(line);
+}
+
+function buildFloor(scene) {
+  const floor = new THREE.Mesh(
+    new THREE.PlaneGeometry(10,10).rotateX(-Math.PI/2),
+    new THREE.MeshStandardMaterial({ map: makeFloorTex(), roughness: 0.85 })
+  );
+  scene.add(floor);
+}
+
+function render(canvasId, cameraPos, lookAt, mode) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+  const w = canvas.clientWidth, h = canvas.clientHeight;
+  canvas.width = w*2; canvas.height = h*2;
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
+  renderer.setSize(w, h, false);
+  renderer.setPixelRatio(2);
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0xb0a890);
+  scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+  const key = new THREE.DirectionalLight(0xffffff, 0.7);
+  key.position.set(1,2,0.5); scene.add(key);
+  const fill = new THREE.DirectionalLight(0xffffff, 0.3);
+  fill.position.set(-1,1,-0.5); scene.add(fill);
+
+  buildFloor(scene);
+
+  if (mode === 'hole') {
+    buildHole(scene);
+  } else if (mode === 'ball') {
+    buildBall(scene, 0, 0);
+  } else if (mode === 'composition') {
+    buildHole(scene);
+    buildBall(scene, 0, 1.49);
+    buildAimLine(scene, 0, 1.49, 0, 0);
+  }
+
+  const cam = new THREE.PerspectiveCamera(50, w/h, 0.005, 50);
+  cam.position.set(cameraPos.x, cameraPos.y, cameraPos.z);
+  cam.lookAt(lookAt.x, lookAt.y, lookAt.z);
+  renderer.render(scene, cam);
+}
+
+window.addEventListener('load', () => {
+  // Hole views
+  render('h1', {x:0,y:0.18,z:0.001}, {x:0,y:0,z:0}, 'hole');
+  render('h2', {x:0,y:0.30,z:0.28}, {x:0,y:0.12,z:0}, 'hole');
+  render('h3', {x:0,y:0.10,z:0.20}, {x:0,y:-0.02,z:0}, 'hole');
+  render('h4', {x:0,y:0.05,z:0.25}, {x:0,y:0.25,z:0}, 'hole');
+  render('h5', {x:0.22,y:0.28,z:0.22}, {x:0,y:0.05,z:0}, 'hole');
+  render('h6', {x:0,y:0.30,z:1.85}, {x:0,y:0.15,z:0}, 'composition');
+
+  // Ball views
+  render('b1', {x:0,y:0.03,z:0.10}, {x:0,y:BALL_DIA/2,z:0}, 'ball');
+  render('b2', {x:0,y:0.10,z:0.001}, {x:0,y:0,z:0}, 'ball');
+  render('b3', {x:0.08,y:0.03,z:0.02}, {x:0,y:BALL_DIA/2,z:0}, 'ball');
+
+  // Aim line composition
+  render('a1', {x:0,y:0.15,z:1.85}, {x:0,y:0.10,z:0.5}, 'composition');
+  render('a2', {x:0,y:1.3,z:0.7}, {x:0,y:0,z:0.7}, 'composition');
+});
+</script>
+
+</body>
+</html>
