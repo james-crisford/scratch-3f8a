@@ -128,6 +128,9 @@ struct ARPlacementView: View {
     /// interpolates the background between green ↔ default on
     /// every change.
     @State private var activeMarkerPulse: String? = nil
+    /// B45 — once-per-session flag so the "scan more of the floor"
+    /// transient hint doesn't re-fire every 0.5 s tick.
+    @State private var scanMoreHintShown: Bool = false
 
     /// The scene-graph "controller" we expose to the UIViewRepresentable.
     /// Lives as a single instance bound to the view so tap callbacks +
@@ -318,6 +321,25 @@ struct ARPlacementView: View {
             // Live mesh HUD row + crosshair adaptive opacity.
             lidarHUD = scene.meshSummary()
             raycastConfident = scene.raycastScreenCenter() != nil
+
+            // B45 — "scan more of the floor" hint. After 5s, if LiDAR
+            // is active but we still have < 2 m² of floor mapped,
+            // surface a transient suggesting the user keep panning.
+            // Suppressed if the user already has a placement in
+            // progress (don't interrupt mid-flow).
+            if let firstStillAt,
+               Date().timeIntervalSince(firstStillAt) > 5.0,
+               !scanMoreHintShown,
+               scene.meshAnchorCount() > 0,
+               scene.lidarFloorAreaM2() > 0,
+               scene.lidarFloorAreaM2() < 2.0,
+               case .waitingForPlane = placementState {
+                scanMoreHintShown = true
+                showTransientHint("Slowly pan around — more floor → better tracking")
+                logger.log(.note,
+                           "B45 scan-more hint shown",
+                           payload: ["floor_area_m2": String(format: "%.2f", scene.lidarFloorAreaM2())])
+            }
         }
         .sheet(isPresented: $showShareSheet) {
             ARLogShareSheet(urls: shareSheetURLs)
@@ -1442,22 +1464,114 @@ final class ARPlacementScene {
 
         let radius = Self.ballDiameter / 2
         let mesh = MeshResource.generateSphere(radius: radius)
-        let material = UnlitMaterial(color: .white)
+
+        // B45 dimpled tour ball — Gemini-validated 10/10 in mockup v5.
+        // PhysicallyBasedMaterial with polyurethane clearcoat sheen +
+        // procedural concave dimple normal map. Requires
+        // environmentTexturing = .automatic + AREnvironmentProbeAnchor
+        // (both wired in makeUIView); without those the PBR shading is
+        // flat and the dimples won't read.
+        var material = PhysicallyBasedMaterial()
+        material.baseColor = .init(tint: UIColor(red: 0.997, green: 0.997,
+                                                  blue: 1.0, alpha: 1.0))
+        material.roughness = .init(floatLiteral: 0.25)
+        material.metallic = .init(floatLiteral: 0.0)
+        material.clearcoat = .init(floatLiteral: 0.55)
+        material.clearcoatRoughness = .init(floatLiteral: 0.15)
+        if let dimpleMap = Self.makeDimpleNormalTexture(),
+           let resource = try? TextureResource.generate(from: dimpleMap,
+                                                         options: .init(semantic: .normal)) {
+            material.normal = .init(texture: .init(resource))
+        }
+
         let model = ModelEntity(mesh: mesh, materials: [material])
-        // Lift the sphere by its radius so it sits ON the plane, not into it.
+        // Lift the sphere by its radius so it sits ON the plane.
         model.position = SIMD3<Float>(0, radius, 0)
+        // Tilt the ball ~32° about X so the SphereGeometry UV pole
+        // singularity isn't facing typical camera angles — hides the
+        // dimple-pattern pinching. Gemini's v3 → v5 iteration showed
+        // this lifted the mockup score from 9.5 → 10.
+        model.orientation = simd_quatf(angle: -.pi * 0.18,
+                                        axis: SIMD3<Float>(1, 0, 0))
 
         let anchor = AnchorEntity(world: worldPosition)
         anchor.addChild(model)
         arView.scene.addAnchor(anchor)
         ballAnchor = anchor
-        ballWorldPosition = worldPosition  // cache for the aim-line draw
+        ballWorldPosition = worldPosition
 
-        logger?.log(.materialApplied, "ball material applied",
+        logger?.log(.materialApplied, "B45 ball material applied",
                     payload: ["entity": "ball",
-                              "material": "UnlitMaterial",
-                              "color": "white",
+                              "design": "b45_dimpled_tour_ball",
+                              "material": "PhysicallyBasedMaterial",
+                              "clearcoat": "0.55",
+                              "roughness": "0.25",
+                              "metallic": "0.0",
+                              "normal_map": "procedural_dimples_32x32",
                               "radius_m": String(format: "%.4f", radius)])
+    }
+
+    /// Build a procedural dimple normal-map texture for the tour
+    /// ball's surface detail. 1024×1024 canvas, 32×32 staggered grid
+    /// (≈ regulation 336-pattern density). Each dimple is a concave
+    /// bowl with normals pointing radially outward at the rim and
+    /// flat at the centre — catches light realistically rather than
+    /// reading as flat painted dots (Gemini's v1 → v2 fix).
+    private static func makeDimpleNormalTexture() -> CGImage? {
+        let size = 1024
+        let bytesPerRow = size * 4
+        guard let cs = CGColorSpace(name: CGColorSpace.sRGB),
+              let context = CGContext(
+                data: nil, width: size, height: size,
+                bitsPerComponent: 8, bytesPerRow: bytesPerRow,
+                space: cs,
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+              ) else { return nil }
+
+        // Neutral normal background = "no tilt, +Z out of surface".
+        context.setFillColor(UIColor(red: 0.5, green: 0.5,
+                                      blue: 1.0, alpha: 1.0).cgColor)
+        context.fill(CGRect(x: 0, y: 0, width: size, height: size))
+
+        let cols = 32
+        let rows = 32
+        let cellW = CGFloat(size) / CGFloat(cols)
+        let dimpleR = cellW / 2 * 0.85
+        let steps = 16
+
+        for row in 0..<rows {
+            let xOff: CGFloat = (row % 2 == 0) ? 0 : cellW / 2
+            for col in 0..<cols {
+                let cx = (CGFloat(col) + 0.5) * cellW + xOff
+                let cy = (CGFloat(row) + 0.5) * cellW
+                // Concentric rings rim → centre. Outer rim has the
+                // steepest tilt outward; the centre is flat. This
+                // mimics a real dimple's concave bowl shape.
+                for i in 0..<steps {
+                    let ringR = dimpleR * (1.0 - CGFloat(i) / CGFloat(steps))
+                    let slopeT = CGFloat(i) / CGFloat(steps)
+                    let tilt = (1.0 - slopeT) * 0.43
+                    var angle: CGFloat = 0
+                    while angle < .pi * 2 {
+                        let dx = cos(angle)
+                        let dy = sin(angle)
+                        let px = cx + dx * ringR
+                        let py = cy + dy * ringR
+                        context.setFillColor(UIColor(
+                            red: 0.5 + dx * tilt,
+                            green: 0.5 + dy * tilt,
+                            blue: 0.78,
+                            alpha: 1.0
+                        ).cgColor)
+                        context.fillEllipse(in: CGRect(
+                            x: px - 3, y: py - 3,
+                            width: 6, height: 6))
+                        angle += .pi / 12
+                    }
+                }
+            }
+        }
+        return context.makeImage()
     }
 
     /// Place the hole at a world-frame position. Replaces any prior hole.
@@ -1919,6 +2033,13 @@ final class ARPlacementScene {
         meshManager?.anchorCount ?? 0
     }
 
+    /// B45 — total floor area scanned by LiDAR, in m². Used by the
+    /// "scan more of the floor" hint in the View when the area is
+    /// still small after 5 s of session time.
+    func lidarFloorAreaM2() -> Double {
+        meshManager?.floorAreaM2 ?? 0
+    }
+
     /// One-line HUD summary of the LiDAR mesh state for the
     /// expanded HUD row. Returns "—" when LiDAR is inactive.
     func meshSummary() -> String {
@@ -1964,7 +2085,16 @@ private struct ARPlacementSceneRepresentable: UIViewRepresentable {
                             automaticallyConfigureSession: false)
         let config = ARWorldTrackingConfiguration()
         config.planeDetection = [.horizontal]
-        config.environmentTexturing = .none
+
+        // B45 — environment texturing + light estimation. Gemini
+        // audit of CAC00F-style B44 recording 52C831 scored the
+        // hole 3/10 because PhysicallyBasedMaterial declarations
+        // weren't being lit — root cause was environmentTexturing
+        // = .none. With .automatic, ARKit continuously captures
+        // the room as an IBL probe, so PBR metallics reflect
+        // properly and lit white walls darken on the shadow side.
+        config.environmentTexturing = .automatic
+        config.isLightEstimationEnabled = true   // explicit (default is true, but be sure)
 
         // B41 — LiDAR mesh as primary surface tracker.
         // `.meshWithClassification` gives a real triangle mesh of
@@ -1979,7 +2109,22 @@ private struct ARPlacementSceneRepresentable: UIViewRepresentable {
         if ARWorldTrackingConfiguration.supportsSceneReconstruction(.meshWithClassification) {
             config.sceneReconstruction = .meshWithClassification
             context.coordinator.lidarActive = true
-            logger.log(.note, "LiDAR scene reconstruction enabled (meshWithClassification)")
+            // B45 — also enable per-pixel depth semantics on LiDAR
+            // devices. Tighter raycast accuracy at object edges +
+            // better depth occlusion. Was previously only on the
+            // non-LiDAR fallback path.
+            var semantics: ARConfiguration.FrameSemantics = []
+            if ARWorldTrackingConfiguration.supportsFrameSemantics(.sceneDepth) {
+                semantics.insert(.sceneDepth)
+            }
+            if ARWorldTrackingConfiguration.supportsFrameSemantics(.smoothedSceneDepth) {
+                semantics.insert(.smoothedSceneDepth)
+            }
+            if !semantics.isEmpty {
+                config.frameSemantics = semantics
+            }
+            logger.log(.note,
+                       "LiDAR scene reconstruction enabled (meshWithClassification, depth semantics)")
         } else if ARWorldTrackingConfiguration.supportsSceneReconstruction(.mesh) {
             // Older LiDAR-equipped devices that don't support the
             // classification variant — we still get raw mesh.
@@ -1998,6 +2143,22 @@ private struct ARPlacementSceneRepresentable: UIViewRepresentable {
         arView.session.delegateQueue = .main
         arView.session.delegate = context.coordinator
         arView.session.run(config, options: [])
+
+        // B45 — drop an `AREnvironmentProbeAnchor` at world origin
+        // covering a 4 m³ region. RealityKit's PBR shader queries
+        // this anchor for the local lighting environment when
+        // shading metallic / clearcoat materials. Without it, even
+        // with environmentTexturing = .automatic, materials at
+        // placement positions get a generic ambient. Probe is
+        // re-centred at session start; subsequent placements
+        // automatically use it because it covers the whole scan
+        // volume.
+        let probe = AREnvironmentProbeAnchor(
+            transform: matrix_identity_float4x4,
+            extent: SIMD3<Float>(4, 4, 4)
+        )
+        arView.session.add(anchor: probe)
+        logger.log(.note, "B45 environment probe anchor added (4m³)")
         // No `debugOptions = .showAnchorGeometry` here — that solid green
         // wireframe overlay was confusing during Slice 1 testing ("paints
         // the whole room green"). Instead we add our own translucent
