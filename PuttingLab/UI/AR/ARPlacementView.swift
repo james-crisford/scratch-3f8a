@@ -1392,13 +1392,17 @@ final class ARPlacementScene {
         guard let arView else { return nil }
         let center = CGPoint(x: arView.bounds.midX, y: arView.bounds.midY)
 
-        // B41: prefer the LiDAR mesh when available — placements snap
-        // to the actual scanned floor, not an inferred rectangular
-        // plane. Fall back to plane geometry, then to .estimatedPlane
-        // for the first 5 s of any session before either has
-        // populated.
+        // B41: LiDAR scene reconstruction makes the underlying
+        // plane-detection significantly more accurate (ARKit uses
+        // LiDAR depth to fit plane geometry tightly to the real
+        // surface), so we still raycast against planes — there is
+        // no `.existingMeshGeometry` target in ARRaycastQuery
+        // (mesh hits would require an arView.scene.raycast with
+        // sceneUnderstanding collision shapes, which is heavier).
+        // Plane + estimated-plane fallback delivers the placement
+        // accuracy improvement; the headline B41 visual win is the
+        // mesh-based green overlay following the actual floor.
         let priorities: [ARRaycastQuery.Target] = [
-            .existingMeshGeometry,
             .existingPlaneGeometry,
             .estimatedPlane,
         ]
@@ -2017,12 +2021,13 @@ private struct ARPlacementSceneRepresentable: UIViewRepresentable {
                 let point = recognizer.location(in: arView)
                 logger.log(.tap, "screen \(String(format: "(%.0f, %.0f)", point.x, point.y))")
 
-                // B41: prefer LiDAR mesh, then plane geometry, then
-                // estimated plane. Same priority chain as the
-                // crosshair raycast so tap-to-place and Place-button
-                // give identical results.
+                // B41: plane + estimated-plane fallback. ARKit's
+                // plane geometry is significantly tighter on LiDAR
+                // devices because the LiDAR depth fits the plane
+                // to the real surface; `.existingMeshGeometry`
+                // isn't a real raycast target (mesh hits go via
+                // arView.scene.raycast, not ARSession.raycast).
                 let tapTargets: [ARRaycastQuery.Target] = [
-                    .existingMeshGeometry,
                     .existingPlaneGeometry,
                     .estimatedPlane,
                 ]
