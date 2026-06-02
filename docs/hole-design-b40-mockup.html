@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>PuttingLab B40 Hole Design — Mockup</title>
+<style>
+  :root {
+    --floor: #d6cdb7;
+    --floor-shadow: #aea58e;
+    --cup-rim: #ffffff;
+    --cup-wall: #f4f4f4;
+    --cup-bottom: #1a1612;
+    --cup-bottom-edge: #0e0b09;
+    --pole: #ffffff;
+    --pole-shadow: #c8c8c8;
+    --flag: #d61a1a;
+    --flag-shadow: #9b1212;
+    --bg: #0b0f14;
+    --panel: #131921;
+    --label: #ffffff;
+    --muted: #8a93a3;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 32px;
+    background: var(--bg);
+    color: var(--label);
+    font-family: -apple-system, "SF Pro Display", "SF Pro Text", Inter, Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  h1 { font-size: 28px; margin: 0 0 4px; letter-spacing: -0.5px; }
+  h2 { font-size: 14px; margin: 0 0 12px; color: var(--muted); font-weight: 500; letter-spacing: 0.3px; text-transform: uppercase; }
+  p.lead { color: var(--muted); max-width: 800px; margin: 0 0 32px; line-height: 1.55; font-size: 15px; }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 24px;
+    margin-bottom: 32px;
+  }
+  .panel {
+    background: var(--panel);
+    border-radius: 16px;
+    padding: 20px;
+    border: 1px solid #1f2733;
+  }
+  .stage {
+    width: 100%; height: 320px;
+    border-radius: 12px;
+    background:
+      radial-gradient(ellipse 60% 50% at 50% 60%, var(--floor) 0%, var(--floor-shadow) 100%);
+    position: relative;
+    overflow: hidden;
+  }
+  .stage svg { width: 100%; height: 100%; display: block; }
+  .caption { margin-top: 12px; font-size: 13px; color: var(--muted); line-height: 1.4; }
+  .caption strong { color: var(--label); font-weight: 600; }
+  .legend {
+    background: var(--panel);
+    border-radius: 16px;
+    padding: 24px;
+    border: 1px solid #1f2733;
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 24px;
+    margin-bottom: 24px;
+  }
+  .legend section h3 { font-size: 14px; margin: 0 0 12px; color: var(--label); }
+  .legend ul { margin: 0; padding-left: 20px; color: var(--muted); font-size: 13.5px; line-height: 1.65; }
+  .legend ul li b { color: var(--label); font-weight: 600; }
+  .swatches { display: flex; gap: 12px; margin-top: 12px; flex-wrap: wrap; }
+  .swatch { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--muted); }
+  .swatch i { width: 18px; height: 18px; border-radius: 4px; display: inline-block; border: 1px solid rgba(255,255,255,0.1); }
+</style>
+</head>
+<body>
+
+<h1>PuttingLab B40 — Hole Design Mockup</h1>
+<p class="lead">
+  Three views of the proposed B40 hole render based on Gemini's CAC00F findings. The defining
+  change vs B39: the cup is now a <strong>real 3D recess</strong> (cylindrical wall going 8 cm
+  into the floor with a dark bottom), and all white parts use <strong>UnlitMaterial</strong>
+  so they render visibly white regardless of ARKit's lighting estimation. Triangle flag
+  replaces the rigid 2D rectangle.
+</p>
+
+<div class="grid">
+
+  <!-- TOP DOWN -->
+  <div class="panel">
+    <h2>View 1 — Top-Down</h2>
+    <div class="stage">
+      <svg viewBox="0 0 320 320" preserveAspectRatio="xMidYMid meet">
+        <!-- Floor texture grain (subtle horizontal lines) -->
+        <defs>
+          <pattern id="wood" patternUnits="userSpaceOnUse" width="100" height="14">
+            <rect width="100" height="14" fill="#d6cdb7"/>
+            <line x1="0" y1="7" x2="100" y2="7" stroke="#bcb097" stroke-width="0.5"/>
+          </pattern>
+          <radialGradient id="bottomGrad" cx="0.5" cy="0.5" r="0.5">
+            <stop offset="0%" stop-color="#1a1612"/>
+            <stop offset="100%" stop-color="#080604"/>
+          </radialGradient>
+          <radialGradient id="rimGloss" cx="0.5" cy="0.4" r="0.5">
+            <stop offset="0%" stop-color="#ffffff"/>
+            <stop offset="100%" stop-color="#f0f0f0"/>
+          </radialGradient>
+        </defs>
+        <rect width="320" height="320" fill="url(#wood)"/>
+        <!-- White outer rim (the halo) -->
+        <circle cx="160" cy="160" r="86" fill="url(#rimGloss)"/>
+        <!-- Faint rim outline -->
+        <circle cx="160" cy="160" r="86" fill="none" stroke="rgba(0,0,0,0.06)" stroke-width="1"/>
+        <!-- Cup opening (looking straight down — pure dark interior) -->
+        <circle cx="160" cy="160" r="72" fill="url(#bottomGrad)"/>
+        <!-- Subtle rim ambient occlusion just inside the opening -->
+        <circle cx="160" cy="160" r="72" fill="none" stroke="rgba(0,0,0,0.4)" stroke-width="2"/>
+        <!-- Flagstick base (tiny dot at centre — we're looking straight down) -->
+        <circle cx="160" cy="160" r="6" fill="#ffffff"/>
+        <circle cx="160" cy="160" r="6" fill="none" stroke="rgba(0,0,0,0.15)" stroke-width="1"/>
+        <!-- Flag (red triangle, projected as a thin sliver +X) -->
+        <polygon points="166,160 200,160 183,160" fill="#d61a1a" opacity="0.0"/>
+      </svg>
+    </div>
+    <div class="caption">
+      Pure top-down. Reads as a <strong>regulation white-rimmed cup</strong> with a dark
+      shadowed interior. The 12.9 cm white halo (UnlitMaterial) is unambiguous against the
+      wood floor. Flagstick is the small white dot at centre. Flag is foreshortened to a
+      sliver.
+    </div>
+  </div>
+
+  <!-- 35-DEGREE ANGLE -->
+  <div class="panel">
+    <h2>View 2 — 35° Camera Angle</h2>
+    <div class="stage">
+      <svg viewBox="0 0 320 320" preserveAspectRatio="xMidYMid meet">
+        <defs>
+          <pattern id="wood2" patternUnits="userSpaceOnUse" width="100" height="14">
+            <rect width="100" height="14" fill="#d6cdb7"/>
+            <line x1="0" y1="7" x2="100" y2="7" stroke="#bcb097" stroke-width="0.5"/>
+          </pattern>
+          <linearGradient id="floorPersp" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#bcb097"/>
+            <stop offset="100%" stop-color="#d6cdb7"/>
+          </linearGradient>
+          <radialGradient id="cupInterior" cx="0.5" cy="0.3" r="0.7">
+            <stop offset="0%" stop-color="#f4f4f4"/>
+            <stop offset="55%" stop-color="#bdbdbd"/>
+            <stop offset="100%" stop-color="#1a1612"/>
+          </radialGradient>
+          <linearGradient id="poleGrad" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0%" stop-color="#dadada"/>
+            <stop offset="40%" stop-color="#ffffff"/>
+            <stop offset="100%" stop-color="#c0c0c0"/>
+          </linearGradient>
+          <linearGradient id="flagGrad" x1="0" y1="0" x2="1" y2="0.2">
+            <stop offset="0%" stop-color="#d61a1a"/>
+            <stop offset="100%" stop-color="#a31010"/>
+          </linearGradient>
+        </defs>
+        <rect width="320" height="320" fill="url(#floorPersp)"/>
+        <!-- Floor grain in perspective (slanted lines further away closer together) -->
+        <g opacity="0.4">
+          <line x1="0" y1="220" x2="320" y2="220" stroke="#bcb097" stroke-width="0.6"/>
+          <line x1="0" y1="240" x2="320" y2="240" stroke="#bcb097" stroke-width="0.6"/>
+          <line x1="0" y1="260" x2="320" y2="260" stroke="#bcb097" stroke-width="0.6"/>
+          <line x1="0" y1="278" x2="320" y2="278" stroke="#bcb097" stroke-width="0.6"/>
+          <line x1="0" y1="294" x2="320" y2="294" stroke="#bcb097" stroke-width="0.6"/>
+          <line x1="0" y1="306" x2="320" y2="306" stroke="#bcb097" stroke-width="0.6"/>
+        </g>
+        <!-- White rim (ellipse — viewed at 35°) -->
+        <ellipse cx="160" cy="230" rx="80" ry="32" fill="#ffffff"/>
+        <ellipse cx="160" cy="230" rx="80" ry="32" fill="none" stroke="rgba(0,0,0,0.08)" stroke-width="1"/>
+        <!-- Cup opening (smaller ellipse, deeper) -->
+        <ellipse cx="160" cy="230" rx="66" ry="26" fill="url(#cupInterior)"/>
+        <!-- Wall-into-floor occlusion (the dark crescent at the FAR side) -->
+        <path d="M 96 226 Q 160 252 224 226 Q 220 256 160 264 Q 100 256 96 226 Z"
+              fill="rgba(0,0,0,0.5)"/>
+        <!-- Bottom dark disc (visible through the opening) -->
+        <ellipse cx="160" cy="244" rx="48" ry="14" fill="#0d0a07"/>
+        <!-- Ambient occlusion ring at the rim edge -->
+        <ellipse cx="160" cy="230" rx="66" ry="26" fill="none" stroke="rgba(0,0,0,0.35)" stroke-width="2"/>
+        <!-- Flagstick — 70cm white pole rising from cup centre -->
+        <rect x="156" y="40" width="8" height="195" fill="url(#poleGrad)"/>
+        <!-- Subtle pole shadow casts onto rim -->
+        <rect x="158" y="222" width="4" height="14" fill="rgba(0,0,0,0.4)"/>
+        <!-- TRIANGLE FLAG, pole side -->
+        <polygon points="164,55 164,105 235,80" fill="url(#flagGrad)"/>
+        <polygon points="164,55 164,105 235,80" fill="none" stroke="rgba(0,0,0,0.15)" stroke-width="1"/>
+      </svg>
+    </div>
+    <div class="caption">
+      Typical putting-stance view (~35° down). <strong>Depth into the cup is visible</strong>
+      via the white wall transitioning to dark bottom, plus the AO crescent at the far rim.
+      Triangle flag now reads as a real flag, not a rigid rectangle.
+    </div>
+  </div>
+
+  <!-- CLOSE-UP -->
+  <div class="panel">
+    <h2>View 3 — Close-Up Crop</h2>
+    <div class="stage">
+      <svg viewBox="0 0 320 320" preserveAspectRatio="xMidYMid meet">
+        <defs>
+          <pattern id="wood3" patternUnits="userSpaceOnUse" width="120" height="20">
+            <rect width="120" height="20" fill="#d6cdb7"/>
+            <line x1="0" y1="10" x2="120" y2="10" stroke="#bcb097" stroke-width="0.7"/>
+          </pattern>
+          <radialGradient id="cupCloseUp" cx="0.5" cy="0.2" r="0.85">
+            <stop offset="0%" stop-color="#fafafa"/>
+            <stop offset="35%" stop-color="#e0e0e0"/>
+            <stop offset="65%" stop-color="#6a6664"/>
+            <stop offset="100%" stop-color="#0d0a07"/>
+          </radialGradient>
+        </defs>
+        <rect width="320" height="320" fill="url(#wood3)"/>
+        <!-- Big rim filling 90% of frame -->
+        <ellipse cx="160" cy="200" rx="140" ry="65" fill="#ffffff"/>
+        <ellipse cx="160" cy="200" rx="140" ry="65" fill="none" stroke="rgba(0,0,0,0.07)" stroke-width="1.2"/>
+        <!-- Cup interior (large, shows the wall + transition) -->
+        <ellipse cx="160" cy="205" rx="118" ry="55" fill="url(#cupCloseUp)"/>
+        <!-- Strong AO ring -->
+        <ellipse cx="160" cy="205" rx="118" ry="55" fill="none" stroke="rgba(0,0,0,0.5)" stroke-width="3"/>
+        <!-- Far-side wall shadow -->
+        <path d="M 50 200 Q 160 240 270 200 Q 260 250 160 260 Q 60 250 50 200 Z"
+              fill="rgba(0,0,0,0.4)"/>
+        <!-- Bottom dark patch -->
+        <ellipse cx="160" cy="226" rx="78" ry="22" fill="#0a0805"/>
+        <!-- Flagstick partial -->
+        <rect x="155" y="0" width="10" height="200" fill="#ffffff"/>
+        <rect x="155" y="0" width="10" height="200" fill="none" stroke="rgba(0,0,0,0.08)" stroke-width="0.8"/>
+        <!-- Flagstick base shadow onto rim -->
+        <ellipse cx="160" cy="200" rx="10" ry="4" fill="rgba(0,0,0,0.45)"/>
+      </svg>
+    </div>
+    <div class="caption">
+      Tight crop, looking straight into the cup. The <strong>radial gradient on the wall</strong>
+      (white → mid-gray → dark) sells the depth illusion. RealityKit will do this naturally
+      because the UnlitMaterial wall is recessed 8 cm — the radial fade is real geometry +
+      ambient light, not a baked gradient. Mock-up is showing what the eye will read.
+    </div>
+  </div>
+
+</div>
+
+<div class="legend">
+
+  <section>
+    <h3>What's different from B39</h3>
+    <ul>
+      <li><b>UnlitMaterial</b> on rim + wall + flagstick. White stays white regardless of indoor lighting.</li>
+      <li><b>Cylinder wall</b> instead of 3 stacked planes. Real 8 cm recess → real depth.</li>
+      <li><b>Dark bottom disc</b> at the base of the cylinder is what the eye sees through the opening.</li>
+      <li><b>Triangle flag</b> via MeshDescriptor (both faces) — reads as flag from any angle.</li>
+      <li><b>Plane overlay filter</b>: floors only, ≥ 1 m². Removes Gemini-flagged secondary planes.</li>
+      <li><b>deviceInfo</b> + <b>materialApplied</b> + <b>planeClassification</b> events for future debugging.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h3>Material spec (B40)</h3>
+    <ul>
+      <li><b>Rim disc</b> — UnlitMaterial, RGB(255, 255, 255), 12.9 cm dia, 0.5 mm above plane</li>
+      <li><b>Wall</b> — UnlitMaterial, RGB(255, 255, 255), 10.8 cm dia × 8 cm height, top at plane</li>
+      <li><b>Bottom</b> — SimpleMaterial dark warm gray RGB(25, 20, 15), 10.3 cm dia, at -8 cm</li>
+      <li><b>Flagstick</b> — UnlitMaterial white, 1.5 cm dia × 70 cm tall</li>
+      <li><b>Flag</b> — UnlitMaterial RGB(230, 25, 25), 15 cm × 10 cm right triangle</li>
+    </ul>
+    <div class="swatches">
+      <div class="swatch"><i style="background:#ffffff"></i>White (rim/wall/pole)</div>
+      <div class="swatch"><i style="background:#19140f"></i>Cup bottom</div>
+      <div class="swatch"><i style="background:#d61a1a"></i>Flag</div>
+    </div>
+  </section>
+
+</div>
+
+<div class="legend">
+  <section style="grid-column: span 2;">
+    <h3>If this looks right, we ship B40</h3>
+    <ul>
+      <li>Build dispatched to TestFlight as commit <code>aa1ff63</code>, version 0.4.6 (40).</li>
+      <li>On install, place the hole on a fresh AR session and screen-record. New logger events
+        (<code>deviceInfo</code>, <code>materialApplied</code>, <code>planeClassification</code>)
+        will be in the JSON so Gemini's next pass can verify materials actually applied as spec.</li>
+      <li>If <strong>Gemini scores the hole ≥ 6/10</strong> on the next review (vs 2/10 in CAC00F),
+        the render pillar is closed and we can move to ball-roll physics + stroke feedback.</li>
+    </ul>
+  </section>
+</div>
+
+</body>
+</html>

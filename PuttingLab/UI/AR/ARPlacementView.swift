@@ -207,7 +207,8 @@ struct ARPlacementView: View {
         .onAppear {
             firstStillAt = Date()
             logger.log(.sessionStart, "Slice 2 placement view opened")
-            logDeviceInfo()
+            scene.logger = logger
+            scene.logDeviceInfo()
             // CI / XCUITest hook: simulator never detects a plane, so
             // the Place buttons would otherwise be unreachable. The
             // -uiTestMode launch argument fakes the readyToPlaceBall
@@ -1066,6 +1067,13 @@ struct ARPlacementView: View {
 @MainActor
 final class ARPlacementScene {
     weak var arView: ARView?
+    /// Optional logger reference so scene-side render operations
+    /// (placeBall / placeHole / logDeviceInfo) can emit
+    /// `materialApplied` / `deviceInfo` events. Set by the View
+    /// after the scene is created (the View owns the @State
+    /// logger). Optional + weak so the scene works in test
+    /// contexts where no logger is attached.
+    weak var logger: ARSessionLogger?
     private var ballAnchor: AnchorEntity?
     private var holeAnchor: AnchorEntity?
     private var lineAnchor: AnchorEntity?
@@ -1122,11 +1130,11 @@ final class ARPlacementScene {
         ballAnchor = anchor
         ballWorldPosition = worldPosition  // cache for the aim-line draw
 
-        logger.log(.materialApplied, "ball material applied",
-                   payload: ["entity": "ball",
-                             "material": "UnlitMaterial",
-                             "color": "white",
-                             "radius_m": Double(radius)])
+        logger?.log(.materialApplied, "ball material applied",
+                    payload: ["entity": "ball",
+                              "material": "UnlitMaterial",
+                              "color": "white",
+                              "radius_m": String(format: "%.4f", radius)])
     }
 
     /// Place the hole at a world-frame position. Replaces any prior hole.
@@ -1257,15 +1265,15 @@ final class ARPlacementScene {
         arView.scene.addAnchor(anchor)
         holeAnchor = anchor
 
-        logger.log(.materialApplied, "hole materials applied",
-                   payload: ["entity": "hole",
-                             "rim": "UnlitMaterial.white",
-                             "wall": "UnlitMaterial.white",
-                             "bottom": "SimpleMaterial.dark",
-                             "flagstick": "UnlitMaterial.white",
-                             "flag": "UnlitMaterial.red.triangle",
-                             "depth_m": Double(depth),
-                             "diameter_m": Double(dia)])
+        logger?.log(.materialApplied, "hole materials applied",
+                    payload: ["entity": "hole",
+                              "rim": "UnlitMaterial.white",
+                              "wall": "UnlitMaterial.white",
+                              "bottom": "SimpleMaterial.dark",
+                              "flagstick": "UnlitMaterial.white",
+                              "flag": "UnlitMaterial.red.triangle",
+                              "depth_m": String(format: "%.3f", depth),
+                              "diameter_m": String(format: "%.4f", dia)])
 
         if let ballWorldPosition {
             drawAimLine(from: ballWorldPosition, to: worldPosition)
@@ -1298,7 +1306,7 @@ final class ARPlacementScene {
     /// tailor render fidelity per device. Surfaced by Gemini's
     /// CAC00F review as a logger gap (couldn't identify the iPhone
     /// from the JSON alone).
-    private func logDeviceInfo() {
+    func logDeviceInfo() {
         let device = UIDevice.current
         var hwModel = "unknown"
         var systemInfo = utsname()
@@ -1313,13 +1321,13 @@ final class ARPlacementScene {
         let supportsMesh = ARWorldTrackingConfiguration.supportsSceneReconstruction(.mesh)
         let supportsPersonSegmentation = ARWorldTrackingConfiguration.supportsFrameSemantics(.personSegmentation)
 
-        logger.log(.deviceInfo, "device info",
-                   payload: ["device_model": hwModel,
-                             "device_name": device.name,
-                             "ios_version": device.systemVersion,
-                             "lidar_mesh_supported": supportsMesh,
-                             "person_segmentation_supported": supportsPersonSegmentation,
-                             "user_interface_idiom": device.userInterfaceIdiom == .phone ? "phone" : "other"])
+        logger?.log(.deviceInfo, "device info",
+                    payload: ["device_model": hwModel,
+                              "device_name": device.name,
+                              "ios_version": device.systemVersion,
+                              "lidar_mesh_supported": supportsMesh ? "true" : "false",
+                              "person_segmentation_supported": supportsPersonSegmentation ? "true" : "false",
+                              "user_interface_idiom": device.userInterfaceIdiom == .phone ? "phone" : "other"])
     }
 
     /// Draw a thin box between ball and hole as an aim guide. Was a
@@ -1699,7 +1707,7 @@ private struct ARPlacementSceneRepresentable: UIViewRepresentable {
                            payload: [
                                "id": plane.identifier.uuidString,
                                "classification": "\(classification)",
-                               "area_m2": Double(area),
+                               "area_m2": String(format: "%.3f", area),
                                "alignment": plane.alignment == .horizontal ? "horizontal" : "vertical",
                            ])
             }
