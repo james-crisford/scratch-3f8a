@@ -1097,6 +1097,10 @@ struct ARPlacementView: View {
                                  "ball_y": String(format: "%.4f", ballWorld.y),
                                  "ball_z": String(format: "%.4f", ballWorld.z)])
             placementState = .complete(ball: ballWorld, hole: world)
+            // B46 Slice 3.1: drop foot markers at the address
+            // position behind the ball — shows the user where to
+            // stand for the putt.
+            scene.placeAddressMarkers(ball: ballWorld, hole: world)
         // B42: Move-ball UX — preserved hole stays, new ball drops.
         case .replacingBall(let preservedHole):
             scene.placeBall(at: world)
@@ -1117,6 +1121,7 @@ struct ARPlacementView: View {
             // approach caused.
             scene.refreshAimLine(from: world, to: preservedHole)
             placementState = .complete(ball: world, hole: preservedHole)
+            scene.placeAddressMarkers(ball: world, hole: preservedHole)
         // B42: Move-hole UX — preserved ball stays, new hole drops.
         case .replacingHole(let preservedBall):
             scene.placeHole(at: world)
@@ -1131,6 +1136,7 @@ struct ARPlacementView: View {
                                  "ball_y": String(format: "%.4f", preservedBall.y),
                                  "ball_z": String(format: "%.4f", preservedBall.z)])
             placementState = .complete(ball: preservedBall, hole: world)
+            scene.placeAddressMarkers(ball: preservedBall, hole: world)
         case .complete:
             break
         }
@@ -1382,7 +1388,10 @@ struct ARPlacementView: View {
         case .readyToPlaceHole:
             return "Tap another spot where the hole should be. Aim line will appear."
         case .complete:
-            return "Ball + hole placed. Use Move ball / Move hole to nudge one without wiping the other, or Reset to start fresh."
+            // B46 Slice 3.1: yellow foot markers show stance.
+            // Slice 3.2 will add "Set address" affordance; for now
+            // we just point out the stance markers.
+            return "Stand on the yellow markers — putting setup ready"
         case .replacingBall:
             return "Aim the crosshair at the new ball spot. Hole stays put."
         case .replacingHole:
@@ -1422,6 +1431,12 @@ final class ARPlacementScene {
     private var ballAnchor: AnchorEntity?
     private var holeAnchor: AnchorEntity?
     private var lineAnchor: AnchorEntity?
+    /// B46 (Slice 3.1) — address-pose foot markers. Two
+    /// translucent yellow rectangles rendered on the AR floor
+    /// behind the ball, showing the user where to stand for the
+    /// putt. Hidden when stroke begins (B48 hides via setIsActive
+    /// on the underlying entities).
+    private var addressMarkersAnchor: AnchorEntity?
     /// Cached world-frame position of the placed ball. The ball's
     /// AnchorEntity sits at this position, but reading
     /// `ballAnchor.position(relativeTo: nil)` is fragile if the entity
@@ -1984,6 +1999,108 @@ final class ARPlacementScene {
         holeAnchor = nil
         lineAnchor = nil
         ballWorldPosition = nil
+        clearAddressMarkers()
+    }
+
+    /// B46 (Slice 3.1) — drop the address-pose foot markers.
+    /// Called by Move ball / Move hole / Reset paths so the
+    /// markers don't linger over stale ball/hole coords.
+    func clearAddressMarkers() {
+        addressMarkersAnchor?.removeFromParent()
+        addressMarkersAnchor = nil
+    }
+
+    /// B46 (Slice 3.1) — render two translucent yellow foot
+    /// markers on the AR floor showing the user where to stand
+    /// for the putt. Position computed from the ball + hole
+    /// world coords:
+    ///   * 60 cm behind the ball along the negative aim direction
+    ///   * markers spread 26 cm apart, perpendicular to aim line
+    ///   * 24 cm long × 10 cm wide each
+    ///
+    /// Materials use `PhysicallyBasedMaterial` (matches B45
+    /// `environmentTexturing = .automatic` so they shade with the
+    /// ARKit-estimated ambient light). Markers are visually below
+    /// the floor (lifted 1 mm only) so the user can see they're
+    /// affordances, not physical objects.
+    ///
+    /// Hidden — but the entities stay in the scene graph for the
+    /// future stroke-detection path (B48) to flip via `isEnabled`.
+    func placeAddressMarkers(ball: SIMD3<Float>, hole: SIMD3<Float>) {
+        guard let arView else { return }
+        clearAddressMarkers()
+
+        // Aim direction in the XZ plane (horizontal). If ball and
+        // hole are co-located, skip — no meaningful aim direction.
+        let aimVec = SIMD3<Float>(hole.x - ball.x, 0, hole.z - ball.z)
+        let aimLen = simd_length(aimVec)
+        guard aimLen > 0.01 else { return }
+        let aim = aimVec / aimLen
+        // Perpendicular in the floor plane (rotate 90° about Y).
+        let perp = SIMD3<Float>(-aim.z, 0, aim.x)
+
+        // Marker geometry — 24 cm long × 10 cm wide, 1 mm thick
+        // disc. Lift 1 mm above the floor to avoid z-fighting with
+        // the LiDAR mesh overlay.
+        let footLen: Float = 0.24
+        let footWid: Float = 0.10
+        let footMesh = MeshResource.generatePlane(width: footLen,
+                                                   depth: footWid,
+                                                   cornerRadius: 0.02)
+
+        var footMaterial = PhysicallyBasedMaterial()
+        footMaterial.baseColor = .init(tint: UIColor(red: 1.0,
+                                                       green: 0.92,
+                                                       blue: 0.20,
+                                                       alpha: 0.78))
+        footMaterial.roughness = .init(floatLiteral: 0.7)
+        footMaterial.metallic = .init(floatLiteral: 0.0)
+        footMaterial.blending = .transparent(opacity: .init(floatLiteral: 0.78))
+
+        // Stance position: 60 cm behind the ball along -aim. Foot
+        // markers spread 26 cm apart sideways via ±perp.
+        let stanceCenter = ball - aim * 0.60
+        let footOffset = perp * 0.13   // ±13 cm = 26 cm spread
+
+        // Yaw the foot rectangle so its long axis aligns with the
+        // aim direction (foot points TOWARD the ball).
+        let yaw = atan2(aim.x, aim.z)
+        let footRot = simd_quatf(angle: yaw, axis: SIMD3<Float>(0, 1, 0))
+
+        let anchor = AnchorEntity(world: .zero)
+
+        let leftFoot = ModelEntity(mesh: footMesh, materials: [footMaterial])
+        leftFoot.position = stanceCenter - footOffset
+        leftFoot.position.y = 0.001
+        leftFoot.orientation = footRot
+        anchor.addChild(leftFoot)
+
+        let rightFoot = ModelEntity(mesh: footMesh, materials: [footMaterial])
+        rightFoot.position = stanceCenter + footOffset
+        rightFoot.position.y = 0.001
+        rightFoot.orientation = footRot
+        anchor.addChild(rightFoot)
+
+        arView.scene.addAnchor(anchor)
+        addressMarkersAnchor = anchor
+
+        logger?.log(.materialApplied,
+                    "B46 address markers applied",
+                    payload: ["entity": "address_markers",
+                              "design": "b46_foot_markers",
+                              "material": "PhysicallyBasedMaterial.yellow_translucent",
+                              "stance_x": String(format: "%.4f", stanceCenter.x),
+                              "stance_y": String(format: "%.4f", stanceCenter.y),
+                              "stance_z": String(format: "%.4f", stanceCenter.z),
+                              "aim_yaw_deg": String(format: "%.2f", yaw * 180 / .pi),
+                              "foot_offset_m": "0.13"])
+    }
+
+    /// B46 — toggle address-marker visibility. Called by the
+    /// stroke-detection path in B48 to hide markers during the
+    /// stroke without tearing them down.
+    func setAddressMarkersVisible(_ visible: Bool) {
+        addressMarkersAnchor?.isEnabled = visible
     }
 
     /// B42: drop ONLY the ball entity (Move-ball UX). Leaves the
@@ -1999,6 +2116,7 @@ final class ARPlacementScene {
         ballAnchor = nil
         lineAnchor = nil
         ballWorldPosition = nil
+        clearAddressMarkers()
     }
 
     /// B42: drop ONLY the hole entity (Move-hole UX). The aim
@@ -2011,6 +2129,7 @@ final class ARPlacementScene {
         lineAnchor?.removeFromParent()
         holeAnchor = nil
         lineAnchor = nil
+        clearAddressMarkers()
     }
 
     /// B42 safety net: redraw the aim line between an existing ball
@@ -2798,6 +2917,8 @@ private struct ARPlacementSceneRepresentable: UIViewRepresentable {
                                          "z": String(format: "%.4f", world.z),
                                          "distance_m": String(format: "%.4f", dist)])
                     _placementState.wrappedValue = .complete(ball: ballWorld, hole: world)
+                    // B46 Slice 3.1: drop foot markers behind the ball.
+                    scene.placeAddressMarkers(ball: ballWorld, hole: world)
                     lastPlacementAt = Date()
                 // B42: tap-to-place mirrors the crosshair Move-ball /
                 // Move-hole flow when the user is in a replacing state.
@@ -2815,6 +2936,7 @@ private struct ARPlacementSceneRepresentable: UIViewRepresentable {
                     // materialApplied event).
                     scene.refreshAimLine(from: world, to: preservedHole)
                     _placementState.wrappedValue = .complete(ball: world, hole: preservedHole)
+                    scene.placeAddressMarkers(ball: world, hole: preservedHole)
                     lastPlacementAt = Date()
                 case .replacingHole(let preservedBall):
                     scene.placeHole(at: world)
@@ -2826,6 +2948,7 @@ private struct ARPlacementSceneRepresentable: UIViewRepresentable {
                                          "z": String(format: "%.4f", world.z),
                                          "distance_m": String(format: "%.4f", dist)])
                     _placementState.wrappedValue = .complete(ball: preservedBall, hole: world)
+                    scene.placeAddressMarkers(ball: preservedBall, hole: world)
                     lastPlacementAt = Date()
                 case .complete:
                     logger.log(.note, "tap ignored — placement complete")
