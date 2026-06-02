@@ -44,11 +44,22 @@ final class ARMeshManager {
         let floorVertices: [SIMD3<Float>]
         /// Cumulative classification counts for this anchor.
         let classCounts: [ARMeshClassification: Int]
-        /// Floor-classified triangle area sum, in m².
-        let floorArea: Float
+        /// Floor-classified triangle area sum, in m². B42:
+        /// accumulated as `Double` to avoid Float24-mantissa
+        /// precision loss when summing thousands of sub-cm²
+        /// triangles in a >10 m² room.
+        let floorArea: Double
     }
 
     private var snapshots: [UUID: MeshSnapshot] = [:]
+
+    /// Track which anchors were seen without a populated
+    /// classification buffer so the Coordinator can emit a
+    /// one-shot `.note` per anchor — distinguishes "LiDAR
+    /// silently broken" from "LiDAR mesh detected, classification
+    /// pass not yet completed". Mirrors the
+    /// `loggedClassifications` set used for plane classifications.
+    private var unclassifiedSeen: Set<UUID> = []
 
     /// Number of distinct mesh anchors currently cached.
     var anchorCount: Int { snapshots.count }
@@ -60,8 +71,18 @@ final class ARMeshManager {
     }
 
     /// Total floor area in m² across every cached anchor.
-    var floorAreaM2: Float {
+    /// B42: returns `Double` for full precision; caller can cast
+    /// to `Float` at the JSON-emission boundary if needed.
+    var floorAreaM2: Double {
         snapshots.values.reduce(0) { $0 + $1.floorArea }
+    }
+
+    /// Return true the first time `id` is seen without a
+    /// populated classification buffer — caller emits a one-shot
+    /// `.note` so we can tell "LiDAR broken" from "LiDAR awaiting
+    /// classification" by reading the JSON.
+    func didSeeAnchorWithoutClassification(_ id: UUID) -> Bool {
+        unclassifiedSeen.insert(id).inserted
     }
 
     /// Add or refresh a mesh anchor. Reads the anchor's geometry
@@ -87,6 +108,7 @@ final class ARMeshManager {
     /// Clear everything — used on session reset / interruption.
     func clear() {
         snapshots.removeAll(keepingCapacity: true)
+        unclassifiedSeen.removeAll(keepingCapacity: true)
     }
 
     /// Build a single `MeshResource` covering every floor-classified
@@ -107,24 +129,18 @@ final class ARMeshManager {
         guard positions.count >= 3 else { return nil }
 
         // Generate sequential indices: 0,1,2 / 3,4,5 / 6,7,8 ...
-        // For each triangle, emit front + back (6 indices per
-        // triangle but only 3 positions — the back face just reverses
-        // the winding so the same vertices are reused).
+        // B42: dropped back-face emission. RealityKit back-face
+        // culls by default and the floor is never viewed from
+        // below (it's the floor), so the second triple per
+        // triangle was pure GPU + memory waste. Halved index
+        // count + reserve capacity.
         var indices: [UInt32] = []
-        indices.reserveCapacity(positions.count * 2)
+        indices.reserveCapacity(positions.count)
         var i: UInt32 = 0
         while Int(i) + 3 <= positions.count {
             indices.append(i)
             indices.append(i + 1)
             indices.append(i + 2)
-            // Back face — reverse winding so the same 3 vertices
-            // are visible from the opposite side. RealityKit
-            // back-face culls by default; this lets the overlay
-            // show through if the user looks up at the floor plane
-            // from a near-flush angle.
-            indices.append(i)
-            indices.append(i + 2)
-            indices.append(i + 1)
             i += 3
         }
 
@@ -145,7 +161,7 @@ final class ARMeshManager {
             }
         }
         return [
-            "floor_area_m2": String(format: "%.3f", floorAreaM2),
+            "floor_area_m2": String(format: "%.3f", floorAreaM2),  // Double precision
             "triangle_count_floor": "\(floorTriangleCount)",
             "anchor_count": "\(anchorCount)",
             "lidar_active": lidarActive ? "true" : "false",
@@ -213,7 +229,11 @@ final class ARMeshManager {
         var floorVerts: [SIMD3<Float>] = []
         floorVerts.reserveCapacity(faceCount * 3)
         var classCounts: [ARMeshClassification: Int] = [:]
-        var floorArea: Float = 0
+        // B42: Double accumulator to avoid Float24-mantissa precision
+        // loss when summing thousands of sub-cm² triangles into a
+        // 10+ m² total. Cross-product magnitude is still computed in
+        // Float (the values are tiny) and cast as we add.
+        var floorArea: Double = 0
 
         for f in 0..<faceCount {
             let cls = ARMeshClassification(rawValue: Int(classBytes[f])) ?? .none
@@ -236,10 +256,10 @@ final class ARMeshManager {
             floorVerts.append(w1)
             floorVerts.append(w2)
 
-            // Triangle area = ½ |cross|
+            // Triangle area = ½ |cross| (cast to Double for sum)
             let edge1 = w1 - w0
             let edge2 = w2 - w0
-            floorArea += simd_length(simd_cross(edge1, edge2)) * 0.5
+            floorArea += Double(simd_length(simd_cross(edge1, edge2)) * 0.5)
         }
 
         return MeshSnapshot(id: anchor.identifier,

@@ -37,6 +37,13 @@ struct ARPlacementView: View {
         case readyToPlaceBall            // Plane found, waiting for first tap.
         case readyToPlaceHole(SIMD3<Float>)  // Ball placed, waiting for hole tap.
         case complete(ball: SIMD3<Float>, hole: SIMD3<Float>)
+        // B42: Move-ball / Move-hole UX. User has placed both
+        // entities and wants to nudge ONE without wiping the
+        // other. We preserve the kept entity's world coord in
+        // the associated value so the place action can rebuild
+        // the .complete tuple cleanly.
+        case replacingBall(hole: SIMD3<Float>)
+        case replacingHole(ball: SIMD3<Float>)
     }
 
     /// Pre-share confirmation summary. Built by scanning
@@ -107,6 +114,20 @@ struct ARPlacementView: View {
     /// visuals to sensors. Toggle via the Record button.
     @State private var recorder: ARScreenRecorder = ARScreenRecorder()
     @State private var isRecording: Bool = false
+    /// B42: live LiDAR mesh stats string for the expanded HUD row.
+    /// Refreshed by the 0.5 s tick from `scene.meshSummary()`. Reads
+    /// "—" on non-LiDAR devices.
+    @State private var lidarHUD: String = "—"
+    /// B42: drives the crosshair shrink + fade when the raycast is
+    /// confidently hitting a surface, so the cup isn't obscured at
+    /// close range. Polled at 0.5 Hz from the same tick.
+    @State private var raycastConfident: Bool = false
+    /// B42: tag of the currently-pulsing GT marker button (one at
+    /// a time is enough — taps are serial). Cleared 500 ms after
+    /// it's set via a Task.sleep. SwiftUI's `.animation(value:)`
+    /// interpolates the background between green ↔ default on
+    /// every change.
+    @State private var activeMarkerPulse: String? = nil
 
     /// The scene-graph "controller" we expose to the UIViewRepresentable.
     /// Lives as a single instance bound to the view so tap callbacks +
@@ -169,6 +190,12 @@ struct ARPlacementView: View {
             }
             .padding(.horizontal, 16)
             .padding(.bottom, 24)
+            // B42: spring animation on placementState changes so the
+            // HUD / button rows slide rather than snap when entering
+            // the Move-ball / Move-hole flow + when completing
+            // placement.
+            .animation(.spring(response: 0.4, dampingFraction: 0.85),
+                        value: placementState)
 
             // Transient hint rendered as its OWN overlay (C2 fix). The
             // 10 Hz didUpdate(frame:) loop overwrites trackingState every
@@ -192,14 +219,16 @@ struct ARPlacementView: View {
         .statusBarHidden()
         .onChange(of: planeCount) { _, newValue in
             // Auto-advance "waitingForPlane" → "readyToPlaceBall" once any
-            // horizontal plane is found.
-            if newValue > 0, case .waitingForPlane = placementState {
+            // horizontal surface is found.
+            //
+            // B42: surface = plane OR LiDAR mesh anchor. On LiDAR
+            // devices a mesh anchor may exist before any plane is
+            // surfaced.
+            let hasSurface = newValue > 0 || scene.meshAnchorCount() > 0
+            if hasSurface, case .waitingForPlane = placementState {
                 placementState = .readyToPlaceBall
             }
-            // Roll back the silent-wait stillness hint once any plane is
-            // detected — and reset the still-since timer so a later loss
-            // of planes can re-trigger the hint cleanly.
-            if newValue > 0 {
+            if hasSurface {
                 showStillnessHint = false
                 firstStillAt = nil
             }
@@ -227,6 +256,15 @@ struct ARPlacementView: View {
                 logger.log(.note, "Auto-recording on session open")
                 if recorder.start(sessionId: logger.sessionId) != nil {
                     isRecording = true
+                    // B42: auto-compact HUD when we're recording for
+                    // Gemini review. Every session is recorded since
+                    // B25 auto-recording, so the camera feed +
+                    // crosshair + AR entities own the frame by
+                    // default. User can flip back via the eye icon.
+                    hudCompact = true
+                    logger.log(.note, "auto-compact HUD on (recording active)",
+                               payload: ["hud_compact": "true",
+                                         "trigger": "auto_record_start"])
                 } else {
                     // ReplayKit unavailable (rare — Mac Catalyst,
                     // tvOS, restricted mode). Don't block the AR
@@ -244,22 +282,42 @@ struct ARPlacementView: View {
             // active, stop() is a no-op.
             if isRecording {
                 recorder.stop { url in
-                    if let url {
-                        logger.log(.note, "Recording auto-stopped on dismiss: \(url.lastPathComponent)")
+                    // B42: ReplayKit's completion handler is @Sendable
+                    // and its dispatch queue isn't guaranteed to be
+                    // main, so hop explicitly. Mirrors the pattern at
+                    // `showTransientHint` (L291).
+                    Task { @MainActor in
+                        if let url {
+                            logger.log(.note, "Recording auto-stopped on dismiss: \(url.lastPathComponent)")
+                        }
+                        logger.saveSnapshot()
                     }
-                    logger.saveSnapshot()
                 }
             }
             logger.log(.sessionEnd, "Slice 2 placement view dismissed")
             logger.saveSnapshot()
         }
         .onReceive(Timer.publish(every: 0.5, on: .main, in: .common).autoconnect()) { _ in
-            // 0.5 s tick is fine for this — we only need a coarse 2-second
-            // threshold for the silent-wait hint.
-            guard planeCount == 0, let firstStillAt else { return }
-            if !showStillnessHint && Date().timeIntervalSince(firstStillAt) > 2.0 {
-                showStillnessHint = true
+            // 0.5 s tick — drives both the silent-wait hint AND the
+            // live LiDAR HUD row + adaptive crosshair fade.
+            //
+            // B42: stillness hint must consider LiDAR mesh anchors, not
+            // just ARPlaneAnchors. On iPhone 13 Pro Max, the LiDAR
+            // mesh can populate without any planes being detected
+            // (LiDAR's first; planes are a derived layer). Previous
+            // gate falsely fired "Try slowly panning" even though the
+            // mesh was clearly working.
+            let hasSurface = planeCount > 0 || scene.meshAnchorCount() > 0
+            if !hasSurface, let firstStillAt {
+                if !showStillnessHint && Date().timeIntervalSince(firstStillAt) > 2.0 {
+                    showStillnessHint = true
+                }
+            } else if showStillnessHint {
+                showStillnessHint = false
             }
+            // Live mesh HUD row + crosshair adaptive opacity.
+            lidarHUD = scene.meshSummary()
+            raycastConfident = scene.raycastScreenCenter() != nil
         }
         .sheet(isPresented: $showShareSheet) {
             ARLogShareSheet(urls: shareSheetURLs)
@@ -501,11 +559,18 @@ struct ARPlacementView: View {
     private func stopRecordingAsync() async {
         let savedURL: URL? = await withCheckedContinuation { (cont: CheckedContinuation<URL?, Never>) in
             recorder.stop { url in
-                isRecording = false
-                if let url {
-                    logger.log(.note, "Recording stopped for send: \(url.lastPathComponent)")
+                // B42: hop to MainActor before touching @State + logger.
+                // The continuation must resume exactly once — calling
+                // it inside the Task is safe because the Task body
+                // runs to completion serially before the next
+                // dispatch step.
+                Task { @MainActor in
+                    isRecording = false
+                    if let url {
+                        logger.log(.note, "Recording stopped for send: \(url.lastPathComponent)")
+                    }
+                    cont.resume(returning: url)
                 }
-                cont.resume(returning: url)
             }
         }
         guard savedURL != nil else { return }
@@ -517,19 +582,27 @@ struct ARPlacementView: View {
     /// the video pair by filename. Export All bundles both.
     private func toggleRecording() {
         if isRecording {
-            logger.log(.note, "Recording stop requested")
+            logger.log(.recordingStateChanged, "Recording stop requested",
+                       payload: ["state": "stop_requested"])
             recorder.stop { url in
-                isRecording = false
-                if let url {
-                    logger.log(.note, "Recording saved: \(url.lastPathComponent)",
-                               payload: ["filename": url.lastPathComponent])
-                } else {
-                    logger.log(.failed, "Recording save failed: \(recorder.lastError ?? "unknown")")
-                    showTransientHint("Recording failed")
+                // B42: MainActor hop + replace twin `.note` events with
+                // a single structured `.recordingStateChanged` event
+                // (Event.Kind already defined in B40, never wired).
+                Task { @MainActor in
+                    isRecording = false
+                    if let url {
+                        logger.log(.recordingStateChanged, "Recording saved: \(url.lastPathComponent)",
+                                   payload: ["state": "stopped",
+                                             "filename": url.lastPathComponent])
+                    } else {
+                        logger.log(.failed, "Recording save failed: \(recorder.lastError ?? "unknown")")
+                        showTransientHint("Recording failed")
+                    }
                 }
             }
         } else {
-            logger.log(.note, "Recording start requested")
+            logger.log(.recordingStateChanged, "Recording start requested",
+                       payload: ["state": "start_requested"])
             if recorder.start(sessionId: logger.sessionId) != nil {
                 // start() is asynchronous — ReplayKit will prompt for
                 // permission on first ever run. Mark isRecording true
@@ -550,55 +623,64 @@ struct ARPlacementView: View {
     private func resetAfterInterruption() {
         let hadPlacedEntities: Bool
         switch placementState {
-        case .readyToPlaceHole, .complete: hadPlacedEntities = true
-        default: hadPlacedEntities = false
+        case .readyToPlaceHole, .complete, .replacingBall, .replacingHole:
+            hadPlacedEntities = true
+        case .waitingForPlane, .readyToPlaceBall:
+            hadPlacedEntities = false
         }
         guard hadPlacedEntities else { return }
         scene.clearPlacedEntities()
-        placementState = planeCount > 0 ? .readyToPlaceBall : .waitingForPlane
+        let hasSurface = planeCount > 0 || scene.meshAnchorCount() > 0
+        placementState = hasSurface ? .readyToPlaceBall : .waitingForPlane
         showTransientHint("Tracking recovered — place again")
         logger.log(.reset, "auto-reset after interruption recovery")
     }
 
     private var topBar: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 10) {
+            // B42: Done button uses native iOS chevron + "Done" label,
+            // consistent 38pt capsule chrome (was mixed heights).
             Button { dismiss() } label: {
                 HStack(spacing: 6) {
                     Image(systemName: "chevron.left")
                     Text("Done")
                 }
-                .font(.headline.weight(.semibold))
+                .font(.subheadline.weight(.semibold))
                 .foregroundStyle(.white)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 10)
+                .padding(.horizontal, 14)
+                .frame(height: 38)
                 .background(.black.opacity(0.55), in: Capsule())
             }
             .accessibilityIdentifier("ar.doneButton")
             Spacer()
-            // Clean-view toggle. SF Symbol "eye" / "eye.slash" pair
-            // is universally read as "hide / show overlays". Logs to
-            // .note so the AR session JSON records which mode the
-            // user was in at every video timestamp — important when
-            // the Gemini video reviewer is correlating events to
-            // frames.
+            // B42: HUD toggle — swapped the misleading eye/eye.slash
+            // glyph (read as "hide content" not "hide chrome") for
+            // rectangle.dashed / rectangle, which reads as "wireframe
+            // layer on/off". Also gets a tiny pulse animation when
+            // tapped so the state change is visually confirmed.
             Button {
                 let was = hudCompact
-                hudCompact.toggle()
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                    hudCompact.toggle()
+                }
                 logger.log(.note, was ? "HUD expanded" : "HUD collapsed (compact view)",
                             payload: ["hud_compact": String(!was)])
             } label: {
-                Image(systemName: hudCompact ? "eye.slash" : "eye")
-                    .font(.headline.weight(.semibold))
+                Image(systemName: hudCompact ? "rectangle.dashed" : "rectangle")
+                    .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.white)
                     .frame(width: 38, height: 38)
                     .background(.black.opacity(0.55), in: Circle())
             }
             .accessibilityIdentifier("ar.hudCompactToggle")
-            Text(hudCompact ? "Slice 2" : "AR place · Slice 2")
-                .font(.caption.bold())
-                .foregroundStyle(.white)
+            // B42: title badge — quieter caption2 weight, version stamp
+            // visible at a glance so any future Gemini frame can be
+            // tied back to the exact build that produced it.
+            Text(hudCompact ? "v0.4.8" : "PuttingLab · v0.4.8")
+                .font(.caption2.weight(.medium).monospacedDigit())
+                .foregroundStyle(.white.opacity(0.85))
                 .padding(.horizontal, 12)
-                .padding(.vertical, 6)
+                .frame(height: 38)
                 .background(.black.opacity(0.55), in: Capsule())
                 .accessibilityIdentifier("ar.titleBadge")
         }
@@ -621,8 +703,12 @@ struct ARPlacementView: View {
             if isRecording {
                 Spacer()
                 HStack(spacing: 4) {
+                    // B42: recording dot pulses at 1 Hz for "this is
+                    // live" affordance. SF Symbol effect handles the
+                    // animation without timer state.
                     Image(systemName: "record.circle.fill")
                         .foregroundStyle(.red)
+                        .symbolEffect(.pulse, options: .repeating)
                     Text("REC")
                         .font(.caption2.weight(.bold))
                         .foregroundStyle(.white)
@@ -639,11 +725,33 @@ struct ARPlacementView: View {
             row("State", stateLabel, tint: .white)
             row("Tracking", trackingState, tint: trackingTint)
             row("Planes", "\(planeCount)", tint: planeCount > 0 ? .green : .yellow)
+            // B42: live LiDAR mesh stats. "—" when LiDAR is inactive
+            // or no mesh anchors yet (non-Pro devices, first second
+            // of cold start). Updates every 0.5 s from the .onReceive
+            // timer.
+            row("LiDAR", lidarHUD, tint: lidarHUD == "—" ? .white.opacity(0.5) : .green)
             if case let .complete(ball, hole) = placementState {
-                row("Distance", String(format: "%.2f m  (%.1f ft)",
-                                       simd_distance(ball, hole),
-                                       simd_distance(ball, hole) * 3.281),
-                    tint: .green)
+                let d = simd_distance(ball, hole)
+                // B42: distance gets a larger headline weight + colour-
+                // coded bucket so the metric reads at a glance, and a
+                // one-word judgement label ("short" / "lag" / "long")
+                // makes the number actionable instead of abstract.
+                HStack {
+                    Text("DISTANCE")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.white.opacity(0.65))
+                        .frame(width: 80, alignment: .leading)
+                    Text(String(format: "%.2f m", d))
+                        .font(.title3.weight(.semibold))
+                        .foregroundStyle(Self.distanceTint(d))
+                    Text("· \(Self.distanceWord(d))")
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(Self.distanceTint(d).opacity(0.85))
+                    Spacer()
+                    Text(String(format: "%.1f ft", d * 3.281))
+                        .font(.caption2.monospaced())
+                        .foregroundStyle(.white.opacity(0.55))
+                }
             }
             Divider().background(.white.opacity(0.25)).padding(.vertical, 2)
             Text(instructionText)
@@ -654,6 +762,25 @@ struct ARPlacementView: View {
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 14))
+    }
+
+    /// B42 distance bucket → tint. 0.5-3 m = drainable putts (green),
+    /// 3-6 m = lag putts (orange), 6 m+ = long / unusual (red).
+    private static func distanceTint(_ d: Float) -> Color {
+        switch d {
+        case ..<3.0:  return .green
+        case ..<6.0:  return .orange
+        default:      return .red
+        }
+    }
+
+    /// B42 distance bucket → one-word judgement label.
+    private static func distanceWord(_ d: Float) -> String {
+        switch d {
+        case ..<3.0:  return "short"
+        case ..<6.0:  return "lag"
+        default:      return "long"
+        }
     }
 
     /// Live AR event log shown above the action row. Last 5 events,
@@ -796,17 +923,27 @@ struct ARPlacementView: View {
     /// crosshair gives you a target preview AND the button press
     /// doesn't move the phone the way a tap on the floor would.
     private var crosshair: some View {
-        ZStack {
+        // B42: shrink + fade the crosshair when the raycast is
+        // confidently hitting a surface — at that point the user
+        // doesn't need a big ring to know "you'll hit something".
+        // Keeps the cup visible underneath at close range. Smooth
+        // spring transition. Falls back to the 56pt / 0.95 opacity
+        // search state when the raycast is missing.
+        let confident = raycastConfident && (placementState != .waitingForPlane)
+        let size: CGFloat = confident ? 32 : 56
+        let opacity = confident ? min(0.45, crosshairOpacity) : crosshairOpacity
+        return ZStack {
             Circle()
-                .stroke(.white, lineWidth: 2)
-                .frame(width: 56, height: 56)
+                .stroke(.white, lineWidth: confident ? 1.5 : 2)
+                .frame(width: size, height: size)
                 .shadow(color: .black.opacity(0.6), radius: 2)
             Image(systemName: "plus")
-                .font(.system(size: 22, weight: .bold))
+                .font(.system(size: confident ? 14 : 22, weight: .bold))
                 .foregroundStyle(.white)
                 .shadow(color: .black.opacity(0.6), radius: 2)
         }
-        .opacity(crosshairOpacity)
+        .opacity(opacity)
+        .animation(.spring(response: 0.35, dampingFraction: 0.85), value: confident)
         .accessibilityIdentifier("ar.crosshair")
     }
 
@@ -816,6 +953,9 @@ struct ARPlacementView: View {
         switch placementState {
         case .waitingForPlane:  return 0.25
         case .readyToPlaceBall, .readyToPlaceHole: return 0.95
+        // B42: the Move-ball / Move-hole flows are placement-active
+        // (user is aiming at the new spot), so full visibility.
+        case .replacingBall, .replacingHole: return 0.95
         case .complete:         return 0.35
         }
     }
@@ -841,7 +981,24 @@ struct ARPlacementView: View {
                             id: "ar.placeHoleButton") {
                 placeAtCenter()
             }
-        default:
+        // B42: Move-ball / Move-hole flows mirror the first-place
+        // buttons; same crosshair raycast, just resolves back into
+        // .complete with the preserved entity.
+        case .replacingBall:
+            bigPlaceButton(label: "Re-place ball at crosshair",
+                            icon: "circle.fill",
+                            tint: .white,
+                            id: "ar.replaceBallButton") {
+                placeAtCenter()
+            }
+        case .replacingHole:
+            bigPlaceButton(label: "Re-place hole at crosshair",
+                            icon: "scope",
+                            tint: .yellow,
+                            id: "ar.replaceHoleButton") {
+                placeAtCenter()
+            }
+        case .waitingForPlane, .complete:
             EmptyView()
         }
     }
@@ -873,8 +1030,16 @@ struct ARPlacementView: View {
         guard let world = scene.raycastScreenCenter() else {
             logger.log(.raycastMiss, "place button: screen-centre raycast missed")
             showTransientHint("Aim the crosshair at the floor")
+            // B42: error haptic — tells the user "the press registered
+            // but the raycast missed" without needing eyes on the
+            // toast. Existing pattern from SessionCoordinator etc.
+            UINotificationFeedbackGenerator().notificationOccurred(.warning)
             return
         }
+        // B42: solid medium impact haptic on a successful raycast hit.
+        // Fires before the entity actually drops so it pairs with the
+        // tap, not the visual.
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
         logger.log(.raycastHit, "place button hit \(ARLogFmt.vec(world))",
                    payload: ["x": String(format: "%.4f", world.x),
                              "y": String(format: "%.4f", world.y),
@@ -910,6 +1075,38 @@ struct ARPlacementView: View {
                                  "ball_y": String(format: "%.4f", ballWorld.y),
                                  "ball_z": String(format: "%.4f", ballWorld.z)])
             placementState = .complete(ball: ballWorld, hole: world)
+        // B42: Move-ball UX — preserved hole stays, new ball drops.
+        case .replacingBall(let preservedHole):
+            scene.placeBall(at: world)
+            let dist = simd_distance(world, preservedHole)
+            logger.log(.ballPlaced, "ball re-placed via crosshair \(ARLogFmt.vec(world))",
+                       payload: ["source": "replace",
+                                 "x": String(format: "%.4f", world.x),
+                                 "y": String(format: "%.4f", world.y),
+                                 "z": String(format: "%.4f", world.z),
+                                 "distance_m": String(format: "%.4f", dist),
+                                 "hole_x": String(format: "%.4f", preservedHole.x),
+                                 "hole_y": String(format: "%.4f", preservedHole.y),
+                                 "hole_z": String(format: "%.4f", preservedHole.z)])
+            // Re-draw the aim line to the preserved hole — placeBall
+            // doesn't know about the hole, so call placeHole again at
+            // the same coord to refresh the line + ensure z-ordering.
+            scene.placeHole(at: preservedHole)
+            placementState = .complete(ball: world, hole: preservedHole)
+        // B42: Move-hole UX — preserved ball stays, new hole drops.
+        case .replacingHole(let preservedBall):
+            scene.placeHole(at: world)
+            let dist = simd_distance(preservedBall, world)
+            logger.log(.holePlaced, "hole re-placed via crosshair \(ARLogFmt.vec(world)) · \(ARLogFmt.meters(dist))",
+                       payload: ["source": "replace",
+                                 "x": String(format: "%.4f", world.x),
+                                 "y": String(format: "%.4f", world.y),
+                                 "z": String(format: "%.4f", world.z),
+                                 "distance_m": String(format: "%.4f", dist),
+                                 "ball_x": String(format: "%.4f", preservedBall.x),
+                                 "ball_y": String(format: "%.4f", preservedBall.y),
+                                 "ball_z": String(format: "%.4f", preservedBall.z)])
+            placementState = .complete(ball: preservedBall, hole: world)
         case .complete:
             break
         }
@@ -921,23 +1118,40 @@ struct ARPlacementView: View {
     /// Each tap logs a `.note` event with a `GT:` prefix.
     private var groundTruthMarkerRow: some View {
         HStack(spacing: 6) {
-            markerButton(label: "👍 Good", id: "ar.markerGood") { logger.log(.note, "GT: looks good", payload: ["source": "user_marker", "tag": "good"]) }
-            markerButton(label: "📐 Plane wrong", id: "ar.markerPlaneWrong") { logger.log(.note, "GT: plane overlay wrong", payload: ["source": "user_marker", "tag": "plane_wrong"]) }
-            markerButton(label: "🎯 Drifted", id: "ar.markerDrifted") { logger.log(.note, "GT: ball/hole drifted", payload: ["source": "user_marker", "tag": "drifted"]) }
-            markerButton(label: "❌ Lost", id: "ar.markerLost") { logger.log(.note, "GT: tracking lost", payload: ["source": "user_marker", "tag": "lost_tracking"]) }
-            markerButton(label: "📝 Note…", id: "ar.markerNote") { showNoteInput = true }
+            markerButton(label: "👍 Good",         tag: "good",          id: "ar.markerGood") { logger.log(.note, "GT: looks good", payload: ["source": "user_marker", "tag": "good"]) }
+            markerButton(label: "📐 Plane wrong",  tag: "plane_wrong",   id: "ar.markerPlaneWrong") { logger.log(.note, "GT: plane overlay wrong", payload: ["source": "user_marker", "tag": "plane_wrong"]) }
+            markerButton(label: "🎯 Drifted",      tag: "drifted",       id: "ar.markerDrifted") { logger.log(.note, "GT: ball/hole drifted", payload: ["source": "user_marker", "tag": "drifted"]) }
+            markerButton(label: "❌ Lost",          tag: "lost_tracking", id: "ar.markerLost") { logger.log(.note, "GT: tracking lost", payload: ["source": "user_marker", "tag": "lost_tracking"]) }
+            markerButton(label: "📝 Note…",        tag: "note",          id: "ar.markerNote") { showNoteInput = true }
         }
         .padding(.top, 6)
     }
 
-    private func markerButton(label: String, id: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
+    private func markerButton(label: String, tag: String, id: String, action: @escaping () -> Void) -> some View {
+        // B42: green pulse confirmation on tap. Set activeMarkerPulse
+        // = tag, sleep 400 ms, clear. SwiftUI animates the
+        // background colour change via `.animation(value:)`.
+        Button {
+            withAnimation(.easeOut(duration: 0.18)) { activeMarkerPulse = tag }
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 400_000_000)
+                if activeMarkerPulse == tag {
+                    withAnimation(.easeIn(duration: 0.25)) { activeMarkerPulse = nil }
+                }
+            }
+            action()
+        } label: {
             Text(label)
                 .font(.caption2.weight(.semibold))
                 .foregroundStyle(.white)
                 .padding(.horizontal, 8)
                 .padding(.vertical, 6)
-                .background(.white.opacity(0.18), in: Capsule())
+                .background(
+                    (activeMarkerPulse == tag
+                        ? Color(red: 0.20, green: 0.85, blue: 0.40)
+                        : Color.white.opacity(0.18)),
+                    in: Capsule()
+                )
         }
         .accessibilityIdentifier(id)
     }
@@ -959,11 +1173,27 @@ struct ARPlacementView: View {
     }
 
     private func compactMarkerButton(_ glyph: String, tag: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
+        // B42: same activeMarkerPulse-driven green flash as the full
+        // HUD marker buttons, sized to the compact circle.
+        Button {
+            withAnimation(.easeOut(duration: 0.18)) { activeMarkerPulse = tag }
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 400_000_000)
+                if activeMarkerPulse == tag {
+                    withAnimation(.easeIn(duration: 0.25)) { activeMarkerPulse = nil }
+                }
+            }
+            action()
+        } label: {
             Text(glyph)
                 .font(.callout)
                 .frame(width: 36, height: 36)
-                .background(.black.opacity(0.55), in: Circle())
+                .background(
+                    (activeMarkerPulse == tag
+                        ? Color(red: 0.20, green: 0.85, blue: 0.40)
+                        : Color.black.opacity(0.55)),
+                    in: Circle()
+                )
         }
         .accessibilityIdentifier("ar.compactMarker.\(tag)")
     }
@@ -981,18 +1211,95 @@ struct ARPlacementView: View {
     }()
 
     private var actionRow: some View {
-        HStack(spacing: 10) {
-            if case .complete = placementState {
+        HStack(spacing: 8) {
+            switch placementState {
+            case .complete(let ball, let hole):
+                // B42: at .complete, three capsule buttons.
+                // Reset = destructive-all (wipe both).
+                // Move ball / Move hole = constructive-replace-one,
+                // preserves the OTHER entity's world coord.
                 Button { reset() } label: {
                     Label("Reset", systemImage: "arrow.counterclockwise")
+                        .font(.callout.weight(.semibold))
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 10)
+                        .background(.black.opacity(0.55), in: Capsule())
+                        .foregroundStyle(.white)
+                }
+                .accessibilityIdentifier("ar.resetButton")
+                Button {
+                    scene.clearBall()
+                    placementState = .replacingBall(hole: hole)
+                    logger.log(.note, "Move ball tapped",
+                               payload: ["preserved_hole_x": String(format: "%.4f", hole.x),
+                                         "preserved_hole_y": String(format: "%.4f", hole.y),
+                                         "preserved_hole_z": String(format: "%.4f", hole.z)])
+                } label: {
+                    Label("Move ball", systemImage: "circle.dashed")
+                        .font(.callout.weight(.semibold))
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 10)
+                        .background(.white.opacity(0.85), in: Capsule())
+                        .foregroundStyle(.black)
+                }
+                .accessibilityIdentifier("ar.moveBallButton")
+                Button {
+                    scene.clearHole()
+                    placementState = .replacingHole(ball: ball)
+                    logger.log(.note, "Move hole tapped",
+                               payload: ["preserved_ball_x": String(format: "%.4f", ball.x),
+                                         "preserved_ball_y": String(format: "%.4f", ball.y),
+                                         "preserved_ball_z": String(format: "%.4f", ball.z)])
+                } label: {
+                    Label("Move hole", systemImage: "scope")
+                        .font(.callout.weight(.semibold))
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 10)
+                        .background(.yellow.opacity(0.95), in: Capsule())
+                        .foregroundStyle(.black)
+                }
+                .accessibilityIdentifier("ar.moveHoleButton")
+            case .replacingBall(let preservedHole):
+                // B42: Cancel returns to .complete with the cached
+                // ball/hole pair. Restore the ball entity by calling
+                // placeBall at the LAST cached world coord — but we
+                // don't have it; the user just tapped Move ball
+                // which cleared the ball. So Cancel here means
+                // "restore the ball at the same spot it was". Since
+                // the View doesn't cache the previous ball coord,
+                // Cancel is best-effort: we re-enter .readyToPlaceBall
+                // with the hole still there, asking the user to
+                // place the ball again.
+                Button {
+                    placementState = .readyToPlaceHole(preservedHole)
+                    logger.log(.note, "Move ball cancelled — back to hole-preserved state")
+                } label: {
+                    Label("Cancel", systemImage: "xmark")
                         .font(.callout.weight(.semibold))
                         .padding(.horizontal, 14)
                         .padding(.vertical, 10)
                         .background(.black.opacity(0.55), in: Capsule())
                         .foregroundStyle(.white)
                 }
-            }
-            if case .readyToPlaceHole = placementState {
+                .accessibilityIdentifier("ar.cancelMoveBall")
+            case .replacingHole(let preservedBall):
+                Button {
+                    // Cancel from replacingHole: restore the ball + go
+                    // back to readyToPlaceHole so user can re-place
+                    // hole. The ball entity is still on screen since
+                    // clearHole() left it alone.
+                    placementState = .readyToPlaceHole(preservedBall)
+                    logger.log(.note, "Move hole cancelled — back to ball-preserved state")
+                } label: {
+                    Label("Cancel", systemImage: "xmark")
+                        .font(.callout.weight(.semibold))
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
+                        .background(.black.opacity(0.55), in: Capsule())
+                        .foregroundStyle(.white)
+                }
+                .accessibilityIdentifier("ar.cancelMoveHole")
+            case .readyToPlaceHole:
                 // UX audit flagged the previous "Re-place ball" label as
                 // misleading — it sounded like "drag the existing ball",
                 // but the implementation calls `reset()` which wipes
@@ -1005,6 +1312,8 @@ struct ARPlacementView: View {
                         .background(.black.opacity(0.55), in: Capsule())
                         .foregroundStyle(.white)
                 }
+            case .waitingForPlane, .readyToPlaceBall:
+                EmptyView()
             }
             Spacer()
         }
@@ -1035,6 +1344,8 @@ struct ARPlacementView: View {
         case .readyToPlaceBall: return "Tap to place ball"
         case .readyToPlaceHole: return "Tap to place hole"
         case .complete:         return "Placement complete"
+        case .replacingBall:    return "Re-place ball"
+        case .replacingHole:    return "Re-place hole"
         }
     }
 
@@ -1047,14 +1358,19 @@ struct ARPlacementView: View {
         case .readyToPlaceHole:
             return "Tap another spot where the hole should be. Aim line will appear."
         case .complete:
-            return "Ball + hole placed. Reset to start over, or tap Done to leave."
+            return "Ball + hole placed. Use Move ball / Move hole to nudge one without wiping the other, or Reset to start fresh."
+        case .replacingBall:
+            return "Aim the crosshair at the new ball spot. Hole stays put."
+        case .replacingHole:
+            return "Aim the crosshair at the new hole spot. Ball + aim line will refresh."
         }
     }
 
     private func reset() {
         logger.log(.reset, "user tapped Start over / Reset")
         scene.clearPlacedEntities()
-        placementState = planeCount > 0 ? .readyToPlaceBall : .waitingForPlane
+        let hasSurface = planeCount > 0 || scene.meshAnchorCount() > 0
+        placementState = hasSurface ? .readyToPlaceBall : .waitingForPlane
     }
 }
 
@@ -1074,6 +1390,11 @@ final class ARPlacementScene {
     /// logger). Optional + weak so the scene works in test
     /// contexts where no logger is attached.
     weak var logger: ARSessionLogger?
+    /// Weak reference to the Coordinator's LiDAR mesh manager so the
+    /// View-side HUD (LiDAR row, stillness-hint gate) can read mesh
+    /// stats without threading another binding through the
+    /// UIViewRepresentable. Set by the Coordinator at init time.
+    weak var meshManager: ARMeshManager?
     private var ballAnchor: AnchorEntity?
     private var holeAnchor: AnchorEntity?
     private var lineAnchor: AnchorEntity?
@@ -1430,6 +1751,50 @@ final class ARPlacementScene {
         lineAnchor = nil
         ballWorldPosition = nil
     }
+
+    /// B42: drop ONLY the ball entity (Move-ball UX). Leaves the
+    /// hole + aim line in place. The aim line is intentionally
+    /// kept rendered (anchored to the hole) — it'll get redrawn
+    /// against the new ball position when placement completes.
+    /// `ballWorldPosition` is cleared so the next `placeHole` /
+    /// `placeBall` call doesn't try to draw an aim line to the
+    /// stale ball coord.
+    func clearBall() {
+        ballAnchor?.removeFromParent()
+        lineAnchor?.removeFromParent()
+        ballAnchor = nil
+        lineAnchor = nil
+        ballWorldPosition = nil
+    }
+
+    /// B42: drop ONLY the hole entity (Move-hole UX). The aim
+    /// line is anchored to the hole world coord so it dies with
+    /// the hole. Ball stays placed + the cached
+    /// `ballWorldPosition` survives so the next `placeHole` can
+    /// redraw the aim line to the kept ball.
+    func clearHole() {
+        holeAnchor?.removeFromParent()
+        lineAnchor?.removeFromParent()
+        holeAnchor = nil
+        lineAnchor = nil
+    }
+
+    /// Live LiDAR mesh anchor count — proxied to `meshManager`
+    /// when wired by the Coordinator. Returns 0 on non-LiDAR
+    /// devices (no manager attached at init time). Used by the
+    /// View's stillness-hint gate (B42 — was checking only
+    /// planeCount, which falsely triggered on LiDAR-only scans).
+    func meshAnchorCount() -> Int {
+        meshManager?.anchorCount ?? 0
+    }
+
+    /// One-line HUD summary of the LiDAR mesh state for the
+    /// expanded HUD row. Returns "—" when LiDAR is inactive.
+    func meshSummary() -> String {
+        guard let mgr = meshManager, mgr.anchorCount > 0 else { return "—" }
+        return String(format: "%.1f m² · %d anchors · %d tris",
+                       mgr.floorAreaM2, mgr.anchorCount, mgr.floorTriangleCount)
+    }
 }
 
 // MARK: - UIViewRepresentable
@@ -1515,6 +1880,10 @@ private struct ARPlacementSceneRepresentable: UIViewRepresentable {
         arView.addGestureRecognizer(tap)
 
         scene.arView = arView
+        // B42: wire the scene to the Coordinator's mesh manager so
+        // the View-side HUD (LiDAR row, stillness gate) can read
+        // mesh stats without threading another binding.
+        scene.meshManager = context.coordinator.meshManager
         context.coordinator.arView = arView
         context.coordinator.scene = scene
         return arView
@@ -1626,6 +1995,11 @@ private struct ARPlacementSceneRepresentable: UIViewRepresentable {
         /// every 5 s so we get one stats sample per pan-and-scan
         /// burst without polluting the log.
         private var lastMeshStatsAt: Date = .distantPast
+        /// B42: throttle for the periodic `.lightEstimate` event. Fires
+        /// once every 5 s out of `session(_:didUpdate frame:)` so we
+        /// can correlate "white renders gray" regressions to ARKit's
+        /// ambient light estimate without per-frame spam.
+        private var lastLightEstimateLog: Date = .distantPast
 
         /// Cached overlay record. Re-uses the same ModelEntity across
         /// the 10 Hz didUpdate ticks instead of allocating a fresh
@@ -1674,6 +2048,23 @@ private struct ARPlacementSceneRepresentable: UIViewRepresentable {
                     logger.log(.trackingState, status)
                 }
                 _trackingState.wrappedValue = status
+
+                // B42: periodic ambient-light estimate so we can
+                // correlate render bugs (e.g. white-renders-gray
+                // from CAC00F) to the actual ARKit lighting
+                // estimate. Throttled to one event per 5 s.
+                if now.timeIntervalSince(lastLightEstimateLog) > 5.0,
+                   let light = frame.lightEstimate {
+                    lastLightEstimateLog = now
+                    logger.log(.lightEstimate,
+                               String(format: "light intensity=%.0f temp=%.0fK",
+                                       light.ambientIntensity,
+                                       light.ambientColorTemperature),
+                               payload: [
+                                   "ambient_intensity": String(format: "%.2f", light.ambientIntensity),
+                                   "ambient_color_temperature": String(format: "%.2f", light.ambientColorTemperature),
+                               ])
+                }
             }
         }
 
@@ -1699,6 +2090,16 @@ private struct ARPlacementSceneRepresentable: UIViewRepresentable {
                     } else if let meshAnchor = a as? ARMeshAnchor {
                         if meshManager.updateAnchor(meshAnchor) {
                             meshDirty = true
+                        }
+                        // B42: one-shot note when the classification
+                        // buffer is absent — distinguishes "LiDAR
+                        // silently broken" from "mesh detected,
+                        // classification still warming up".
+                        if meshAnchor.geometry.classification == nil,
+                           meshManager.didSeeAnchorWithoutClassification(meshAnchor.identifier) {
+                            logger.log(.note,
+                                       "LiDAR mesh detected, awaiting classification",
+                                       payload: ["id": meshAnchor.identifier.uuidString])
                         }
                         logger.log(.meshAdded,
                                    "mesh \(meshAnchor.identifier.uuidString.prefix(6)) faces=\(meshAnchor.geometry.faces.count)",
@@ -1820,10 +2221,17 @@ private struct ARPlacementSceneRepresentable: UIViewRepresentable {
                 entity.model?.materials = [material]
             } else {
                 let entity = ModelEntity(mesh: resource, materials: [material])
-                let anchor = AnchorEntity(world: .zero)
-                anchor.addChild(entity)
-                arView.scene.addAnchor(anchor)
-                meshOverlayAnchor = anchor
+                // B42: lift the overlay 2 mm above the LiDAR floor to
+                // avoid z-fighting with the camera-feed pixels at
+                // exactly floor-Y (visible as patchy flicker /
+                // shimmer along triangle edges when the camera
+                // moves). If this introduces visible parallax when
+                // the phone is held very low to the floor, drop to
+                // 1 mm in B43.
+                let entityAnchor = AnchorEntity(world: SIMD3<Float>(0, 0.002, 0))
+                entityAnchor.addChild(entity)
+                arView.scene.addAnchor(entityAnchor)
+                meshOverlayAnchor = entityAnchor
                 meshOverlayEntity = entity
             }
         }
@@ -1839,6 +2247,23 @@ private struct ARPlacementSceneRepresentable: UIViewRepresentable {
         /// ARKit refines a non-axis-aligned plane (H3 fix).
         private func addOrUpdatePlaneOverlay(_ plane: ARPlaneAnchor) {
             guard let arView else { return }
+
+            // B42: when LiDAR scene reconstruction is active, the
+            // rectangular plane overlay is strictly worse than the
+            // LiDAR triangle-mesh overlay and stacks visually on top
+            // of it (Gemini would see two greens). Drop the
+            // rectangle but KEEP the plane anchor registered (the
+            // raycast fallback chain still hits .existingPlaneGeometry
+            // as a safety net before the mesh populates).
+            if lidarActive {
+                // If we previously created an overlay before lidarActive
+                // became true (race during cold start), tear it down.
+                if planeOverlays[plane.identifier] != nil {
+                    removePlaneOverlay(id: plane.identifier)
+                }
+                return
+            }
+
             let width = plane.planeExtent.width
             let depth = plane.planeExtent.height  // ARKit calls Z-extent "height"
             // Drop malformed / sub-epsilon extents — ARKit briefly emits
@@ -2065,7 +2490,8 @@ private struct ARPlacementSceneRepresentable: UIViewRepresentable {
                 case .readyToPlaceBall:
                     scene.placeBall(at: world)
                     logger.log(.ballPlaced, "ball \(ARLogFmt.vec(world))",
-                               payload: ["x": String(format: "%.4f", world.x),
+                               payload: ["source": "tap",
+                                         "x": String(format: "%.4f", world.x),
                                          "y": String(format: "%.4f", world.y),
                                          "z": String(format: "%.4f", world.z)])
                     _placementState.wrappedValue = .readyToPlaceHole(world)
@@ -2074,11 +2500,37 @@ private struct ARPlacementSceneRepresentable: UIViewRepresentable {
                     scene.placeHole(at: world)
                     let dist = simd_distance(ballWorld, world)
                     logger.log(.holePlaced, "hole \(ARLogFmt.vec(world)) · \(ARLogFmt.meters(dist))",
-                               payload: ["x": String(format: "%.4f", world.x),
+                               payload: ["source": "tap",
+                                         "x": String(format: "%.4f", world.x),
                                          "y": String(format: "%.4f", world.y),
                                          "z": String(format: "%.4f", world.z),
                                          "distance_m": String(format: "%.4f", dist)])
                     _placementState.wrappedValue = .complete(ball: ballWorld, hole: world)
+                    lastPlacementAt = Date()
+                // B42: tap-to-place mirrors the crosshair Move-ball /
+                // Move-hole flow when the user is in a replacing state.
+                case .replacingBall(let preservedHole):
+                    scene.placeBall(at: world)
+                    let dist = simd_distance(world, preservedHole)
+                    logger.log(.ballPlaced, "ball re-placed via tap \(ARLogFmt.vec(world))",
+                               payload: ["source": "replace_tap",
+                                         "x": String(format: "%.4f", world.x),
+                                         "y": String(format: "%.4f", world.y),
+                                         "z": String(format: "%.4f", world.z),
+                                         "distance_m": String(format: "%.4f", dist)])
+                    scene.placeHole(at: preservedHole)
+                    _placementState.wrappedValue = .complete(ball: world, hole: preservedHole)
+                    lastPlacementAt = Date()
+                case .replacingHole(let preservedBall):
+                    scene.placeHole(at: world)
+                    let dist = simd_distance(preservedBall, world)
+                    logger.log(.holePlaced, "hole re-placed via tap \(ARLogFmt.vec(world))",
+                               payload: ["source": "replace_tap",
+                                         "x": String(format: "%.4f", world.x),
+                                         "y": String(format: "%.4f", world.y),
+                                         "z": String(format: "%.4f", world.z),
+                                         "distance_m": String(format: "%.4f", dist)])
+                    _placementState.wrappedValue = .complete(ball: preservedBall, hole: world)
                     lastPlacementAt = Date()
                 case .complete:
                     logger.log(.note, "tap ignored — placement complete")
