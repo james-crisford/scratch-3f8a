@@ -1052,30 +1052,77 @@ final class ARPlacementScene {
         guard let arView else { return }
         holeAnchor?.removeFromParent()
 
+        // Three-piece composite that actually reads as a real golf cup
+        // (B23's single-box model scored 1/10 realism in a Gemini
+        // video review — the box's opaque top face hid the depth from
+        // every camera angle so it looked like a black sticker).
+        //
+        //   [1] White rim disc — slightly larger than the hole, sits
+        //       flush at plane level. Provides the white halo that
+        //       reads as "regulation cup rim" from above.
+        //   [2] Dark well box — the existing 8cm-deep box, but moved
+        //       1mm BELOW the plane (and the rim) so the white rim
+        //       overlaps its perimeter — that overlap is what makes
+        //       the well appear recessed.
+        //   [3] Inner bottom plate — a slightly darker disc at the
+        //       bottom of the well. Gives the eye a depth cue when
+        //       viewed from above.
+
         let dia = Self.holeDiameter
         let depth = Self.holeDepth
-        let mesh = MeshResource.generateBox(width: dia,
-                                             height: depth,
-                                             depth: dia,
-                                             cornerRadius: dia / 2)
-        // Near-black, low specular reflection so it visually "absorbs"
-        // light the way the inside of a real cup does. Slightly above
-        // pure black so the well isn't a void on bright floors.
-        let material = SimpleMaterial(
-            color: UIColor(white: 0.04, alpha: 1.0),
-            roughness: 0.95,
-            isMetallic: false
-        )
-        let model = ModelEntity(mesh: mesh, materials: [material])
-        // The box's local origin is its centre. To put the TOP face at
-        // the plane (anchor) level, shift the model DOWN by half the
-        // box height. The result: body extends from y=−depth up to y=0
-        // in anchor-local frame, i.e. fully embedded in the floor with
-        // its rim flush at the detected plane.
-        model.position = SIMD3<Float>(0, -depth / 2, 0)
+        let rimOuter = dia * 1.18                       // ≈ 12.7 cm — the white halo
+        let rimThickness: Float = 0.002                  // 2 mm
+        let bottomInset: Float = 0.003                   // 3 mm — bottom disc inside the well
 
         let anchor = AnchorEntity(world: worldPosition)
-        anchor.addChild(model)
+
+        // [1] WHITE RIM — flat plane disc, slightly above the floor
+        //     plane (+0.001 m) so it doesn't z-fight with the green
+        //     overlay underneath. Roughness high so it reads as
+        //     plastic rather than chrome.
+        let rimMesh = MeshResource.generatePlane(width: rimOuter,
+                                                  depth: rimOuter,
+                                                  cornerRadius: rimOuter / 2)
+        let rimMaterial = SimpleMaterial(color: UIColor(white: 0.95, alpha: 1.0),
+                                          roughness: 0.55,
+                                          isMetallic: false)
+        let rimModel = ModelEntity(mesh: rimMesh, materials: [rimMaterial])
+        rimModel.position = SIMD3<Float>(0, rimThickness, 0)
+        anchor.addChild(rimModel)
+
+        // [2] DARK WELL — corner-rounded box, sunk fully below plane.
+        //     Top face starts 1 mm BELOW the rim so the white rim
+        //     visually frames it. Slightly larger diameter than dia/2
+        //     keeps the corner-rounded box reading as a true cylinder.
+        let wellMesh = MeshResource.generateBox(width: dia,
+                                                 height: depth,
+                                                 depth: dia,
+                                                 cornerRadius: dia / 2)
+        let wellMaterial = SimpleMaterial(color: UIColor(white: 0.03, alpha: 1.0),
+                                            roughness: 0.98,
+                                            isMetallic: false)
+        let wellModel = ModelEntity(mesh: wellMesh, materials: [wellMaterial])
+        // Top of box at y = -0.001 (just below rim). Body extends
+        // downward to y = -(depth + 0.001).
+        wellModel.position = SIMD3<Float>(0, -depth / 2 - 0.001, 0)
+        anchor.addChild(wellModel)
+
+        // [3] BOTTOM DISC — small black plate sitting at the bottom
+        //     of the well, inset 3 mm from the rim so a viewer
+        //     looking straight down sees concentric circles: white
+        //     rim → dark well wall → bottom disc. That nesting reads
+        //     unambiguously as depth.
+        let bottomDia = dia - bottomInset * 2
+        let bottomMesh = MeshResource.generatePlane(width: bottomDia,
+                                                     depth: bottomDia,
+                                                     cornerRadius: bottomDia / 2)
+        let bottomMaterial = SimpleMaterial(color: UIColor(white: 0.01, alpha: 1.0),
+                                              roughness: 1.0,
+                                              isMetallic: false)
+        let bottomModel = ModelEntity(mesh: bottomMesh, materials: [bottomMaterial])
+        bottomModel.position = SIMD3<Float>(0, -depth, 0)
+        anchor.addChild(bottomModel)
+
         arView.scene.addAnchor(anchor)
         holeAnchor = anchor
 

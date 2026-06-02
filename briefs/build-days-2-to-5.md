@@ -8,7 +8,7 @@ Source of truth for the autonomous Days 2-5 sprint. Read this end-to-end before 
 - Files: `PuttingLab/Models/MotionSample.swift`, `PuttingLab/Models/StrokeBuffer.swift`, `PuttingLab/Sensors/MotionManager.swift`, `PuttingLab/Sensors/SensorClock.swift`, `PuttingLab/App/PuttingLabApp.swift`, `PuttingLab/UI/SensorDebugView.swift`, `PuttingLab/Info.plist`.
 - Tests: `PuttingLabTests/Models/StrokeBufferTests.swift`, `PuttingLabTests/Sensors/MotionManagerTests.swift` (includes `MotionSampleTests` suite).
 - CI: `.github/workflows/test.yml` runs on `macos-15`, picks highest installed Xcode 16.x via the auto-select shell snippet, uses destination `platform=iOS Simulator,OS=18.5,name=iPhone 16`.
-- GitHub CLI auth: `$env:GH_TOKEN = "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"` already in Git Credential Manager; reuse it for polling.
+- GitHub CLI auth: `$env:GH_TOKEN = "<GITHUB-TOKEN-REMOVED-2026-06-02 see tokens/scrubbed-secrets-2026-06-02.md — ROTATE>"` already in Git Credential Manager; reuse it for polling.
 
 ## Operating loop, per day
 
@@ -18,7 +18,7 @@ Source of truth for the autonomous Days 2-5 sprint. Read this end-to-end before 
 4. Commit. Push. Then in PowerShell:
    ```
    $env:Path = "C:\Program Files\GitHub CLI;$env:Path"
-   $env:GH_TOKEN = "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"
+   $env:GH_TOKEN = "<GITHUB-TOKEN-REMOVED-2026-06-02 see tokens/scrubbed-secrets-2026-06-02.md — ROTATE>"
    Set-Location "c:\Users\james\Desktop\Claude Agent\projects\PuttingLab"
    Start-Sleep -Seconds 240
    gh run list --limit 1
