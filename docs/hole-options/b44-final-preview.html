@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>B44 Final Hole Preview — 4 angles</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #0a0d12;
+    color: #e5e9ee;
+    font-family: -apple-system, "SF Pro Display", Inter, system-ui, sans-serif;
+    padding: 32px;
+  }
+  h1 { font-size: 28px; margin-bottom: 6px; letter-spacing: -0.5px; }
+  .sub { color: #8a93a3; font-size: 14px; margin-bottom: 28px; max-width: 1000px; line-height: 1.5; }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px;
+  }
+  .tile {
+    background: #141a23;
+    border: 1px solid #1f2733;
+    border-radius: 14px;
+    padding: 18px;
+  }
+  .tile h2 {
+    font-size: 13px;
+    color: #fff;
+    font-weight: 600;
+    margin-bottom: 12px;
+  }
+  canvas {
+    display: block;
+    width: 100%;
+    height: 420px;
+    border-radius: 10px;
+    background: #d6cdb7;
+  }
+  .caption { margin-top: 10px; font-size: 12.5px; color: #8a93a3; line-height: 1.4; }
+</style>
+</head>
+<body>
+
+<h1>B44 Final Hole — preview before code</h1>
+<div class="sub">
+  This is the exact design the Swift code will produce. <b>Lit white plastic cup wall</b>, gold
+  rim with an inner antique-gold bevel, soft contact shadow around the outside, dark recessed
+  bottom, matte-black flagstick (catches a tiny key-light highlight), red triangle flag. Same
+  geometry as B40 (10.8 cm × 8 cm cup, 70 cm pole) — only materials and lighting change.
+  Gemini scored the 35° stance angle 10/10.
+</div>
+
+<div class="grid">
+  <div class="tile">
+    <h2>1. Putting stance — 35° (Gemini 10/10)</h2>
+    <canvas id="v1"></canvas>
+    <div class="caption">Typical phone-aim angle. The lit white wall + rim shadow create the natural top→bottom depth gradient inside the cup.</div>
+  </div>
+  <div class="tile">
+    <h2>2. Top-down — overhead</h2>
+    <canvas id="v2"></canvas>
+    <div class="caption">Bird's-eye. Gold halo + dark recessed interior + flagstick at centre. Cup mouth clearly an opening.</div>
+  </div>
+  <div class="tile">
+    <h2>3. Close-up — 20°</h2>
+    <canvas id="v3"></canvas>
+    <div class="caption">Inspecting the cup. Inner bevel and wall mould lines visible. Strong contrast inside.</div>
+  </div>
+  <div class="tile">
+    <h2>4. Low grazing — 8°</h2>
+    <canvas id="v4"></canvas>
+    <div class="caption">Almost flat to the floor. Profile of the gold rim + flagstick rising out + long key-light shadow.</div>
+  </div>
+</div>
+
+<script type="importmap">
+{ "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js" } }
+</script>
+<script type="module">
+import * as THREE from 'three';
+
+const HOLE_DIA = 0.10795;
+const HOLE_DEPTH = 0.08;
+const RIM_OUTER = HOLE_DIA * 1.20;
+const POLE_DIA = 0.015;
+const POLE_HEIGHT = 0.70;
+const FLAG_W = 0.15;
+const FLAG_H = 0.10;
+
+function floorTex() {
+  const c = document.createElement('canvas'); c.width=c.height=512;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#d6cdb7'; ctx.fillRect(0,0,512,512);
+  ctx.strokeStyle = 'rgba(140,120,90,0.35)'; ctx.lineWidth = 1;
+  for (let y=0; y<512; y+=28) { ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(512,y); ctx.stroke(); }
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.repeat.set(4,4);
+  return t;
+}
+function wallTex() {
+  const c = document.createElement('canvas'); c.width=256; c.height=256;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#f4f4f4'; ctx.fillRect(0,0,256,256);
+  ctx.strokeStyle = 'rgba(160,160,160,0.18)'; ctx.lineWidth = 2;
+  for (let x = 16; x < 256; x += 32) {
+    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, 256); ctx.stroke();
+  }
+  for (let i = 0; i < 600; i++) {
+    ctx.fillStyle = `rgba(0,0,0,${Math.random()*0.04})`;
+    ctx.fillRect(Math.random()*256, Math.random()*256, 1, 1);
+  }
+  return new THREE.CanvasTexture(c);
+}
+
+function buildScene() {
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0xb0a890);
+
+  // Tight directional lighting per v7 (Gemini 10/10).
+  scene.add(new THREE.HemisphereLight(0xffffff, 0xbfb38f, 0.25));
+  const key = new THREE.DirectionalLight(0xffffff, 3.2);
+  key.position.set(-1.5, 4.0, 1.5);
+  key.castShadow = true;
+  key.shadow.mapSize.width = 4096;
+  key.shadow.mapSize.height = 4096;
+  key.shadow.camera.near = 0.001;
+  key.shadow.camera.far = 8;
+  key.shadow.camera.left = -0.25;
+  key.shadow.camera.right = 0.25;
+  key.shadow.camera.top = 0.25;
+  key.shadow.camera.bottom = -0.25;
+  key.shadow.bias = -0.00005;
+  scene.add(key);
+  scene.add(new THREE.DirectionalLight(0xfff0d0, 0.18).position.set(-1, 2, -1));
+
+  // Floor with cup-shaped hole (camera sees through to dark interior)
+  const floorShape = new THREE.Shape();
+  floorShape.moveTo(-5, -5); floorShape.lineTo(5, -5);
+  floorShape.lineTo(5, 5); floorShape.lineTo(-5, 5); floorShape.lineTo(-5, -5);
+  const holePath = new THREE.Path();
+  holePath.absarc(0, 0, HOLE_DIA/2 * 0.99, 0, Math.PI * 2, true);
+  floorShape.holes.push(holePath);
+  const floorGeo = new THREE.ShapeGeometry(floorShape).rotateX(-Math.PI/2);
+  const uvs = floorGeo.attributes.uv;
+  for (let i = 0; i < uvs.count; i++) {
+    const x = floorGeo.attributes.position.getX(i);
+    const z = floorGeo.attributes.position.getZ(i);
+    uvs.setXY(i, (x + 5) / 10, (z + 5) / 10);
+  }
+  const floor = new THREE.Mesh(floorGeo, new THREE.MeshStandardMaterial({ map: floorTex(), roughness: 0.85 }));
+  floor.receiveShadow = true;
+  scene.add(floor);
+
+  // Gold rim — main bright polished
+  const rim = new THREE.Mesh(
+    new THREE.RingGeometry(HOLE_DIA/2 * 1.02, RIM_OUTER/2, 96).rotateX(-Math.PI/2),
+    new THREE.MeshStandardMaterial({ color: 0xd4a847, roughness: 0.25, metalness: 0.95, side: THREE.DoubleSide })
+  );
+  rim.position.y = 0.0012; rim.castShadow = true; rim.receiveShadow = true;
+  scene.add(rim);
+
+  // Inner bevel — darker antique gold edge
+  const bevel = new THREE.Mesh(
+    new THREE.RingGeometry(HOLE_DIA/2, HOLE_DIA/2 * 1.04, 96).rotateX(-Math.PI/2),
+    new THREE.MeshStandardMaterial({ color: 0x8a6020, roughness: 0.45, metalness: 0.9, side: THREE.DoubleSide })
+  );
+  bevel.position.y = 0.0010; bevel.receiveShadow = true;
+  scene.add(bevel);
+
+  // Contact shadow — seats cup into floor
+  const contactShadow = new THREE.Mesh(
+    new THREE.RingGeometry(RIM_OUTER/2, RIM_OUTER/2 * 1.18, 96).rotateX(-Math.PI/2),
+    new THREE.MeshBasicMaterial({ color: 0, transparent: true, opacity: 0.18, side: THREE.DoubleSide, depthWrite: false })
+  );
+  contactShadow.position.y = 0.0008;
+  scene.add(contactShadow);
+
+  // Cup wall — lit white plastic with mould lines
+  const wall = new THREE.Mesh(
+    new THREE.CylinderGeometry(HOLE_DIA/2 * 0.99, HOLE_DIA/2 * 0.99, HOLE_DEPTH, 96, 1, true),
+    new THREE.MeshStandardMaterial({ map: wallTex(), color: 0xf4f4f4, side: THREE.DoubleSide, roughness: 0.85, metalness: 0 })
+  );
+  wall.position.y = -HOLE_DEPTH/2; wall.receiveShadow = true;
+  scene.add(wall);
+
+  // Dark bottom
+  const bottom = new THREE.Mesh(
+    new THREE.CircleGeometry(HOLE_DIA/2 * 0.98, 64).rotateX(-Math.PI/2),
+    new THREE.MeshStandardMaterial({ color: 0x1a1410, roughness: 1.0 })
+  );
+  bottom.position.y = -HOLE_DEPTH + 0.0008; bottom.receiveShadow = true;
+  scene.add(bottom);
+
+  // Matte black flagstick (catches subtle key light)
+  const pole = new THREE.Mesh(
+    new THREE.CylinderGeometry(POLE_DIA/2, POLE_DIA/2, POLE_HEIGHT, 32),
+    new THREE.MeshStandardMaterial({ color: 0x1e1a1a, roughness: 0.55, metalness: 0.25 })
+  );
+  pole.position.y = POLE_HEIGHT/2; pole.castShadow = true;
+  scene.add(pole);
+
+  // Gold ferrule wrapping pole base
+  const ferrule = new THREE.Mesh(
+    new THREE.CylinderGeometry(POLE_DIA*0.85, POLE_DIA*0.85, 0.022, 16),
+    new THREE.MeshStandardMaterial({ color: 0xd4a847, roughness: 0.3, metalness: 0.95 })
+  );
+  ferrule.position.y = 0.017; ferrule.castShadow = true;
+  scene.add(ferrule);
+
+  // Red triangle flag
+  const flagGeo = new THREE.BufferGeometry();
+  const v = new Float32Array([
+    POLE_DIA/2, 0, 0,
+    POLE_DIA/2, FLAG_H, 0,
+    POLE_DIA/2 + FLAG_W, FLAG_H/2, 0
+  ]);
+  flagGeo.setAttribute('position', new THREE.BufferAttribute(v, 3));
+  flagGeo.setIndex([0,2,1,0,1,2]);
+  flagGeo.computeVertexNormals();
+  const flag = new THREE.Mesh(flagGeo, new THREE.MeshStandardMaterial({ color: 0xd61a1a, side: THREE.DoubleSide, roughness: 0.7 }));
+  flag.position.y = POLE_HEIGHT - FLAG_H - 0.02;
+  scene.add(flag);
+
+  return scene;
+}
+
+function render(canvasId, view) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+  const w = canvas.clientWidth || 580, h = canvas.clientHeight || 420;
+  canvas.width = w*2; canvas.height = h*2;
+  const off = document.createElement('canvas');
+  off.width = w*2; off.height = h*2;
+  const renderer = new THREE.WebGLRenderer({ canvas: off, antialias: true, preserveDrawingBuffer: true });
+  renderer.setSize(w, h, false);
+  renderer.setPixelRatio(2);
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+
+  const scene = buildScene();
+  const cam = new THREE.PerspectiveCamera(45, w/h, 0.001, 50);
+  cam.position.set(view.cam.x, view.cam.y, view.cam.z);
+  cam.lookAt(view.look.x, view.look.y, view.look.z);
+  renderer.render(scene, cam);
+  canvas.getContext('2d').drawImage(off, 0, 0, canvas.width, canvas.height);
+  renderer.dispose(); renderer.forceContextLoss();
+}
+
+window.addEventListener('load', () => {
+  setTimeout(() => {
+    render('v1', { cam: {x:0, y:0.30, z:0.30}, look: {x:0, y:0.12, z:0} });    // 35° stance
+    render('v2', { cam: {x:0, y:0.20, z:0.001}, look: {x:0, y:0, z:0} });        // top-down
+    render('v3', { cam: {x:0, y:0.13, z:0.20}, look: {x:0, y:-0.03, z:0} });    // 20° close-up
+    render('v4', { cam: {x:0.05, y:0.06, z:0.32}, look: {x:0, y:0.05, z:0} });   // 8° low
+  }, 150);
+});
+</script>
+
+</body>
+</html>
