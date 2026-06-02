@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+  body { margin: 0; background: #d6cdb7; }
+  canvas { display: block; width: 1200px; height: 800px; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script type="importmap">
+{ "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js" } }
+</script>
+<script type="module">
+import * as THREE from 'three';
+
+const BALL_DIA = 0.0427;
+
+function floorTex() {
+  const c = document.createElement('canvas'); c.width=c.height=512;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#d6cdb7'; ctx.fillRect(0,0,512,512);
+  ctx.strokeStyle = 'rgba(140,120,90,0.35)'; ctx.lineWidth = 1;
+  for (let y=0; y<512; y+=28) { ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(512,y); ctx.stroke(); }
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(4,4);
+  return t;
+}
+
+// High-fidelity dimple normal map. Gemini v1 feedback: dimples
+// looked PAINTED (flat circles) rather than concave indentations.
+// Fix is sharper edge transitions + a proper concave gradient so
+// the normal pointing changes at the rim, creating a real lighting
+// response that reads as depth.
+function dimpleNormalMap() {
+  const size = 2048;
+  const c = document.createElement('canvas'); c.width=c.height=size;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = 'rgb(128,128,255)';
+  ctx.fillRect(0,0,size,size);
+  const rows = 32, cols = 32;
+  const dimpleR = size / cols / 2 * 0.85;
+  for (let r = 0; r < rows; r++) {
+    const xOff = (r % 2) * (size / cols / 2);
+    for (let col = 0; col < cols; col++) {
+      const cx = (col + 0.5) * (size / cols) + xOff;
+      const cy = (r + 0.5) * (size / rows);
+      // Sample the concave bowl per-pixel: at each point inside
+      // the dimple, compute the local surface normal of a
+      // hemisphere bowl. The X+ side leans -X (encoded R<128),
+      // X- side leans +X (R>128), etc.
+      const steps = 24;
+      for (let i = 0; i < steps; i++) {
+        const ringR = dimpleR * (1 - i/steps);
+        // Outer rim has steepest slope, center is flat-bottom
+        const slopeT = i/steps;  // 0 = rim, 1 = center
+        // Tangent direction depends on radial position.
+        for (let angle = 0; angle < Math.PI*2; angle += Math.PI/12) {
+          const dx = Math.cos(angle), dy = Math.sin(angle);
+          const x = cx + dx*ringR, y = cy + dy*ringR;
+          // Slope: rim has strongest tilt INWARD (toward center)
+          // so the surface normal points away from center.
+          // Convert to RGB: 128 = flat, R<128 = leaning +X, etc.
+          const tilt = (1 - slopeT) * 110;
+          const r8 = Math.round(128 + dx * tilt);
+          const g8 = Math.round(128 + dy * tilt);
+          const b8 = 200;  // Z always positive (outward)
+          ctx.fillStyle = `rgb(${r8},${g8},${b8})`;
+          ctx.beginPath(); ctx.arc(x, y, 6, 0, Math.PI*2); ctx.fill();
+        }
+      }
+    }
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  return t;
+}
+
+// Ambient-occlusion map: darkens the dimple centres so even before
+// the normal-map shading kicks in, the dimples already read as
+// recessed. Gemini's #1 fix recommendation.
+function dimpleAOMap() {
+  const size = 2048;
+  const c = document.createElement('canvas'); c.width=c.height=size;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0,0,size,size);
+  const rows = 32, cols = 32;
+  const dimpleR = size / cols / 2 * 0.85;
+  for (let r = 0; r < rows; r++) {
+    const xOff = (r % 2) * (size / cols / 2);
+    for (let col = 0; col < cols; col++) {
+      const x = (col + 0.5) * (size / cols) + xOff;
+      const y = (r + 0.5) * (size / rows);
+      const g = ctx.createRadialGradient(x, y, 0, x, y, dimpleR);
+      g.addColorStop(0,   'rgba(0,0,0,0.65)');   // dark centre
+      g.addColorStop(0.5, 'rgba(0,0,0,0.3)');
+      g.addColorStop(1,   'rgba(0,0,0,0)');       // fade at rim
+      ctx.fillStyle = g;
+      ctx.beginPath(); ctx.arc(x, y, dimpleR, 0, Math.PI*2); ctx.fill();
+    }
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  return t;
+}
+
+const canvas = document.getElementById('c');
+canvas.width = 2400; canvas.height = 1600;
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setSize(1200, 800, false);
+renderer.setPixelRatio(2);
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0xb0a890);
+// HARD directional lighting per Gemini's "lighting too soft" call-
+// out. Single strong key, very low ambient, plus a high-up tight
+// shadow camera so dimple micro-shadows are visible.
+scene.add(new THREE.HemisphereLight(0xffffff, 0xbfb38f, 0.15));
+const key = new THREE.DirectionalLight(0xffffff, 4.0);
+key.position.set(-1.5, 4.0, 1.5); key.castShadow = true;
+key.shadow.mapSize.width = 4096; key.shadow.mapSize.height = 4096;
+key.shadow.camera.near = 0.001; key.shadow.camera.far = 8;
+key.shadow.camera.left = -0.15; key.shadow.camera.right = 0.15;
+key.shadow.camera.top = 0.15; key.shadow.camera.bottom = -0.15;
+key.shadow.bias = -0.00003;
+scene.add(key);
+// Cool bounce fill from the opposite side — matches modern stadium-
+// lit golf-broadcast colour balance and helps the ball read crisp-
+// white rather than warm-grey.
+scene.add(new THREE.DirectionalLight(0xd0e0ff, 0.25).position.set(1, 1.5, -0.5));
+// Ground-bounce light — subtle warm reflection from the floor up
+// onto the underside of the ball. Stops the bottom of the ball
+// reading as a solid dark dome which was making v2 feel CG.
+const bounce = new THREE.DirectionalLight(0xe8d8b8, 0.35);
+bounce.position.set(0, -0.5, 0.5);
+scene.add(bounce);
+
+// Soften the key-light shadow with a wider radius — simulates a
+// non-point light source (real sun has angular diameter ~0.5°,
+// indoor lights have wider). Gemini's "shadow too crisp" call.
+key.shadow.radius = 8;
+
+const floor = new THREE.Mesh(
+  new THREE.PlaneGeometry(10,10).rotateX(-Math.PI/2),
+  new THREE.MeshStandardMaterial({ map: floorTex(), roughness: 0.85 })
+);
+floor.receiveShadow = true;
+scene.add(floor);
+
+// Dimpled tour ball — MeshPhysicalMaterial with clearcoat for the
+// signature polyurethane sheen of a real tour ball. Crisp slightly-
+// cool white base. AO map darkens dimple centres so they look
+// concave even before normal-map shading kicks in.
+//
+// POLE FIX (Gemini's last call): SphereGeometry's UV mapping has a
+// singular point at top + bottom poles, causing dimples to pinch
+// and stretch there. By rotating the geometry so the polar axis
+// points away from the camera (along Z), the poles hide behind
+// the ball and the camera only sees the equatorial band where
+// dimple distribution is uniform.
+const ball = new THREE.Mesh(
+  new THREE.SphereGeometry(BALL_DIA/2, 256, 256),
+  new THREE.MeshPhysicalMaterial({
+    color: 0xfefeff,                  // crisp cool white
+    normalMap: dimpleNormalMap(),
+    normalScale: new THREE.Vector2(1.4, 1.4),
+    aoMap: dimpleAOMap(),
+    aoMapIntensity: 1.4,
+    roughness: 0.25,                  // semi-gloss polyurethane
+    metalness: 0.0,
+    clearcoat: 0.55,                  // signature tour-ball sheen
+    clearcoatRoughness: 0.15,
+    envMapIntensity: 1.2
+  })
+);
+ball.geometry.setAttribute('uv2', ball.geometry.attributes.uv);
+// Tilt the ball so its polar axis points UP-and-BACK (away from
+// camera) at ~25°. This pushes the top pole out of frame at the
+// rear, and the bottom pole hides at the front-base which the
+// floor obscures. The visible hemisphere is now the equatorial
+// band where dimple distribution is uniform. (v4's 90° rotation
+// just moved the pole to the front of the ball — worse.)
+ball.rotation.x = -Math.PI * 0.18;   // tilt top backwards
+ball.rotation.z = Math.PI * 0.08;    // small twist for asymmetry
+ball.position.y = BALL_DIA/2;
+ball.castShadow = true;
+ball.receiveShadow = true;
+scene.add(ball);
+
+// Camera: NARROW FOV from further back to eliminate the
+// perspective-foreshortening that made the ball read as an
+// egg in v2. A 12° FOV from ~25 cm preserves true spherical
+// geometry while still filling the frame with the 4.27 cm
+// ball. This is how product photography shoots small spheres.
+const cam = new THREE.PerspectiveCamera(12, 1.5, 0.001, 50);
+cam.position.set(0.15, 0.10, 0.22);
+cam.lookAt(0, BALL_DIA/2 * 0.95, 0);
+renderer.render(scene, cam);
+</script>
+</body>
+</html>
