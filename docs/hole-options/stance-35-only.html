@@ -34,13 +34,26 @@ function floorTex() {
   return t;
 }
 function wallTex() {
-  const c = document.createElement('canvas'); c.width=4; c.height=256;
+  // Subtle vertical cup-liner mould-line detail — real plastic
+  // golf cups have ~6 mm seam lines from the moulding process.
+  // We add very faint vertical bands so the wall looks like
+  // actual plastic instead of a flat white surface, without
+  // overpowering the natural light gradient.
+  const c = document.createElement('canvas'); c.width=256; c.height=256;
   const ctx = c.getContext('2d');
-  const g = ctx.createLinearGradient(0,0,0,256);
-  g.addColorStop(0,'#f5f5f5'); g.addColorStop(0.25,'#c8c8c8');
-  g.addColorStop(0.55,'#6a6464'); g.addColorStop(0.85,'#1f1a16');
-  g.addColorStop(1,'#0a0805');
-  ctx.fillStyle = g; ctx.fillRect(0,0,4,256);
+  ctx.fillStyle = '#f4f4f4';
+  ctx.fillRect(0,0,256,256);
+  // 8 evenly-spaced subtle vertical mould lines
+  ctx.strokeStyle = 'rgba(160,160,160,0.18)';
+  ctx.lineWidth = 2;
+  for (let x = 16; x < 256; x += 32) {
+    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, 256); ctx.stroke();
+  }
+  // Tiny noise for plastic realism
+  for (let i = 0; i < 600; i++) {
+    ctx.fillStyle = `rgba(0,0,0,${Math.random()*0.04})`;
+    ctx.fillRect(Math.random()*256, Math.random()*256, 1, 1);
+  }
   return new THREE.CanvasTexture(c);
 }
 
@@ -56,17 +69,27 @@ renderer.toneMapping = THREE.ACESFilmicToneMapping;
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0xb0a890);
-scene.add(new THREE.HemisphereLight(0xffffff, 0xbfb38f, 0.6));
-// Stronger key from upper-left so the cup interior catches a
-// clear lit/shadow asymmetry — bright on the far wall, dark on
-// the near wall. This is the depth cue Gemini said was missing.
-const key = new THREE.DirectionalLight(0xffffff, 2.0);
+// LIGHTING for 10/10 cup-interior realism per Gemini's last note.
+// The key idea: the SAME hard directional light that creates the
+// flagstick's sharp floor shadow must penetrate the cup and
+// create equally hard inside-wall shadows. This means:
+//   (1) hemisphere/ambient light is REDUCED — was washing out
+//       the interior contrast by filling shadow zones with soft
+//       sky light
+//   (2) directional KEY light is STRONGER — pumps brightness
+//       into the lit-side wall and produces deeper shadow on
+//       the opposite wall
+//   (3) shadow map camera tightly focused on the cup region so
+//       the rim's projected shadow lands sharply on the inside
+//       wall instead of being diffused across a large footprint
+scene.add(new THREE.HemisphereLight(0xffffff, 0xbfb38f, 0.25));
+const key = new THREE.DirectionalLight(0xffffff, 3.2);
 key.position.set(-1.5, 4.0, 1.5); key.castShadow = true;
 key.shadow.mapSize.width = 4096; key.shadow.mapSize.height = 4096;
 key.shadow.camera.near = 0.001; key.shadow.camera.far = 8;
-key.shadow.camera.left = -0.5; key.shadow.camera.right = 0.5;
-key.shadow.camera.top = 0.5; key.shadow.camera.bottom = -0.5;
-key.shadow.bias = -0.0001;
+key.shadow.camera.left = -0.25; key.shadow.camera.right = 0.25;
+key.shadow.camera.top = 0.25; key.shadow.camera.bottom = -0.25;
+key.shadow.bias = -0.00005;
 scene.add(key);
 
 // Floor with a circular HOLE cut at the cup centre so the camera
@@ -98,17 +121,55 @@ const floor = new THREE.Mesh(
 floor.receiveShadow = true;
 scene.add(floor);
 
-// Gold rim — castsShadow so it can darken the inside of the cup
-// (creates the natural top→bottom gradient on a white wall, which
-// is what a real golf-cup interior looks like).
+// Gold rim — two-piece for a realistic physical bevel:
+//   (a) MAIN GOLD RING — bright polished gold metal, the
+//       reflective top face
+//   (b) INNER BEVEL — slightly darker antique-gold edge facing
+//       INTO the cup, where the metal piece angles down
+// This sells the rim as a real machined gold collar instead of
+// a printed gold disc.
 const rim = new THREE.Mesh(
-  new THREE.RingGeometry(HOLE_DIA/2, RIM_OUTER/2, 96).rotateX(-Math.PI/2),
-  new THREE.MeshStandardMaterial({ color: 0xd4a847, roughness: 0.28, metalness: 0.95, side: THREE.DoubleSide })
+  new THREE.RingGeometry(HOLE_DIA/2 * 1.02, RIM_OUTER/2, 96).rotateX(-Math.PI/2),
+  new THREE.MeshStandardMaterial({ color: 0xd4a847, roughness: 0.25, metalness: 0.95, side: THREE.DoubleSide })
 );
 rim.position.y = 0.0012;
 rim.receiveShadow = true;
 rim.castShadow = true;
 scene.add(rim);
+
+// Inner bevel — darker antique gold ring at the rim's inner
+// edge. Reads as the chamfered metal edge meeting the cup.
+const bevel = new THREE.Mesh(
+  new THREE.RingGeometry(HOLE_DIA/2, HOLE_DIA/2 * 1.04, 96).rotateX(-Math.PI/2),
+  new THREE.MeshStandardMaterial({
+    color: 0x8a6020,         // darker brass / antique gold
+    roughness: 0.45,
+    metalness: 0.9,
+    side: THREE.DoubleSide
+  })
+);
+bevel.position.y = 0.0010;
+bevel.receiveShadow = true;
+scene.add(bevel);
+
+// CONTACT SHADOW — soft thin dark ring on the floor immediately
+// OUTSIDE the rim. Sells "this gold collar is embedded INTO the
+// floor" instead of "this gold ring is sitting ON the floor".
+// Gemini's prior 9/10 review called this out as the #1
+// remaining gap (after the floor texture, which doesn't apply
+// in real AR).
+const contactShadow = new THREE.Mesh(
+  new THREE.RingGeometry(RIM_OUTER/2, RIM_OUTER/2 * 1.18, 96).rotateX(-Math.PI/2),
+  new THREE.MeshBasicMaterial({
+    color: 0x000000,
+    transparent: true,
+    opacity: 0.18,
+    side: THREE.DoubleSide,
+    depthWrite: false
+  })
+);
+contactShadow.position.y = 0.0008;
+scene.add(contactShadow);
 
 // Cup wall — WHITE PhysicallyBasedMaterial. James's feedback:
 // real golf cups have white plastic liners, not dark interiors.
@@ -123,7 +184,8 @@ scene.add(rim);
 const wall = new THREE.Mesh(
   new THREE.CylinderGeometry(HOLE_DIA/2 * 0.99, HOLE_DIA/2 * 0.99, HOLE_DEPTH, 96, 1, true),
   new THREE.MeshStandardMaterial({
-    color: 0xf2f2f2,        // near-white plastic
+    map: wallTex(),         // subtle mould-line texture
+    color: 0xf4f4f4,        // tinted white plastic
     side: THREE.DoubleSide,
     roughness: 0.85,
     metalness: 0.0
@@ -154,12 +216,22 @@ const ao = new THREE.Mesh(
 ao.position.y = 0.0014;
 scene.add(ao);
 
-// Black flagstick
+// Matte black flagstick — Gemini's final note: pure 0x121212
+// reads as "an unlit pole / 2D element" because real matte black
+// still catches a subtle highlight from a strong directional
+// light. Bumped colour slightly off pure black (0x1e1a1a) +
+// lower metalness + medium roughness so the side facing the
+// key light gets a faint sheen, giving the pole 3D form.
 const pole = new THREE.Mesh(
-  new THREE.CylinderGeometry(POLE_DIA/2, POLE_DIA/2, POLE_HEIGHT, 16),
-  new THREE.MeshStandardMaterial({ color: 0x121212, roughness: 0.45, metalness: 0.6 })
+  new THREE.CylinderGeometry(POLE_DIA/2, POLE_DIA/2, POLE_HEIGHT, 32),
+  new THREE.MeshStandardMaterial({
+    color: 0x1e1a1a,
+    roughness: 0.55,
+    metalness: 0.25
+  })
 );
-pole.position.y = POLE_HEIGHT/2; pole.castShadow = true;
+pole.position.y = POLE_HEIGHT/2;
+pole.castShadow = true;
 scene.add(pole);
 
 // Gold ferrule
@@ -183,7 +255,13 @@ const flag = new THREE.Mesh(
   flagGeo,
   new THREE.MeshStandardMaterial({ color: 0xd61a1a, side: THREE.DoubleSide, roughness: 0.7 })
 );
-flag.position.y = POLE_HEIGHT - FLAG_H - 0.02; flag.castShadow = true;
+flag.position.y = POLE_HEIGHT - FLAG_H - 0.02;
+// Disable flag shadow casting — the flag's triangle silhouette
+// was previously merging with the pole's shadow into one weird
+// arrowhead shape. A clean rectangular pole shadow reads more
+// physically correct, and the flag isn't tall enough to need a
+// separate shadow at this scale.
+flag.castShadow = false;
 scene.add(flag);
 
 // EXACTLY the 35° putting-stance angle
