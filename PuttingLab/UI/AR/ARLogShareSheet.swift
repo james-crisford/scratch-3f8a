@@ -26,10 +26,15 @@ enum ARLogExport {
     static func collectAllLogURLs() async -> [URL] {
         let jsons  = await collect(dirName: "ARSessionLogs", ext: "json")
         let mp4s   = await collect(dirName: "ARSessionRecordings", ext: "mp4")
-        // B32: extracted key-frame JPGs sit in the same recordings
-        // dir as the MP4 with the sessionId stem. Bundle them too.
-        let frames = await collect(dirName: "ARSessionRecordings", ext: "jpg")
-        return jsons + mp4s + frames
+        // B39 dropped on-device JPG key-frame extraction now that
+        // Gemini 2.5 Pro reads the MP4 natively at 30-60 fps — the
+        // 1 Hz JPG snapshots it produced were strictly worse than
+        // the live video. Pre-B39 builds may still have leftover
+        // frames in the recordings dir; we intentionally do NOT
+        // bundle them so the export stays lean. If a user wants
+        // them, they're still in Documents/ARSessionRecordings/
+        // via Files-app.
+        return jsons + mp4s
     }
 
     private static func collect(dirName: String, ext: String) async -> [URL] {

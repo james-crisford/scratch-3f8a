@@ -475,30 +475,25 @@ struct ARPlacementView: View {
         if FileManager.default.fileExists(atPath: mp4URL.path) {
             urls.append(mp4URL)
         }
-        // B32: pull every key-frame JPG matching this sessionId stem.
-        // The extractor names them `<stem>-frame-NNN-<kind>-<time>.jpg`
-        // so a simple prefix filter catches them all without a
-        // sessionId-scoped subdirectory.
-        if let items = try? FileManager.default.contentsOfDirectory(
-            at: recordingsDir,
-            includingPropertiesForKeys: nil,
-            options: [.skipsHiddenFiles]
-        ) {
-            let prefix = "\(stem)-frame-"
-            let frames = items
-                .filter { $0.lastPathComponent.hasPrefix(prefix) && $0.pathExtension == "jpg" }
-                .sorted { $0.lastPathComponent < $1.lastPathComponent }
-            urls.append(contentsOf: frames)
-        }
+        // B39 dropped JPG bundling — Gemini reads the MP4 directly,
+        // no need for the snapshot bundle. See ARLogShareSheet.swift
+        // for the reasoning.
         return urls
     }
 
     /// Stop the recorder and await the MP4 write so the file exists
-    /// before the Share Sheet's directory scan runs. Once the MP4 is
-    /// on disk we kick off key-frame extraction (B32) so the bundle
-    /// includes JPG stills at every meaningful moment + a 1 Hz
-    /// periodic tick — the multimodal reviewer (Claude) can ingest
-    /// the JPGs directly without local video tooling.
+    /// before the Share Sheet's directory scan runs.
+    ///
+    /// B39 removes the on-device key-frame extraction that B32
+    /// added. The reasoning: the offline-reviewer pipeline now uses
+    /// Gemini 2.5 Pro's native video understanding (gemini_video.py)
+    /// which reads the MP4 at 30-60 fps directly — strictly better
+    /// than the 1 Hz JPG snapshots the extractor was producing.
+    /// Keeping the extractor was just wasting battery + storage and
+    /// bloating the Send bundle with redundant frames. The
+    /// `extractKeyFrames(...)` static function stays in the
+    /// ARScreenRecorder source in case a future offline-without-API
+    /// flow needs it; we just don't call it from the live Send path.
     private func stopRecordingAsync() async {
         let savedURL: URL? = await withCheckedContinuation { (cont: CheckedContinuation<URL?, Never>) in
             recorder.stop { url in
@@ -509,21 +504,7 @@ struct ARPlacementView: View {
                 cont.resume(returning: url)
             }
         }
-        guard let mp4URL = savedURL else { return }
-        // Snapshot the events array on MainActor before fanning out
-        // to the background extractor — Event is Sendable, the array
-        // copy is safe to send across the actor boundary.
-        let snapshot = logger.events
-        let started = logger.startedAt
-        logger.log(.note, "Key-frame extraction started")
-        await ARScreenRecorder.extractKeyFrames(
-            mp4URL: mp4URL,
-            sessionStartedAt: started,
-            events: snapshot
-        )
-        logger.log(.note, "Key-frame extraction complete")
-        // Flush the new .note events so the JSON the Share Sheet
-        // grabs records that the JPGs exist.
+        guard savedURL != nil else { return }
         await logger.saveSnapshotAndWait()
     }
 
