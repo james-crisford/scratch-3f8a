@@ -1052,87 +1052,164 @@ final class ARPlacementScene {
         guard let arView else { return }
         holeAnchor?.removeFromParent()
 
-        // Real golf-cup composite. The B34 version sat the white rim
-        // FLAT at plane level which still read as a sticker from any
-        // angle. James's reference photos (three real cups, top-down
-        // and angled) show the white plastic rim is RAISED proud of
-        // the grass with a visible cylindrical side wall. That
-        // visible side wall is the dominant "this is a 3D hole"
-        // signal. B35 fixes the rim height and adds a tube interior
-        // to suggest depth.
+        // Real golf-cup composite — B36 rebuild based on James's
+        // direct feedback on the reference photos:
         //
-        //   [1] White rim CYLINDER — raised 6 mm above the plane.
-        //       The cylindrical side is what reads as "real cup".
-        //       Top face is the visible white annulus from above.
-        //   [2] Dark inner cylinder — sits INSIDE the rim, 5 mm
-        //       narrower in diameter so the rim's wall is visible
-        //       from above as a thick white ring. Extends DOWN below
-        //       the plane to give the apparent depth.
-        //   [3] Bottom disc — dark plate at the bottom of the well,
-        //       inset from the inner cylinder's diameter so the
-        //       looker sees concentric circles (rim → inner wall →
-        //       bottom).
+        //  1. "nothing is raised above the ground apart from the flag"
+        //     → the cup rim is FLUSH at plane level, not raised.
+        //     The flagstick is the only thing that rises.
+        //  2. "where are you getting black from the hole" → real
+        //     cup interiors are dark gray / brown shadow, not pure
+        //     black. The black look in photos comes from contrast
+        //     with bright grass, not the underlying material.
+        //
+        // Layers (all centred on the anchor):
+        //
+        //   [1] White rim disc — flat at plane level, ≈ 12.9 cm dia.
+        //       Roughness high so it reads as plastic, not chrome.
+        //       Provides the unambiguous white halo of a regulation
+        //       cup.
+        //   [2] Dark interior disc — flat at plane level (1 mm above
+        //       white rim to avoid z-fight), 10.8 cm dia. Dark warm
+        //       gray (not pure black) so it reads as the shadowed
+        //       cup interior rather than a void.
+        //   [3] Recessed bottom disc — 10 cm below the plane,
+        //       slightly inset diameter, a touch darker than the
+        //       interior. Without occlusion this isn't really
+        //       visible to the user (no top opening), but it
+        //       anchors the perceived depth in the JSON for
+        //       physics + carries any future depth-cue rendering.
+        //   [4] Flagstick — thin white pole rising 70 cm out of
+        //       the centre of the cup. This is the dominant "I am
+        //       a golf hole" visual cue from any distance.
+        //   [5] Flag — small red rectangle near the top of the
+        //       flagstick, on the +X side. Standard golf flag.
 
         let dia = Self.holeDiameter
         let depth = Self.holeDepth
-        let rimOuter = dia * 1.20                        // ≈ 12.9 cm — wider white halo
-        let rimHeight: Float = 0.006                     // 6 mm — RAISED above plane
-        let rimWallThickness: Float = 0.012              // 12 mm — visible rim wall thickness
-        let innerDia = dia - rimWallThickness * 2        // ≈ 8.4 cm — visible inner opening
-        let innerDepth = depth + 0.02                    // 10 cm — deeper inner well
+        let rimOuter = dia * 1.20                        // ≈ 12.9 cm — white halo
+        let innerInset: Float = 0.0                      // hole opening = full dia
+        let bottomInset: Float = 0.008                   // bottom slightly inset for nesting
 
         let anchor = AnchorEntity(world: worldPosition)
 
-        // [1] WHITE RIM CYLINDER — corner-radius box of the outer rim
-        //     diameter, RAISED above the plane. Position at +rimHeight/2
-        //     so the bottom face sits on the plane and the top face
-        //     is rimHeight above it. The visible cylindrical side
-        //     wall is what carries the 3D "real cup" reading.
-        let rimMesh = MeshResource.generateBox(width: rimOuter,
-                                                 height: rimHeight,
-                                                 depth: rimOuter,
-                                                 cornerRadius: rimOuter / 2)
-        // White-ish plastic — slightly off-white so it doesn't blow out
-        // bright lighting; reasonably rough so it reads as plastic
-        // not chrome.
-        let rimMaterial = SimpleMaterial(color: UIColor(white: 0.93, alpha: 1.0),
+        // [1] FLUSH WHITE RIM — flat plane mesh at plane level. Sits
+        //     0.5 mm above the floor plane to avoid z-fighting with
+        //     the green plane overlay.
+        let rimMesh = MeshResource.generatePlane(width: rimOuter,
+                                                  depth: rimOuter,
+                                                  cornerRadius: rimOuter / 2)
+        let rimMaterial = SimpleMaterial(color: UIColor(white: 0.92, alpha: 1.0),
                                           roughness: 0.55,
                                           isMetallic: false)
         let rimModel = ModelEntity(mesh: rimMesh, materials: [rimMaterial])
-        rimModel.position = SIMD3<Float>(0, rimHeight / 2, 0)
+        rimModel.position = SIMD3<Float>(0, 0.0005, 0)
         anchor.addChild(rimModel)
 
-        // [2] DARK INNER CYLINDER — narrower than the rim so the rim
-        //     wall is visible. Top starts INSIDE the rim (just below
-        //     rim top) and extends DOWN past the plane to provide
-        //     apparent depth.
-        let innerMesh = MeshResource.generateBox(width: innerDia,
-                                                   height: innerDepth,
-                                                   depth: innerDia,
-                                                   cornerRadius: innerDia / 2)
-        let innerMaterial = SimpleMaterial(color: UIColor(white: 0.04, alpha: 1.0),
-                                             roughness: 0.98,
-                                             isMetallic: false)
-        let innerModel = ModelEntity(mesh: innerMesh, materials: [innerMaterial])
-        // Top of inner sits 1 mm BELOW the rim top so the rim wall
-        // is clearly above it. Body extends down to -(innerDepth - rimHeight + 1mm).
-        let innerTopY = rimHeight - 0.001
-        innerModel.position = SIMD3<Float>(0, innerTopY - innerDepth / 2, 0)
-        anchor.addChild(innerModel)
+        // [2] WHITE LINER — sits inside the rim, also flat at plane
+        //     level. James's correction (B36→B37): the INSIDE of a
+        //     real golf cup is mostly WHITE plastic, not dark. The
+        //     dark you see in photos is the shadow at the very
+        //     bottom where light doesn't reach — not the liner
+        //     material itself. So the middle ring of the composite
+        //     stays plastic-white, slightly cooler / less saturated
+        //     than the rim so the boundary still reads as a separate
+        //     surface from any angle.
+        let linerDia = dia - innerInset * 2
+        let linerMesh = MeshResource.generatePlane(width: linerDia,
+                                                    depth: linerDia,
+                                                    cornerRadius: linerDia / 2)
+        let linerMaterial = SimpleMaterial(
+            color: UIColor(white: 0.88, alpha: 1.0),
+            roughness: 0.65,
+            isMetallic: false
+        )
+        let linerModel = ModelEntity(mesh: linerMesh, materials: [linerMaterial])
+        linerModel.position = SIMD3<Float>(0, 0.0015, 0)
+        anchor.addChild(linerModel)
 
-        // [3] BOTTOM DISC — tiny extra-dark plate at the bottom of
-        //     the inner well. Inset by 3 mm so it shows as a
-        //     concentric circle when looking down.
-        let bottomDia = innerDia - 0.006
+        // [3] SHADOW DISC — smaller dark disc nested inside the
+        //     white liner, sits 1 mm above plane level so it draws
+        //     on top of the liner. Represents the visible shadow
+        //     where the cup goes deep enough that no light reaches
+        //     — this is what makes the composite read as "hole"
+        //     rather than "flat white target". Roughly 60% of the
+        //     liner diameter; warm dark gray to avoid the
+        //     uncanny-clinical pure black that flagged in earlier
+        //     reviews.
+        let shadowDia = linerDia * 0.6
+        let shadowMesh = MeshResource.generatePlane(width: shadowDia,
+                                                     depth: shadowDia,
+                                                     cornerRadius: shadowDia / 2)
+        let shadowMaterial = SimpleMaterial(
+            color: UIColor(red: 0.12, green: 0.10, blue: 0.08, alpha: 1.0),
+            roughness: 1.0,
+            isMetallic: false
+        )
+        let shadowModel = ModelEntity(mesh: shadowMesh, materials: [shadowMaterial])
+        shadowModel.position = SIMD3<Float>(0, 0.002, 0)
+        anchor.addChild(shadowModel)
+
+        // [4] RECESSED BOTTOM — small disc deep below the plane.
+        //     Same regulation depth as before; keeps the world
+        //     geometry consistent for future ball-roll physics.
+        //     Not occlusion-visible behind the shadow disc above but
+        //     anchors the depth concept.
+        let bottomDia = shadowDia - bottomInset * 2
         let bottomMesh = MeshResource.generatePlane(width: bottomDia,
                                                      depth: bottomDia,
                                                      cornerRadius: bottomDia / 2)
-        let bottomMaterial = SimpleMaterial(color: UIColor(white: 0.01, alpha: 1.0),
-                                              roughness: 1.0,
-                                              isMetallic: false)
+        let bottomMaterial = SimpleMaterial(
+            color: UIColor(red: 0.06, green: 0.05, blue: 0.04, alpha: 1.0),
+            roughness: 1.0,
+            isMetallic: false
+        )
         let bottomModel = ModelEntity(mesh: bottomMesh, materials: [bottomMaterial])
-        bottomModel.position = SIMD3<Float>(0, innerTopY - innerDepth, 0)
+        bottomModel.position = SIMD3<Float>(0, -depth, 0)
         anchor.addChild(bottomModel)
+
+        // [4] FLAGSTICK — thin near-cylindrical pole rising 70 cm
+        //     above the plane. iOS 17 lacks MeshResource.generateCylinder
+        //     so we use a square box with corner-radius = half its
+        //     side: visually indistinguishable from a cylinder at
+        //     1.5 cm diameter. White material, slight off-white to
+        //     match the cup rim.
+        let poleSide: Float = 0.015                       // 1.5 cm thickness
+        let poleHeight: Float = 0.70                      // 70 cm tall
+        let poleMesh = MeshResource.generateBox(width: poleSide,
+                                                  height: poleHeight,
+                                                  depth: poleSide,
+                                                  cornerRadius: poleSide / 2)
+        let poleMaterial = SimpleMaterial(color: UIColor(white: 0.92, alpha: 1.0),
+                                            roughness: 0.6,
+                                            isMetallic: false)
+        let poleModel = ModelEntity(mesh: poleMesh, materials: [poleMaterial])
+        poleModel.position = SIMD3<Float>(0, poleHeight / 2, 0)
+        anchor.addChild(poleModel)
+
+        // [5] FLAG — small red rectangle near the top of the pole,
+        //     offset to the +X side. Triangular flags are more
+        //     accurate visually but require a custom mesh; a thin
+        //     box is a clean approximation that reads "flag" from
+        //     any angle. 15 cm wide × 10 cm tall × 1 mm thick.
+        let flagW: Float = 0.15
+        let flagH: Float = 0.10
+        let flagThk: Float = 0.001
+        let flagMesh = MeshResource.generateBox(width: flagW,
+                                                  height: flagH,
+                                                  depth: flagThk)
+        let flagMaterial = SimpleMaterial(
+            color: UIColor(red: 0.85, green: 0.10, blue: 0.10, alpha: 1.0),
+            roughness: 0.7,
+            isMetallic: false
+        )
+        let flagModel = ModelEntity(mesh: flagMesh, materials: [flagMaterial])
+        // Flag's right edge at pole centre; left edge extends out +X.
+        // Top of flag near the top of the pole, 8 cm below the tip.
+        flagModel.position = SIMD3<Float>(flagW / 2 + poleSide / 2,
+                                            poleHeight - 0.08,
+                                            0)
+        anchor.addChild(flagModel)
 
         arView.scene.addAnchor(anchor)
         holeAnchor = anchor
