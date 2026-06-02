@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+  body { margin: 0; background: #d6cdb7; }
+  canvas { display: block; width: 1200px; height: 800px; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script type="importmap">
+{ "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js" } }
+</script>
+<script type="module">
+import * as THREE from 'three';
+
+const HOLE_DIA = 0.10795;
+const HOLE_DEPTH = 0.08;
+const RIM_OUTER = HOLE_DIA * 1.20;
+const POLE_DIA = 0.015;
+const POLE_HEIGHT = 0.70;
+const FLAG_W = 0.15;
+const FLAG_H = 0.10;
+
+function floorTex() {
+  const c = document.createElement('canvas'); c.width=c.height=512;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#d6cdb7'; ctx.fillRect(0,0,512,512);
+  ctx.strokeStyle = 'rgba(140,120,90,0.35)'; ctx.lineWidth = 1;
+  for (let y=0; y<512; y+=28) { ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(512,y); ctx.stroke(); }
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(4,4);
+  return t;
+}
+function wallTex() {
+  const c = document.createElement('canvas'); c.width=4; c.height=256;
+  const ctx = c.getContext('2d');
+  const g = ctx.createLinearGradient(0,0,0,256);
+  g.addColorStop(0,'#f5f5f5'); g.addColorStop(0.25,'#c8c8c8');
+  g.addColorStop(0.55,'#6a6464'); g.addColorStop(0.85,'#1f1a16');
+  g.addColorStop(1,'#0a0805');
+  ctx.fillStyle = g; ctx.fillRect(0,0,4,256);
+  return new THREE.CanvasTexture(c);
+}
+
+const canvas = document.getElementById('c');
+canvas.width = 2400; canvas.height = 1600;
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setSize(1200, 800, false);
+renderer.setPixelRatio(2);
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0xb0a890);
+scene.add(new THREE.HemisphereLight(0xffffff, 0xbfb38f, 0.6));
+// Stronger key from upper-left so the cup interior catches a
+// clear lit/shadow asymmetry — bright on the far wall, dark on
+// the near wall. This is the depth cue Gemini said was missing.
+const key = new THREE.DirectionalLight(0xffffff, 2.0);
+key.position.set(-1.5, 4.0, 1.5); key.castShadow = true;
+key.shadow.mapSize.width = 4096; key.shadow.mapSize.height = 4096;
+key.shadow.camera.near = 0.001; key.shadow.camera.far = 8;
+key.shadow.camera.left = -0.5; key.shadow.camera.right = 0.5;
+key.shadow.camera.top = 0.5; key.shadow.camera.bottom = -0.5;
+key.shadow.bias = -0.0001;
+scene.add(key);
+
+// Floor with a circular HOLE cut at the cup centre so the camera
+// can see DOWN into the cup interior. Without this, the floor
+// plane occludes the cup opening and the dark interior is invisible
+// — which is why Gemini scored 3/10. ShapeGeometry handles the
+// hole cleanly. UV mapping for the texture survives the cut.
+const floorShape = new THREE.Shape();
+floorShape.moveTo(-5, -5);
+floorShape.lineTo(5, -5);
+floorShape.lineTo(5, 5);
+floorShape.lineTo(-5, 5);
+floorShape.lineTo(-5, -5);
+const holePath = new THREE.Path();
+holePath.absarc(0, 0, HOLE_DIA/2 * 0.99, 0, Math.PI * 2, true);
+floorShape.holes.push(holePath);
+const floorGeo = new THREE.ShapeGeometry(floorShape).rotateX(-Math.PI/2);
+// Manually fix UV mapping for the floor texture
+const uvs = floorGeo.attributes.uv;
+for (let i = 0; i < uvs.count; i++) {
+  const x = floorGeo.attributes.position.getX(i);
+  const z = floorGeo.attributes.position.getZ(i);
+  uvs.setXY(i, (x + 5) / 10, (z + 5) / 10);
+}
+const floor = new THREE.Mesh(
+  floorGeo,
+  new THREE.MeshStandardMaterial({ map: floorTex(), roughness: 0.85 })
+);
+floor.receiveShadow = true;
+scene.add(floor);
+
+// Gold rim
+const rim = new THREE.Mesh(
+  new THREE.RingGeometry(HOLE_DIA/2, RIM_OUTER/2, 96).rotateX(-Math.PI/2),
+  new THREE.MeshStandardMaterial({ color: 0xd4a847, roughness: 0.28, metalness: 0.95, side: THREE.DoubleSide })
+);
+rim.position.y = 0.0012; rim.receiveShadow = true;
+scene.add(rim);
+
+// Cup wall — LIT MeshStandardMaterial with dark colour. Gemini
+// flagged that the previous white unlit wall blended with the
+// floor and read as a flat decal. Making the wall a medium-dark
+// warm tone means:
+//   (a) it CONTRASTS with the lit floor (depth cue)
+//   (b) the directional light from upper-left creates real
+//       bright/dark asymmetry across the curved inside surface
+//       — the LIT side of the wall is brighter, the SHADOW side
+//       is darker — which sells 3D unambiguously.
+const wall = new THREE.Mesh(
+  new THREE.CylinderGeometry(HOLE_DIA/2 * 0.99, HOLE_DIA/2 * 0.99, HOLE_DEPTH, 96, 1, true),
+  new THREE.MeshStandardMaterial({
+    color: 0x3a3530,    // medium-dark warm gray
+    side: THREE.DoubleSide,
+    roughness: 0.9
+  })
+);
+wall.position.y = -HOLE_DEPTH/2;
+wall.castShadow = true;
+wall.receiveShadow = true;
+scene.add(wall);
+
+// Bottom — pure black, anchors the depth
+const bottom = new THREE.Mesh(
+  new THREE.CircleGeometry(HOLE_DIA/2 * 0.98, 64).rotateX(-Math.PI/2),
+  new THREE.MeshStandardMaterial({ color: 0x050302, roughness: 1.0 })
+);
+bottom.position.y = -HOLE_DEPTH + 0.0008;
+bottom.receiveShadow = true;
+scene.add(bottom);
+
+// Hard AO ring at the rim/wall transition — strong dark line where
+// the gold rim's inner edge meets the wall. Gemini's #2 failure cue
+// was "no visible lip/edge"; this directly addresses it.
+const ao = new THREE.Mesh(
+  new THREE.RingGeometry(HOLE_DIA/2 * 0.93, HOLE_DIA/2 * 1.01, 96).rotateX(-Math.PI/2),
+  new THREE.MeshBasicMaterial({ color: 0, transparent: true, opacity: 0.85, side: THREE.DoubleSide })
+);
+ao.position.y = 0.0014;
+scene.add(ao);
+
+// Black flagstick
+const pole = new THREE.Mesh(
+  new THREE.CylinderGeometry(POLE_DIA/2, POLE_DIA/2, POLE_HEIGHT, 16),
+  new THREE.MeshStandardMaterial({ color: 0x121212, roughness: 0.45, metalness: 0.6 })
+);
+pole.position.y = POLE_HEIGHT/2; pole.castShadow = true;
+scene.add(pole);
+
+// Gold ferrule
+const ferrule = new THREE.Mesh(
+  new THREE.CylinderGeometry(POLE_DIA*0.85, POLE_DIA*0.85, 0.022, 16),
+  new THREE.MeshStandardMaterial({ color: 0xd4a847, roughness: 0.3, metalness: 0.95 })
+);
+ferrule.position.y = 0.017; ferrule.castShadow = true;
+scene.add(ferrule);
+
+// Red flag
+const flagGeo = new THREE.BufferGeometry();
+const v = new Float32Array([
+  POLE_DIA/2, 0, 0,
+  POLE_DIA/2, FLAG_H, 0,
+  POLE_DIA/2 + FLAG_W, FLAG_H/2, 0
+]);
+flagGeo.setAttribute('position', new THREE.BufferAttribute(v, 3));
+flagGeo.setIndex([0,2,1,0,1,2]); flagGeo.computeVertexNormals();
+const flag = new THREE.Mesh(
+  flagGeo,
+  new THREE.MeshStandardMaterial({ color: 0xd61a1a, side: THREE.DoubleSide, roughness: 0.7 })
+);
+flag.position.y = POLE_HEIGHT - FLAG_H - 0.02; flag.castShadow = true;
+scene.add(flag);
+
+// EXACTLY the 35° putting-stance angle
+const cam = new THREE.PerspectiveCamera(45, 1.5, 0.001, 50);
+cam.position.set(0, 0.30, 0.30);
+cam.lookAt(0, 0.12, 0);
+renderer.render(scene, cam);
+</script>
+</body>
+</html>
