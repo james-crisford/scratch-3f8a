@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>PuttingLab B43 — Hole Design Options</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #0a0d12;
+    color: #e5e9ee;
+    font-family: -apple-system, "SF Pro Display", Inter, system-ui, sans-serif;
+    padding: 32px;
+    line-height: 1.5;
+  }
+  h1 { font-size: 28px; margin-bottom: 6px; letter-spacing: -0.5px; }
+  h2 { font-size: 18px; margin: 32px 0 14px; color: #c8d0db; letter-spacing: -0.2px; }
+  .sub { color: #8a93a3; font-size: 14px; margin-bottom: 28px; max-width: 1100px; }
+  .row {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 14px;
+    margin-bottom: 28px;
+  }
+  .col {
+    background: #141a23;
+    border: 1px solid #1f2733;
+    border-radius: 14px;
+    padding: 14px;
+  }
+  .col h3 {
+    font-size: 11px;
+    color: #a3acba;
+    margin-bottom: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+  }
+  .col h3 .ver { color: #5fbf5f; font-weight: 700; }
+  .col h3 .ver.alt { color: #ffb35f; }
+  canvas {
+    display: block;
+    width: 100%;
+    height: 240px;
+    border-radius: 10px;
+    background: #d6cdb7;
+  }
+  .changes {
+    background: #141a23;
+    border: 1px solid #1f2733;
+    border-radius: 14px;
+    padding: 20px 24px;
+    margin-top: 12px;
+  }
+  .changes h3 { font-size: 14px; margin-bottom: 12px; color: #fff; }
+  .changes ul { margin-left: 20px; color: #c8d0db; font-size: 13.5px; line-height: 1.7; }
+  .changes ul b { color: #fff; }
+</style>
+</head>
+<body>
+
+<h1>PuttingLab B43 — Hole Design Options</h1>
+<div class="sub">
+  Four candidate hole renders. <span style="color:#5fbf5f">Column 1 = B42 (current spec, shipping now)</span>.
+  Columns 2–4 are proposed B43 improvements — each adds ONE specific upgrade so you can mix & match
+  before I write the Swift. Pick which features you want (any combination) and I'll code only those.
+</div>
+
+<h2>Row 1 — Top-down view</h2>
+<div class="row">
+  <div class="col"><h3>1. <span class="ver">B42 (current)</span></h3><canvas id="r1c1"></canvas></div>
+  <div class="col"><h3>2. <span class="ver alt">+ Soft AO shadow ring</span></h3><canvas id="r1c2"></canvas></div>
+  <div class="col"><h3>3. <span class="ver alt">+ Striped flagstick</span></h3><canvas id="r1c3"></canvas></div>
+  <div class="col"><h3>4. <span class="ver alt">+ Triangle flag with fabric stripes</span></h3><canvas id="r1c4"></canvas></div>
+</div>
+
+<h2>Row 2 — Putting-stance view (35°)</h2>
+<div class="row">
+  <div class="col"><h3>1. <span class="ver">B42</span></h3><canvas id="r2c1"></canvas></div>
+  <div class="col"><h3>2. <span class="ver alt">+ Soft AO shadow</span></h3><canvas id="r2c2"></canvas></div>
+  <div class="col"><h3>3. <span class="ver alt">+ Striped flagstick</span></h3><canvas id="r2c3"></canvas></div>
+  <div class="col"><h3>4. <span class="ver alt">+ Fabric flag</span></h3><canvas id="r2c4"></canvas></div>
+</div>
+
+<h2>Row 3 — Close-up (15°)</h2>
+<div class="row">
+  <div class="col"><h3>1. <span class="ver">B42</span></h3><canvas id="r3c1"></canvas></div>
+  <div class="col"><h3>2. <span class="ver alt">+ Soft AO</span></h3><canvas id="r3c2"></canvas></div>
+  <div class="col"><h3>3. <span class="ver alt">+ Striped pole</span></h3><canvas id="r3c3"></canvas></div>
+  <div class="col"><h3>4. <span class="ver alt">+ Fabric flag</span></h3><canvas id="r3c4"></canvas></div>
+</div>
+
+<div class="changes">
+  <h3>What each option changes</h3>
+  <ul>
+    <li><b>Option 2 — Soft AO shadow ring.</b> Replaces the hard-edged AO line at the cup rim with a soft radial falloff (1cm wide gradient from 0.55 opacity at rim → 0 opacity at +1cm out). Sells "this cup is recessed" much more strongly than the hard ring. Render cost: identical (same vertex count, just a different fragment colour). Time to implement: 20 min.</li>
+    <li><b>Option 3 — Striped flagstick.</b> Replaces the uniform white pole with 5 alternating red/white bands (like USGA marker tape on real flagsticks). Each band is ~14 cm tall. Reads as "real golf course" instead of "abstract pole". Render cost: small (one more material per band, or a single banded texture). Time: 30 min.</li>
+    <li><b>Option 4 — Fabric flag with stripes.</b> Triangle flag gets a horizontal red/white stripe pattern (like pin flags at major tournaments) + a slight wave deformation so it doesn't look paper-flat. Vertex animation gives a gentle 0.5 Hz flutter. Time: 45 min.</li>
+  </ul>
+  <p style="color:#8a93a3; font-size:12.5px; margin-top:14px;">
+    All three are additive — they can ship together as one B43, OR you can pick any subset.
+    None touch the cup geometry (still the locked B40 recessed cylinder). None reintroduce the
+    SimpleMaterial darkening risk — every change uses UnlitMaterial or static texture lookup.
+  </p>
+</div>
+
+<script type="importmap">
+{ "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js" } }
+</script>
+<script type="module">
+import * as THREE from 'three';
+
+const HOLE_DIA = 0.10795;
+const HOLE_DEPTH = 0.08;
+const RIM_OUTER = HOLE_DIA * 1.20;
+const POLE_DIA = 0.015;
+const POLE_HEIGHT = 0.70;
+const FLAG_W = 0.15;
+const FLAG_H = 0.10;
+
+function floorTex() {
+  const c = document.createElement('canvas');
+  c.width = 512; c.height = 512;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#d6cdb7'; ctx.fillRect(0,0,512,512);
+  ctx.strokeStyle = 'rgba(140,120,90,0.35)';
+  ctx.lineWidth = 1;
+  for (let y = 0; y < 512; y += 28) { ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(512,y); ctx.stroke(); }
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = THREE.RepeatWrapping; t.wrapT = THREE.RepeatWrapping;
+  t.repeat.set(4,4);
+  return t;
+}
+
+function wallTex() {
+  const c = document.createElement('canvas');
+  c.width = 4; c.height = 256;
+  const ctx = c.getContext('2d');
+  const g = ctx.createLinearGradient(0,0,0,256);
+  g.addColorStop(0,'#fff'); g.addColorStop(0.35,'#e8e8e8');
+  g.addColorStop(0.7,'#7a7470'); g.addColorStop(1,'#2a2420');
+  ctx.fillStyle = g; ctx.fillRect(0,0,4,256);
+  const t = new THREE.CanvasTexture(c);
+  return t;
+}
+
+function stripedPoleTex() {
+  // 5 alternating red/white bands top→bottom for an iconic USGA-marker look.
+  const c = document.createElement('canvas');
+  c.width = 4; c.height = 256;
+  const ctx = c.getContext('2d');
+  const bands = ['#ffffff', '#d61a1a', '#ffffff', '#d61a1a', '#ffffff'];
+  const bandH = 256 / bands.length;
+  bands.forEach((color, i) => {
+    ctx.fillStyle = color;
+    ctx.fillRect(0, i * bandH, 4, bandH);
+  });
+  return new THREE.CanvasTexture(c);
+}
+
+function fabricFlagTex() {
+  // Striped tournament-pin look: 3 horizontal red bands on white.
+  const c = document.createElement('canvas');
+  c.width = 256; c.height = 128;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#fff'; ctx.fillRect(0,0,256,128);
+  ctx.fillStyle = '#d61a1a';
+  ctx.fillRect(0, 14, 256, 22);
+  ctx.fillRect(0, 53, 256, 22);
+  ctx.fillRect(0, 92, 256, 22);
+  // tiny weave noise
+  for (let i = 0; i < 800; i++) {
+    ctx.fillStyle = `rgba(0,0,0,${Math.random()*0.06})`;
+    ctx.fillRect(Math.random()*256, Math.random()*128, 1, 1);
+  }
+  return new THREE.CanvasTexture(c);
+}
+
+function softAOTex() {
+  // Radial falloff: dark at centre fading to transparent at edge.
+  const c = document.createElement('canvas');
+  c.width = 128; c.height = 128;
+  const ctx = c.getContext('2d');
+  const g = ctx.createRadialGradient(64,64,30, 64,64,64);
+  g.addColorStop(0, 'rgba(0,0,0,0.55)');
+  g.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0,0,128,128);
+  return new THREE.CanvasTexture(c);
+}
+
+function buildHoleBase(scene) {
+  // Rim
+  const rim = new THREE.Mesh(
+    new THREE.CircleGeometry(RIM_OUTER/2, 64).rotateX(-Math.PI/2),
+    new THREE.MeshBasicMaterial({ color: 0xffffff })
+  );
+  rim.position.y = 0.0005;
+  scene.add(rim);
+  // Wall
+  const wall = new THREE.Mesh(
+    new THREE.CylinderGeometry(HOLE_DIA/2, HOLE_DIA/2, HOLE_DEPTH, 64, 1, true),
+    new THREE.MeshBasicMaterial({ map: wallTex(), side: THREE.DoubleSide })
+  );
+  wall.position.y = -HOLE_DEPTH/2;
+  scene.add(wall);
+  // Bottom
+  const bottom = new THREE.Mesh(
+    new THREE.CircleGeometry(HOLE_DIA/2*0.95, 64).rotateX(-Math.PI/2),
+    new THREE.MeshBasicMaterial({ color: 0x0d0a07 })
+  );
+  bottom.position.y = -HOLE_DEPTH + 0.001;
+  scene.add(bottom);
+}
+
+function addAORing(scene, soft) {
+  if (soft) {
+    // Soft AO via radial gradient texture on a plane that extends past the rim
+    const ao = new THREE.Mesh(
+      new THREE.PlaneGeometry(RIM_OUTER*1.6, RIM_OUTER*1.6).rotateX(-Math.PI/2),
+      new THREE.MeshBasicMaterial({ map: softAOTex(), transparent: true, depthWrite: false })
+    );
+    ao.position.y = 0.0009;
+    scene.add(ao);
+  } else {
+    // Original hard ring
+    const ao = new THREE.Mesh(
+      new THREE.RingGeometry(HOLE_DIA/2*0.97, HOLE_DIA/2, 64).rotateX(-Math.PI/2),
+      new THREE.MeshBasicMaterial({ color: 0, transparent: true, opacity: 0.55, side: THREE.DoubleSide })
+    );
+    ao.position.y = 0.0008;
+    scene.add(ao);
+  }
+}
+
+function addFlagstick(scene, striped) {
+  const mat = striped
+    ? new THREE.MeshBasicMaterial({ map: stripedPoleTex() })
+    : new THREE.MeshBasicMaterial({ color: 0xffffff });
+  const pole = new THREE.Mesh(
+    new THREE.CylinderGeometry(POLE_DIA/2, POLE_DIA/2, POLE_HEIGHT, 16),
+    mat
+  );
+  pole.position.y = POLE_HEIGHT/2;
+  scene.add(pole);
+}
+
+function addFlag(scene, fabric) {
+  const geo = new THREE.BufferGeometry();
+  const v = new Float32Array([
+    POLE_DIA/2, 0, 0,
+    POLE_DIA/2, FLAG_H, 0,
+    POLE_DIA/2 + FLAG_W, FLAG_H/2, 0
+  ]);
+  const uvs = new Float32Array([
+    0, 0,
+    0, 1,
+    1, 0.5
+  ]);
+  geo.setAttribute('position', new THREE.BufferAttribute(v, 3));
+  geo.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+  geo.setIndex([0,2,1,0,1,2]);
+  geo.computeVertexNormals();
+  const mat = fabric
+    ? new THREE.MeshBasicMaterial({ map: fabricFlagTex(), side: THREE.DoubleSide })
+    : new THREE.MeshBasicMaterial({ color: 0xd61a1a, side: THREE.DoubleSide });
+  const flag = new THREE.Mesh(geo, mat);
+  flag.position.y = POLE_HEIGHT - FLAG_H - 0.02;
+  scene.add(flag);
+}
+
+function buildFloor(scene) {
+  const floor = new THREE.Mesh(
+    new THREE.PlaneGeometry(10,10).rotateX(-Math.PI/2),
+    new THREE.MeshStandardMaterial({ map: floorTex(), roughness: 0.85 })
+  );
+  scene.add(floor);
+}
+
+function render(canvasId, cameraPos, lookAt, opts) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+  const w = canvas.clientWidth, h = canvas.clientHeight;
+  canvas.width = w*2; canvas.height = h*2;
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
+  renderer.setSize(w, h, false);
+  renderer.setPixelRatio(2);
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0xb0a890);
+  scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+  const k = new THREE.DirectionalLight(0xffffff, 0.7);
+  k.position.set(1,2,0.5); scene.add(k);
+  const f = new THREE.DirectionalLight(0xffffff, 0.3);
+  f.position.set(-1,1,-0.5); scene.add(f);
+
+  buildFloor(scene);
+  buildHoleBase(scene);
+  addAORing(scene, opts.softAO);
+  addFlagstick(scene, opts.striped);
+  addFlag(scene, opts.fabric);
+
+  const cam = new THREE.PerspectiveCamera(50, w/h, 0.005, 50);
+  cam.position.set(cameraPos.x, cameraPos.y, cameraPos.z);
+  cam.lookAt(lookAt.x, lookAt.y, lookAt.z);
+  renderer.render(scene, cam);
+}
+
+window.addEventListener('load', () => {
+  // Row 1 — top-down
+  const topCam = {x:0,y:0.20,z:0.001}, topLook = {x:0,y:0,z:0};
+  render('r1c1', topCam, topLook, {});
+  render('r1c2', topCam, topLook, {softAO: true});
+  render('r1c3', topCam, topLook, {striped: true});
+  render('r1c4', topCam, topLook, {fabric: true});
+  // Row 2 — 35° putting stance
+  const stCam = {x:0,y:0.32,z:0.30}, stLook = {x:0,y:0.15,z:0};
+  render('r2c1', stCam, stLook, {});
+  render('r2c2', stCam, stLook, {softAO: true});
+  render('r2c3', stCam, stLook, {striped: true});
+  render('r2c4', stCam, stLook, {fabric: true});
+  // Row 3 — close-up 15°
+  const cuCam = {x:0,y:0.10,z:0.22}, cuLook = {x:0,y:-0.02,z:0};
+  render('r3c1', cuCam, cuLook, {});
+  render('r3c2', cuCam, cuLook, {softAO: true});
+  render('r3c3', cuCam, cuLook, {striped: true});
+  render('r3c4', cuCam, cuLook, {fabric: true});
+});
+</script>
+</body>
+</html>
