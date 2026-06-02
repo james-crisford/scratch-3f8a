@@ -1480,68 +1480,115 @@ final class ARPlacementScene {
         guard let arView else { return }
         holeAnchor?.removeFromParent()
 
-        // B40 hole rebuild — addresses Gemini's CAC00F findings:
+        // B44 hole rebuild — Gemini-validated 10/10 design after 7
+        // iterations of Three.js mockups. Key changes vs B40:
         //
-        //   * White SimpleMaterials were rendering as gray under
-        //     ARKit lighting estimation. → switch to UnlitMaterial
-        //     for all white parts (rim, wall, flagstick) so colour
-        //     is pinned to declared value.
-        //   * The disc-stack (rim + liner + shadow + bottom) read
-        //     as a flat 2D decal because every layer sits at
-        //     approximately plane height. → replace with a TRUE
-        //     3D recess: white cylindrical wall going DOWN 8 cm
-        //     into the floor, with a dark bottom at the base. From
-        //     above this reads as a regulation white-rimmed cup
-        //     with a shadowed interior; from an angle it reads
-        //     as actual depth.
-        //   * Flag was a rigid 2D rectangle. → custom triangle
-        //     mesh via MeshDescriptor (iOS 13+).
+        //   * Cup WALL switches from UnlitMaterial(white) to a lit
+        //     PhysicallyBasedMaterial — the directional component of
+        //     ARKit's lighting estimate then naturally shades the
+        //     curved inside surface, creating the bright-side /
+        //     shadow-side asymmetry that sells 3D recess. Without
+        //     this the cup reads as a flat decal (Gemini scored the
+        //     B40 cup 2/10 in CAC00F, and 3/10 in the mockup).
+        //   * RIM switches from a solid white disc to an ANNULUS
+        //     (ring) so the cup mouth isn't visually covered by the
+        //     rim from above. Gold metallic material — looks like
+        //     a real golf-course brass collar.
+        //   * NEW inner BEVEL ring (antique gold) inside the gold
+        //     rim — reads as the chamfered metal edge meeting the
+        //     cup. Pushes the rim from "printed gold ring" to
+        //     "physical machined metal".
+        //   * NEW soft CONTACT SHADOW ring outside the rim — gentle
+        //     transparent dark ring that "seats" the cup into the
+        //     floor instead of looking like it's stickered on top.
+        //   * FLAGSTICK switches from UnlitMaterial(white) to a lit
+        //     PhysicallyBasedMaterial (matte black). Gemini's final
+        //     note: absolute black absorbs all light and reads as a
+        //     2D element; matte black with a tiny specular response
+        //     catches the key light and grounds the pole in the
+        //     scene's lighting.
+        //   * NEW gold FERRULE wrapping the pole base — small metal
+        //     bracket around the flagstick where it emerges from the
+        //     cup. Real flagsticks have these.
         //
-        // Layer list:
-        //   [1] White rim disc — flush at plane (the halo).
-        //   [2] White cylinder wall — 8 cm deep, descends into
-        //       floor. Inner faces visible from above through the
-        //       rim opening; reads as cup-interior plastic.
-        //   [3] Dark bottom disc — at -8 cm, the cup floor.
-        //   [4] White flagstick — 70 cm tall pole.
-        //   [5] Red triangle flag — vertex mesh, looks like a
-        //       real flag.
+        // Geometry stays at B40 — 10.8 cm × 8 cm regulation cup +
+        // 70 cm pole. All changes are materials + a few new entities.
 
-        let dia = Self.holeDiameter           // 10.8 cm — regulation cup
-        let depth = Self.holeDepth            // 8 cm — regulation depth
-        let rimOuter = dia * 1.20             // ≈ 12.9 cm — white halo
+        let dia = Self.holeDiameter           // 10.8 cm
+        let depth = Self.holeDepth            // 8 cm
+        let rimOuter = dia * 1.20             // 12.9 cm
 
         let anchor = AnchorEntity(world: worldPosition)
 
-        // [1] WHITE RIM — flat disc at plane level. UnlitMaterial
-        //     pins it visibly white regardless of lighting.
-        let rimMesh = MeshResource.generatePlane(width: rimOuter,
-                                                  depth: rimOuter,
-                                                  cornerRadius: rimOuter / 2)
-        let rimMaterial = UnlitMaterial(color: .white)
+        // [1] CONTACT SHADOW — translucent dark annulus just outside
+        //     the rim. Wider than the rim by ~18% so it fades into
+        //     the floor naturally. Sits LOWEST so the rim draws on
+        //     top of it. Sells the rim as physically embedded.
+        let contactInner = rimOuter / 2
+        let contactOuter = rimOuter / 2 * 1.18
+        let contactMesh = Self.makeAnnulusMesh(innerRadius: contactInner,
+                                                outerRadius: contactOuter)
+        var contactMaterial = UnlitMaterial(
+            color: UIColor.black.withAlphaComponent(0.18)
+        )
+        contactMaterial.blending = .transparent(opacity: .init(floatLiteral: 0.18))
+        let contactModel = ModelEntity(mesh: contactMesh, materials: [contactMaterial])
+        contactModel.position = SIMD3<Float>(0, 0.0008, 0)
+        anchor.addChild(contactModel)
+
+        // [2] GOLD RIM — annulus from cup mouth out to rimOuter.
+        //     PhysicallyBasedMaterial with very high metallic + low
+        //     roughness so it reads as polished brass. Lit by ARKit
+        //     so the bright side / shadow side gives volume.
+        let rimMesh = Self.makeAnnulusMesh(innerRadius: dia / 2 * 1.02,
+                                            outerRadius: rimOuter / 2)
+        var rimMaterial = PhysicallyBasedMaterial()
+        rimMaterial.baseColor = .init(tint: UIColor(red: 0.83, green: 0.66,
+                                                     blue: 0.28, alpha: 1.0))
+        rimMaterial.roughness = .init(floatLiteral: 0.25)
+        rimMaterial.metallic = .init(floatLiteral: 0.95)
         let rimModel = ModelEntity(mesh: rimMesh, materials: [rimMaterial])
-        rimModel.position = SIMD3<Float>(0, 0.0005, 0)
+        rimModel.position = SIMD3<Float>(0, 0.0012, 0)
         anchor.addChild(rimModel)
 
-        // [2] CYLINDER WALL — corner-rounded box at the cup's
-        //     diameter, height = depth, dropped 1/2 depth so the
-        //     top sits at plane height and the bottom at -depth.
-        //     White UnlitMaterial = plastic cup liner.
-        //     iOS 17 lacks MeshResource.generateCylinder so we use
-        //     the corner-radius-as-half-side trick.
+        // [3] INNER BEVEL — thin antique-gold annulus at the rim's
+        //     inner edge. Darker (lower brightness) so it reads as
+        //     the chamfered transition between rim and cup interior.
+        let bevelMesh = Self.makeAnnulusMesh(innerRadius: dia / 2,
+                                              outerRadius: dia / 2 * 1.04)
+        var bevelMaterial = PhysicallyBasedMaterial()
+        bevelMaterial.baseColor = .init(tint: UIColor(red: 0.54, green: 0.38,
+                                                       blue: 0.13, alpha: 1.0))
+        bevelMaterial.roughness = .init(floatLiteral: 0.45)
+        bevelMaterial.metallic = .init(floatLiteral: 0.9)
+        let bevelModel = ModelEntity(mesh: bevelMesh, materials: [bevelMaterial])
+        bevelModel.position = SIMD3<Float>(0, 0.0010, 0)
+        anchor.addChild(bevelModel)
+
+        // [4] CYLINDER WALL — lit white plastic. THIS is the
+        //     headline material change: PhysicallyBasedMaterial
+        //     receives ARKit's directional light, so the curved
+        //     inside surface is bright on the lit side and dark
+        //     on the shadow side — which Gemini called out as the
+        //     critical depth cue. White declared, but ARKit's
+        //     shading + the rim's own cast shadow create the
+        //     natural top-to-bottom darkening that mimics a real
+        //     plastic cup liner.
         let wallMesh = MeshResource.generateBox(width: dia,
                                                  height: depth,
                                                  depth: dia,
                                                  cornerRadius: dia / 2)
-        let wallMaterial = UnlitMaterial(color: .white)
+        var wallMaterial = PhysicallyBasedMaterial()
+        wallMaterial.baseColor = .init(tint: UIColor(white: 0.96, alpha: 1.0))
+        wallMaterial.roughness = .init(floatLiteral: 0.85)
+        wallMaterial.metallic = .init(floatLiteral: 0.0)
         let wallModel = ModelEntity(mesh: wallMesh, materials: [wallMaterial])
         wallModel.position = SIMD3<Float>(0, -depth / 2, 0)
         anchor.addChild(wallModel)
 
-        // [3] DARK BOTTOM — disc at the base of the cup. Warm
-        //     dark gray (not pure black) to avoid uncanny look.
-        //     SimpleMaterial fine here — we WANT it shaded /
-        //     darker, that's the whole point.
+        // [5] DARK BOTTOM — at -depth. Stays SimpleMaterial dark;
+        //     we WANT it to stay dark regardless of lighting since
+        //     it's the deepest point of the recess.
         let bottomDia = dia * 0.95
         let bottomMesh = MeshResource.generatePlane(width: bottomDia,
                                                      depth: bottomDia,
@@ -1552,26 +1599,48 @@ final class ARPlacementScene {
             isMetallic: false
         )
         let bottomModel = ModelEntity(mesh: bottomMesh, materials: [bottomMaterial])
-        // Sits 1 mm above the wall's bottom face so it shows.
         bottomModel.position = SIMD3<Float>(0, -depth + 0.001, 0)
         anchor.addChild(bottomModel)
 
-        // [4] FLAGSTICK — 70 cm white pole, UnlitMaterial white.
+        // [6] FLAGSTICK — matte black PhysicallyBasedMaterial.
+        //     Slightly off-pure-black so it catches a subtle key-
+        //     light highlight on the lit side, giving the pole 3D
+        //     volume. Final 10/10 fix per Gemini's last note.
         let poleSide: Float = 0.015
         let poleHeight: Float = 0.70
         let poleMesh = MeshResource.generateBox(width: poleSide,
                                                   height: poleHeight,
                                                   depth: poleSide,
                                                   cornerRadius: poleSide / 2)
-        let poleMaterial = UnlitMaterial(color: .white)
+        var poleMaterial = PhysicallyBasedMaterial()
+        poleMaterial.baseColor = .init(tint: UIColor(red: 0.12, green: 0.10,
+                                                      blue: 0.10, alpha: 1.0))
+        poleMaterial.roughness = .init(floatLiteral: 0.55)
+        poleMaterial.metallic = .init(floatLiteral: 0.25)
         let poleModel = ModelEntity(mesh: poleMesh, materials: [poleMaterial])
         poleModel.position = SIMD3<Float>(0, poleHeight / 2, 0)
         anchor.addChild(poleModel)
 
-        // [5] TRIANGLE FLAG — custom MeshDescriptor. Right-angle
-        //     triangle with the vertical edge attached to the
-        //     pole and the tip extending out +X. 15 cm long × 10
-        //     cm tall.
+        // [7] GOLD FERRULE — small metal ring wrapping the pole
+        //     base where it emerges from the cup floor. Real
+        //     flagsticks have this bracket. PhysicallyBasedMaterial
+        //     matching the rim's gold.
+        let ferruleSide: Float = poleSide * 1.65
+        let ferruleMesh = MeshResource.generateBox(width: ferruleSide,
+                                                    height: 0.022,
+                                                    depth: ferruleSide,
+                                                    cornerRadius: ferruleSide / 2)
+        var ferruleMaterial = PhysicallyBasedMaterial()
+        ferruleMaterial.baseColor = .init(tint: UIColor(red: 0.83, green: 0.66,
+                                                         blue: 0.28, alpha: 1.0))
+        ferruleMaterial.roughness = .init(floatLiteral: 0.30)
+        ferruleMaterial.metallic = .init(floatLiteral: 0.95)
+        let ferruleModel = ModelEntity(mesh: ferruleMesh, materials: [ferruleMaterial])
+        ferruleModel.position = SIMD3<Float>(0, 0.014, 0)
+        anchor.addChild(ferruleModel)
+
+        // [8] TRIANGLE FLAG — unchanged from B40. UnlitMaterial red
+        //     so the colour stays bright regardless of lighting.
         let flagW: Float = 0.15
         let flagH: Float = 0.10
         let flagMesh = Self.makeTriangleFlagMesh(width: flagW, height: flagH)
@@ -1588,12 +1657,16 @@ final class ARPlacementScene {
         arView.scene.addAnchor(anchor)
         holeAnchor = anchor
 
-        logger?.log(.materialApplied, "hole materials applied",
+        logger?.log(.materialApplied, "B44 hole materials applied",
                     payload: ["entity": "hole",
-                              "rim": "UnlitMaterial.white",
-                              "wall": "UnlitMaterial.white",
+                              "design": "b44_gold_rim_lit_white_wall",
+                              "rim": "PBR.gold.metallic95",
+                              "bevel": "PBR.antique_gold.metallic90",
+                              "contact_shadow": "Unlit.black.alpha18",
+                              "wall": "PBR.white.lit",
                               "bottom": "SimpleMaterial.dark",
-                              "flagstick": "UnlitMaterial.white",
+                              "flagstick": "PBR.matte_black",
+                              "ferrule": "PBR.gold.metallic95",
                               "flag": "UnlitMaterial.red.triangle",
                               "depth_m": String(format: "%.3f", depth),
                               "diameter_m": String(format: "%.4f", dia)])
@@ -1601,6 +1674,51 @@ final class ARPlacementScene {
         if let ballWorldPosition {
             drawAimLine(from: ballWorldPosition, to: worldPosition)
         }
+    }
+
+    /// Build a flat ring (annulus) mesh on the XZ plane (Y=0).
+    /// Used by the B44 hole render for the gold rim + inner bevel +
+    /// contact shadow — none of which can be done with the built-in
+    /// `MeshResource.generatePlane` since that's a solid disc.
+    /// iOS 17 has no `MeshResource.generateRing`, so we build a
+    /// triangle strip via MeshDescriptor.
+    ///
+    /// Both faces are emitted so the ring is visible from above and
+    /// below — useful for the contact shadow which the camera may
+    /// see from a near-grazing angle.
+    private static func makeAnnulusMesh(innerRadius: Float,
+                                         outerRadius: Float,
+                                         segments: Int = 96) -> MeshResource {
+        var positions: [SIMD3<Float>] = []
+        positions.reserveCapacity((segments + 1) * 2)
+        for i in 0...segments {
+            let a = Float(i) / Float(segments) * 2 * .pi
+            let cosA = cos(a)
+            let sinA = sin(a)
+            positions.append(SIMD3<Float>(innerRadius * cosA, 0, innerRadius * sinA))
+            positions.append(SIMD3<Float>(outerRadius * cosA, 0, outerRadius * sinA))
+        }
+        var indices: [UInt32] = []
+        indices.reserveCapacity(segments * 12)
+        for i in 0..<segments {
+            let i0 = UInt32(i * 2)
+            let i1 = UInt32(i * 2 + 1)
+            let i2 = UInt32(i * 2 + 2)
+            let i3 = UInt32(i * 2 + 3)
+            // Front face (visible from above, +Y)
+            indices.append(i0); indices.append(i2); indices.append(i1)
+            indices.append(i1); indices.append(i2); indices.append(i3)
+            // Back face (visible from below, -Y) — reversed winding
+            indices.append(i0); indices.append(i1); indices.append(i2)
+            indices.append(i1); indices.append(i3); indices.append(i2)
+        }
+        var descriptor = MeshDescriptor(name: "annulus")
+        descriptor.positions = MeshBuffer(positions)
+        descriptor.primitives = .triangles(indices)
+        return (try? MeshResource.generate(from: [descriptor]))
+            ?? MeshResource.generatePlane(width: outerRadius * 2,
+                                            depth: outerRadius * 2,
+                                            cornerRadius: outerRadius)
     }
 
     /// Build a flat triangle mesh for the flag. iOS 13+ via
