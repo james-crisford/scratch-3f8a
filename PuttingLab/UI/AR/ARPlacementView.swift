@@ -74,6 +74,14 @@ struct ARPlacementView: View {
     /// Drives the silent-wait hint after 2 s (M12 in the audit).
     @State private var firstStillAt: Date?
     @State private var showStillnessHint: Bool = false
+    /// Compact-view toggle. Default OFF for first-time users so they
+    /// see the full setup HUD (state, instructions, markers, event
+    /// log). Tap the eye icon in the top bar to collapse the chrome
+    /// to just the crosshair + Place button + transient hints +
+    /// recording dot. Gemini video analysis is materially better
+    /// when the camera feed isn't obscured — and the user can flip
+    /// back any time. Persists for the duration of the cover.
+    @State private var hudCompact: Bool = false
     /// Drives the export Share Sheet over the full ARSessionLogs JSON
     /// set so James can AirDrop / Mail / Files-out everything in one tap.
     @State private var showShareSheet: Bool = false
@@ -131,12 +139,29 @@ struct ARPlacementView: View {
             VStack {
                 topBar
                 Spacer()
-                hud
-                if showStillnessHint && planeCount == 0 {
-                    stillnessHint
+                // In compact mode only the bare-essentials chrome
+                // remains visible: a tiny tracking pill, the place
+                // button, transient hints. The HUD blocks, GT
+                // markers and event log all collapse away so the
+                // camera feed + crosshair + AR entities own the
+                // whole frame. Material UX win + helps the Gemini
+                // video reviewer see the actual scene without HUD
+                // chrome dominating every frame.
+                if hudCompact {
+                    compactStatusPill
+                    // GT markers stay reachable even in compact mode
+                    // so the user can tag what they just saw without
+                    // expanding the HUD again. Smaller, emoji-only,
+                    // no labels — just the icon glyphs.
+                    compactMarkerRow
+                } else {
+                    hud
+                    if showStillnessHint && planeCount == 0 {
+                        stillnessHint
+                    }
+                    groundTruthMarkerRow
+                    eventLog
                 }
-                groundTruthMarkerRow
-                eventLog
                 placeActionButton
                 actionRow
             }
@@ -551,7 +576,7 @@ struct ARPlacementView: View {
     }
 
     private var topBar: some View {
-        HStack {
+        HStack(spacing: 8) {
             Button { dismiss() } label: {
                 HStack(spacing: 6) {
                     Image(systemName: "chevron.left")
@@ -565,7 +590,26 @@ struct ARPlacementView: View {
             }
             .accessibilityIdentifier("ar.doneButton")
             Spacer()
-            Text("AR place · Slice 2")
+            // Clean-view toggle. SF Symbol "eye" / "eye.slash" pair
+            // is universally read as "hide / show overlays". Logs to
+            // .note so the AR session JSON records which mode the
+            // user was in at every video timestamp — important when
+            // the Gemini video reviewer is correlating events to
+            // frames.
+            Button {
+                let was = hudCompact
+                hudCompact.toggle()
+                logger.log(.note, was ? "HUD expanded" : "HUD collapsed (compact view)",
+                            payload: ["hud_compact": String(!was)])
+            } label: {
+                Image(systemName: hudCompact ? "eye.slash" : "eye")
+                    .font(.headline.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 38, height: 38)
+                    .background(.black.opacity(0.55), in: Circle())
+            }
+            .accessibilityIdentifier("ar.hudCompactToggle")
+            Text(hudCompact ? "Slice 2" : "AR place · Slice 2")
                 .font(.caption.bold())
                 .foregroundStyle(.white)
                 .padding(.horizontal, 12)
@@ -574,6 +618,35 @@ struct ARPlacementView: View {
                 .accessibilityIdentifier("ar.titleBadge")
         }
         .padding(.top, 12)
+    }
+
+    /// Minimal status pill shown ONLY in compact mode. Replaces the
+    /// full HUD block with a single line: tracking colour-coded dot
+    /// + state label + recording dot if active. Roughly 1/8 the
+    /// vertical footprint of the full HUD so the camera frame is
+    /// uncluttered for video review.
+    private var compactStatusPill: some View {
+        HStack(spacing: 10) {
+            Circle()
+                .fill(trackingTint)
+                .frame(width: 8, height: 8)
+            Text(stateLabel)
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.white)
+            if isRecording {
+                Spacer()
+                HStack(spacing: 4) {
+                    Image(systemName: "record.circle.fill")
+                        .foregroundStyle(.red)
+                    Text("REC")
+                        .font(.caption2.weight(.bold))
+                        .foregroundStyle(.white)
+                }
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 7)
+        .background(.black.opacity(0.55), in: Capsule())
     }
 
     private var hud: some View {
@@ -882,6 +955,32 @@ struct ARPlacementView: View {
                 .background(.white.opacity(0.18), in: Capsule())
         }
         .accessibilityIdentifier(id)
+    }
+
+    /// Compact-mode marker strip. Same tag emit, no text labels —
+    /// emoji only, tight circular buttons so 5 of them fit in a
+    /// single thin strip. Still logs the same payload.tag values
+    /// the analyser uses for correlation.
+    private var compactMarkerRow: some View {
+        HStack(spacing: 6) {
+            compactMarkerButton("👍",   tag: "good")           { logger.log(.note, "GT: looks good",        payload: ["source": "user_marker", "tag": "good"]) }
+            compactMarkerButton("📐", tag: "plane_wrong")    { logger.log(.note, "GT: plane overlay wrong", payload: ["source": "user_marker", "tag": "plane_wrong"]) }
+            compactMarkerButton("🎯", tag: "drifted")        { logger.log(.note, "GT: ball/hole drifted",   payload: ["source": "user_marker", "tag": "drifted"]) }
+            compactMarkerButton("❌", tag: "lost_tracking")  { logger.log(.note, "GT: tracking lost",       payload: ["source": "user_marker", "tag": "lost_tracking"]) }
+            compactMarkerButton("📝", tag: "note")           { showNoteInput = true }
+            Spacer()
+        }
+        .padding(.top, 4)
+    }
+
+    private func compactMarkerButton(_ glyph: String, tag: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(glyph)
+                .font(.callout)
+                .frame(width: 36, height: 36)
+                .background(.black.opacity(0.55), in: Circle())
+        }
+        .accessibilityIdentifier("ar.compactMarker.\(tag)")
     }
 
     private func timeShort(_ d: Date) -> String {
