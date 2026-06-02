@@ -1052,67 +1052,78 @@ final class ARPlacementScene {
         guard let arView else { return }
         holeAnchor?.removeFromParent()
 
-        // Three-piece composite that actually reads as a real golf cup
-        // (B23's single-box model scored 1/10 realism in a Gemini
-        // video review — the box's opaque top face hid the depth from
-        // every camera angle so it looked like a black sticker).
+        // Real golf-cup composite. The B34 version sat the white rim
+        // FLAT at plane level which still read as a sticker from any
+        // angle. James's reference photos (three real cups, top-down
+        // and angled) show the white plastic rim is RAISED proud of
+        // the grass with a visible cylindrical side wall. That
+        // visible side wall is the dominant "this is a 3D hole"
+        // signal. B35 fixes the rim height and adds a tube interior
+        // to suggest depth.
         //
-        //   [1] White rim disc — slightly larger than the hole, sits
-        //       flush at plane level. Provides the white halo that
-        //       reads as "regulation cup rim" from above.
-        //   [2] Dark well box — the existing 8cm-deep box, but moved
-        //       1mm BELOW the plane (and the rim) so the white rim
-        //       overlaps its perimeter — that overlap is what makes
-        //       the well appear recessed.
-        //   [3] Inner bottom plate — a slightly darker disc at the
-        //       bottom of the well. Gives the eye a depth cue when
-        //       viewed from above.
+        //   [1] White rim CYLINDER — raised 6 mm above the plane.
+        //       The cylindrical side is what reads as "real cup".
+        //       Top face is the visible white annulus from above.
+        //   [2] Dark inner cylinder — sits INSIDE the rim, 5 mm
+        //       narrower in diameter so the rim's wall is visible
+        //       from above as a thick white ring. Extends DOWN below
+        //       the plane to give the apparent depth.
+        //   [3] Bottom disc — dark plate at the bottom of the well,
+        //       inset from the inner cylinder's diameter so the
+        //       looker sees concentric circles (rim → inner wall →
+        //       bottom).
 
         let dia = Self.holeDiameter
         let depth = Self.holeDepth
-        let rimOuter = dia * 1.18                       // ≈ 12.7 cm — the white halo
-        let rimThickness: Float = 0.002                  // 2 mm
-        let bottomInset: Float = 0.003                   // 3 mm — bottom disc inside the well
+        let rimOuter = dia * 1.20                        // ≈ 12.9 cm — wider white halo
+        let rimHeight: Float = 0.006                     // 6 mm — RAISED above plane
+        let rimWallThickness: Float = 0.012              // 12 mm — visible rim wall thickness
+        let innerDia = dia - rimWallThickness * 2        // ≈ 8.4 cm — visible inner opening
+        let innerDepth = depth + 0.02                    // 10 cm — deeper inner well
 
         let anchor = AnchorEntity(world: worldPosition)
 
-        // [1] WHITE RIM — flat plane disc, slightly above the floor
-        //     plane (+0.001 m) so it doesn't z-fight with the green
-        //     overlay underneath. Roughness high so it reads as
-        //     plastic rather than chrome.
-        let rimMesh = MeshResource.generatePlane(width: rimOuter,
-                                                  depth: rimOuter,
-                                                  cornerRadius: rimOuter / 2)
-        let rimMaterial = SimpleMaterial(color: UIColor(white: 0.95, alpha: 1.0),
+        // [1] WHITE RIM CYLINDER — corner-radius box of the outer rim
+        //     diameter, RAISED above the plane. Position at +rimHeight/2
+        //     so the bottom face sits on the plane and the top face
+        //     is rimHeight above it. The visible cylindrical side
+        //     wall is what carries the 3D "real cup" reading.
+        let rimMesh = MeshResource.generateBox(width: rimOuter,
+                                                 height: rimHeight,
+                                                 depth: rimOuter,
+                                                 cornerRadius: rimOuter / 2)
+        // White-ish plastic — slightly off-white so it doesn't blow out
+        // bright lighting; reasonably rough so it reads as plastic
+        // not chrome.
+        let rimMaterial = SimpleMaterial(color: UIColor(white: 0.93, alpha: 1.0),
                                           roughness: 0.55,
                                           isMetallic: false)
         let rimModel = ModelEntity(mesh: rimMesh, materials: [rimMaterial])
-        rimModel.position = SIMD3<Float>(0, rimThickness, 0)
+        rimModel.position = SIMD3<Float>(0, rimHeight / 2, 0)
         anchor.addChild(rimModel)
 
-        // [2] DARK WELL — corner-rounded box, sunk fully below plane.
-        //     Top face starts 1 mm BELOW the rim so the white rim
-        //     visually frames it. Slightly larger diameter than dia/2
-        //     keeps the corner-rounded box reading as a true cylinder.
-        let wellMesh = MeshResource.generateBox(width: dia,
-                                                 height: depth,
-                                                 depth: dia,
-                                                 cornerRadius: dia / 2)
-        let wellMaterial = SimpleMaterial(color: UIColor(white: 0.03, alpha: 1.0),
-                                            roughness: 0.98,
-                                            isMetallic: false)
-        let wellModel = ModelEntity(mesh: wellMesh, materials: [wellMaterial])
-        // Top of box at y = -0.001 (just below rim). Body extends
-        // downward to y = -(depth + 0.001).
-        wellModel.position = SIMD3<Float>(0, -depth / 2 - 0.001, 0)
-        anchor.addChild(wellModel)
+        // [2] DARK INNER CYLINDER — narrower than the rim so the rim
+        //     wall is visible. Top starts INSIDE the rim (just below
+        //     rim top) and extends DOWN past the plane to provide
+        //     apparent depth.
+        let innerMesh = MeshResource.generateBox(width: innerDia,
+                                                   height: innerDepth,
+                                                   depth: innerDia,
+                                                   cornerRadius: innerDia / 2)
+        let innerMaterial = SimpleMaterial(color: UIColor(white: 0.04, alpha: 1.0),
+                                             roughness: 0.98,
+                                             isMetallic: false)
+        let innerModel = ModelEntity(mesh: innerMesh, materials: [innerMaterial])
+        // Top of inner sits 1 mm BELOW the rim top so the rim wall
+        // is clearly above it. Body extends down to -(innerDepth - rimHeight + 1mm).
+        let innerTopY = rimHeight - 0.001
+        innerModel.position = SIMD3<Float>(0, innerTopY - innerDepth / 2, 0)
+        anchor.addChild(innerModel)
 
-        // [3] BOTTOM DISC — small black plate sitting at the bottom
-        //     of the well, inset 3 mm from the rim so a viewer
-        //     looking straight down sees concentric circles: white
-        //     rim → dark well wall → bottom disc. That nesting reads
-        //     unambiguously as depth.
-        let bottomDia = dia - bottomInset * 2
+        // [3] BOTTOM DISC — tiny extra-dark plate at the bottom of
+        //     the inner well. Inset by 3 mm so it shows as a
+        //     concentric circle when looking down.
+        let bottomDia = innerDia - 0.006
         let bottomMesh = MeshResource.generatePlane(width: bottomDia,
                                                      depth: bottomDia,
                                                      cornerRadius: bottomDia / 2)
@@ -1120,7 +1131,7 @@ final class ARPlacementScene {
                                               roughness: 1.0,
                                               isMetallic: false)
         let bottomModel = ModelEntity(mesh: bottomMesh, materials: [bottomMaterial])
-        bottomModel.position = SIMD3<Float>(0, -depth, 0)
+        bottomModel.position = SIMD3<Float>(0, innerTopY - innerDepth, 0)
         anchor.addChild(bottomModel)
 
         arView.scene.addAnchor(anchor)
