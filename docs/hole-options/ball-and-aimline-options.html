@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>PuttingLab — Ball + Aim Line Options</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #0a0d12;
+    color: #e5e9ee;
+    font-family: -apple-system, "SF Pro Display", Inter, system-ui, sans-serif;
+    padding: 32px;
+    line-height: 1.5;
+  }
+  h1 { font-size: 28px; margin-bottom: 6px; letter-spacing: -0.5px; }
+  .sub { color: #8a93a3; font-size: 14px; margin-bottom: 24px; max-width: 1100px; }
+  h2 { font-size: 19px; margin: 36px 0 14px; color: #c8d0db; }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 14px;
+  }
+  .tile {
+    background: #141a23;
+    border: 1px solid #1f2733;
+    border-radius: 14px;
+    padding: 14px;
+  }
+  .tile h3 {
+    font-size: 13px;
+    color: #fff;
+    font-weight: 600;
+    margin-bottom: 3px;
+  }
+  .tile .num { color: #8a93a3; font-size: 11px; margin-bottom: 10px; }
+  canvas {
+    display: block;
+    width: 100%;
+    height: 240px;
+    border-radius: 10px;
+    background: #d6cdb7;
+  }
+  .desc { margin-top: 10px; font-size: 12px; color: #8a93a3; line-height: 1.4; }
+  .badge {
+    display: inline-block;
+    padding: 2px 7px;
+    border-radius: 5px;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-right: 6px;
+  }
+  .badge.now { background: #1a3a1a; color: #6fdf6f; }
+  .badge.tweak { background: #2a2a3f; color: #9fafff; }
+  .badge.bold { background: #3f1f1f; color: #ff8f6f; }
+</style>
+</head>
+<body>
+
+<h1>Ball + Aim Line — Design Options</h1>
+<div class="sub">
+  Same render technique as the 10/10 hole: real lighting, proper materials, cast shadows.
+  Pick which ball + which aim line you want, and I'll iterate the chosen pair to 10/10 with
+  Gemini like we did the hole, then code the winning combo into B45.
+</div>
+
+<h2>Ball — 6 options</h2>
+<div class="grid">
+  <div class="tile">
+    <span class="badge now">Shipping</span>
+    <h3>B01. Smooth white (B44 current)</h3>
+    <div class="num">UnlitMaterial sphere</div>
+    <canvas id="b01"></canvas>
+    <div class="desc">Current spec — pure white smooth sphere, no surface detail. Reads as ball but lacks "golf ball" cues.</div>
+  </div>
+
+  <div class="tile">
+    <span class="badge tweak">Tweak</span>
+    <h3>B02. Dimpled tour ball</h3>
+    <div class="num">+ procedural dimples</div>
+    <canvas id="b02"></canvas>
+    <div class="desc">336-pattern dimples via procedural normal map. Lit material so dimples cast micro-shadows. Reads as a real Pro V1 / Chrome Soft.</div>
+  </div>
+
+  <div class="tile">
+    <span class="badge tweak">Tweak</span>
+    <h3>B03. Glossy tour-feel</h3>
+    <div class="num">+ specular sheen</div>
+    <canvas id="b03"></canvas>
+    <div class="desc">Smooth ball but with strong specular highlight from key light — feels like a fresh tour ball under stadium lights.</div>
+  </div>
+
+  <div class="tile">
+    <span class="badge bold">Bold</span>
+    <h3>B04. Neon yellow practice</h3>
+    <div class="num">visibility</div>
+    <canvas id="b04"></canvas>
+    <div class="desc">Bright fluorescent yellow — like a practice / range ball. Pops against any floor. Easier for Gemini to track in video.</div>
+  </div>
+
+  <div class="tile">
+    <span class="badge bold">Bold</span>
+    <h3>B05. Alignment line (Callaway TruVis style)</h3>
+    <div class="num">+ red equator</div>
+    <canvas id="b05"></canvas>
+    <div class="desc">White ball with a single red alignment band around the equator. Helps the user orient putting line. Practical golf-aid.</div>
+  </div>
+
+  <div class="tile">
+    <span class="badge bold">Bold</span>
+    <h3>B06. Stripe (chrome-soft TruTrack style)</h3>
+    <div class="num">+ red side stripe</div>
+    <canvas id="b06"></canvas>
+    <div class="desc">White ball with a wide red side stripe across the top hemisphere. Used by real putters as a sight line.</div>
+  </div>
+</div>
+
+<h2>Aim Line — 6 options (1.49 m ball → hole)</h2>
+<div class="grid">
+  <div class="tile">
+    <span class="badge now">Shipping</span>
+    <h3>A01. Solid yellow (B44 current)</h3>
+    <div class="num">12 mm box</div>
+    <canvas id="a01"></canvas>
+    <div class="desc">Current spec — translucent yellow box from ball to hole. Functional but flat.</div>
+  </div>
+
+  <div class="tile">
+    <span class="badge tweak">Tweak</span>
+    <h3>A02. Dashed line</h3>
+    <div class="num">10 cm segments</div>
+    <canvas id="a02"></canvas>
+    <div class="desc">Alternating 10 cm yellow segments + 5 cm gaps. Reads as "guide line" rather than rigid object. Lets floor texture through.</div>
+  </div>
+
+  <div class="tile">
+    <span class="badge tweak">Tweak</span>
+    <h3>A03. Gradient fade near cup</h3>
+    <div class="num">+ alpha falloff</div>
+    <canvas id="a03"></canvas>
+    <div class="desc">Solid yellow at ball end, fading to transparent ~10 cm before the cup so the cup isn't obscured by aim line. Cleanest "approach" feel.</div>
+  </div>
+
+  <div class="tile">
+    <span class="badge bold">Bold</span>
+    <h3>A04. Distance-ticked</h3>
+    <div class="num">marks at 0.5/1/1.5 m</div>
+    <canvas id="a04"></canvas>
+    <div class="desc">Solid line with perpendicular tick marks every 50 cm + length labels. Helps the user calibrate eye-distance.</div>
+  </div>
+
+  <div class="tile">
+    <span class="badge bold">Bold</span>
+    <h3>A05. Glow / additive</h3>
+    <div class="num">+ halo bloom</div>
+    <canvas id="a05"></canvas>
+    <div class="desc">Bright yellow line with an additive glow halo around it. Visible even on bright floors. Tracker-beacon feel.</div>
+  </div>
+
+  <div class="tile">
+    <span class="badge bold">Bold</span>
+    <h3>A06. Curved break line</h3>
+    <div class="num">aspirational</div>
+    <canvas id="a06"></canvas>
+    <div class="desc">Bezier-curved line from ball to cup, simulating real putt break. Currently fake; would need slope detection. Shows what's possible later.</div>
+  </div>
+</div>
+
+<script type="importmap">
+{ "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js" } }
+</script>
+<script type="module">
+import * as THREE from 'three';
+
+const BALL_DIA = 0.0427;
+const HOLE_DIA = 0.10795;
+const HOLE_DEPTH = 0.08;
+const RIM_OUTER = HOLE_DIA * 1.20;
+
+// --- Textures ---
+function floorTex() {
+  const c = document.createElement('canvas'); c.width=c.height=512;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#d6cdb7'; ctx.fillRect(0,0,512,512);
+  ctx.strokeStyle = 'rgba(140,120,90,0.35)'; ctx.lineWidth = 1;
+  for (let y=0; y<512; y+=28) { ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(512,y); ctx.stroke(); }
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.repeat.set(4,4);
+  return t;
+}
+
+// Procedural dimple normal map for tour ball
+function dimpleNormalMap() {
+  const size = 256;
+  const c = document.createElement('canvas'); c.width=c.height=size;
+  const ctx = c.getContext('2d');
+  // Neutral normal (purple-ish blue)
+  ctx.fillStyle = 'rgb(128,128,255)';
+  ctx.fillRect(0,0,size,size);
+  // Dimple pattern: stagger rows of small circles with darker depressions
+  const dimpleR = 8;
+  const rows = 24;
+  const cols = 24;
+  for (let r = 0; r < rows; r++) {
+    const xOff = (r % 2) * (size / cols / 2);
+    for (let col = 0; col < cols; col++) {
+      const x = (col + 0.5) * (size / cols) + xOff;
+      const y = (r + 0.5) * (size / rows);
+      const g = ctx.createRadialGradient(x,y,1, x,y,dimpleR);
+      g.addColorStop(0, 'rgb(100,100,200)');   // depression
+      g.addColorStop(0.7, 'rgb(128,128,255)');
+      g.addColorStop(1, 'rgb(128,128,255)');
+      ctx.fillStyle = g;
+      ctx.beginPath(); ctx.arc(x,y,dimpleR,0,Math.PI*2); ctx.fill();
+    }
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  return t;
+}
+
+function alignmentBandTex(stripeColor, mode) {
+  // mode: 'band' = single red equator, 'stripe' = wide red top-hemisphere stripe
+  const c = document.createElement('canvas'); c.width=512; c.height=256;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#ffffff'; ctx.fillRect(0,0,512,256);
+  ctx.fillStyle = stripeColor;
+  if (mode === 'band') {
+    ctx.fillRect(0, 112, 512, 32);
+  } else {
+    ctx.fillRect(0, 90, 512, 76);
+  }
+  // tiny noise
+  for (let i = 0; i < 200; i++) {
+    ctx.fillStyle = `rgba(0,0,0,${Math.random()*0.04})`;
+    ctx.fillRect(Math.random()*512, Math.random()*256, 1, 1);
+  }
+  return new THREE.CanvasTexture(c);
+}
+
+// --- Builders ---
+function buildFloor(scene) {
+  const f = new THREE.Mesh(
+    new THREE.PlaneGeometry(10,10).rotateX(-Math.PI/2),
+    new THREE.MeshStandardMaterial({ map: floorTex(), roughness: 0.85 })
+  );
+  f.receiveShadow = true;
+  scene.add(f);
+}
+
+function buildBall(scene, opts) {
+  let material;
+  if (opts.b01) {
+    material = new THREE.MeshBasicMaterial({ color: 0xffffff });
+  } else if (opts.b02) {
+    // Dimpled tour ball
+    material = new THREE.MeshStandardMaterial({
+      color: 0xf8f8f8,
+      normalMap: dimpleNormalMap(),
+      normalScale: new THREE.Vector2(0.6, 0.6),
+      roughness: 0.5,
+      metalness: 0.0
+    });
+  } else if (opts.b03) {
+    // Glossy tour
+    material = new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      roughness: 0.18,
+      metalness: 0.05
+    });
+  } else if (opts.b04) {
+    // Neon yellow
+    material = new THREE.MeshStandardMaterial({
+      color: 0xeeff20,
+      roughness: 0.45,
+      metalness: 0.0,
+      emissive: 0x445500,
+      emissiveIntensity: 0.3
+    });
+  } else if (opts.b05) {
+    // TruVis red equator band
+    material = new THREE.MeshStandardMaterial({
+      map: alignmentBandTex('#d61a1a', 'band'),
+      roughness: 0.5,
+      metalness: 0.0
+    });
+  } else if (opts.b06) {
+    // Wide red side stripe
+    material = new THREE.MeshStandardMaterial({
+      map: alignmentBandTex('#d61a1a', 'stripe'),
+      roughness: 0.5,
+      metalness: 0.0
+    });
+  }
+  const ball = new THREE.Mesh(
+    new THREE.SphereGeometry(BALL_DIA/2, 64, 64),
+    material
+  );
+  ball.position.y = BALL_DIA/2;
+  ball.castShadow = true;
+  ball.receiveShadow = true;
+  scene.add(ball);
+
+  // Soft contact shadow on floor
+  const shadow = new THREE.Mesh(
+    new THREE.CircleGeometry(BALL_DIA*0.55, 24).rotateX(-Math.PI/2),
+    new THREE.MeshBasicMaterial({ color: 0, transparent: true, opacity: 0.3 })
+  );
+  shadow.position.y = 0.0008;
+  scene.add(shadow);
+}
+
+// --- Reuse the locked 10/10 hole + ball for aim-line composition ---
+function buildHoleSimple(scene) {
+  // Floor with cup hole
+  const floorShape = new THREE.Shape();
+  floorShape.moveTo(-5, -5); floorShape.lineTo(5, -5);
+  floorShape.lineTo(5, 5); floorShape.lineTo(-5, 5); floorShape.lineTo(-5, -5);
+  const holePath = new THREE.Path();
+  holePath.absarc(0, 0, HOLE_DIA/2 * 0.99, 0, Math.PI * 2, true);
+  floorShape.holes.push(holePath);
+  const floorGeo = new THREE.ShapeGeometry(floorShape).rotateX(-Math.PI/2);
+  const uvs = floorGeo.attributes.uv;
+  for (let i = 0; i < uvs.count; i++) {
+    const x = floorGeo.attributes.position.getX(i);
+    const z = floorGeo.attributes.position.getZ(i);
+    uvs.setXY(i, (x + 5) / 10, (z + 5) / 10);
+  }
+  const floor = new THREE.Mesh(floorGeo, new THREE.MeshStandardMaterial({ map: floorTex(), roughness: 0.85 }));
+  floor.receiveShadow = true;
+  scene.add(floor);
+
+  // Gold rim
+  const rim = new THREE.Mesh(
+    new THREE.RingGeometry(HOLE_DIA/2 * 1.02, RIM_OUTER/2, 96).rotateX(-Math.PI/2),
+    new THREE.MeshStandardMaterial({ color: 0xd4a847, roughness: 0.25, metalness: 0.95, side: THREE.DoubleSide })
+  );
+  rim.position.y = 0.0012; rim.castShadow = true; rim.receiveShadow = true;
+  scene.add(rim);
+
+  // Cup wall lit white
+  const wall = new THREE.Mesh(
+    new THREE.CylinderGeometry(HOLE_DIA/2 * 0.99, HOLE_DIA/2 * 0.99, HOLE_DEPTH, 96, 1, true),
+    new THREE.MeshStandardMaterial({ color: 0xf4f4f4, side: THREE.DoubleSide, roughness: 0.85 })
+  );
+  wall.position.y = -HOLE_DEPTH/2; wall.receiveShadow = true;
+  scene.add(wall);
+
+  // Dark bottom
+  const bottom = new THREE.Mesh(
+    new THREE.CircleGeometry(HOLE_DIA/2 * 0.98, 64).rotateX(-Math.PI/2),
+    new THREE.MeshStandardMaterial({ color: 0x1a1410, roughness: 1.0 })
+  );
+  bottom.position.y = -HOLE_DEPTH + 0.0008;
+  scene.add(bottom);
+
+  // Flagstick
+  const pole = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.015/2, 0.015/2, 0.70, 32),
+    new THREE.MeshStandardMaterial({ color: 0x1e1a1a, roughness: 0.55, metalness: 0.25 })
+  );
+  pole.position.y = 0.35; pole.castShadow = true;
+  scene.add(pole);
+
+  // Flag
+  const flagGeo = new THREE.BufferGeometry();
+  const v = new Float32Array([
+    0.0075, 0, 0,
+    0.0075, 0.10, 0,
+    0.0075 + 0.15, 0.05, 0
+  ]);
+  flagGeo.setAttribute('position', new THREE.BufferAttribute(v, 3));
+  flagGeo.setIndex([0,2,1,0,1,2]);
+  flagGeo.computeVertexNormals();
+  const flag = new THREE.Mesh(flagGeo, new THREE.MeshStandardMaterial({ color: 0xd61a1a, side: THREE.DoubleSide, roughness: 0.7 }));
+  flag.position.y = 0.70 - 0.10 - 0.02;
+  scene.add(flag);
+}
+
+function buildBallSimple(scene, x, z) {
+  const ball = new THREE.Mesh(
+    new THREE.SphereGeometry(BALL_DIA/2, 32, 32),
+    new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.5 })
+  );
+  ball.position.set(x, BALL_DIA/2, z); ball.castShadow = true;
+  scene.add(ball);
+}
+
+function buildAimLine(scene, mode) {
+  // Ball at z = +1.49, hole at origin. Line in between, along z-axis.
+  const ballZ = 1.49;
+  const length = ballZ - 0;
+  const sideTh = 0.012;
+
+  if (mode === 'a01') {
+    // Solid yellow box (current)
+    const line = new THREE.Mesh(
+      new THREE.BoxGeometry(sideTh, sideTh, length),
+      new THREE.MeshBasicMaterial({ color: 0xfff050, transparent: true, opacity: 0.75 })
+    );
+    line.position.set(0, sideTh/2, ballZ/2);
+    scene.add(line);
+  } else if (mode === 'a02') {
+    // Dashed
+    const segLen = 0.10, gapLen = 0.05;
+    let pos = 0;
+    while (pos < length) {
+      const segL = Math.min(segLen, length - pos);
+      const seg = new THREE.Mesh(
+        new THREE.BoxGeometry(sideTh, sideTh, segL),
+        new THREE.MeshBasicMaterial({ color: 0xfff050, transparent: true, opacity: 0.85 })
+      );
+      seg.position.set(0, sideTh/2, pos + segL/2);
+      scene.add(seg);
+      pos += segL + gapLen;
+    }
+  } else if (mode === 'a03') {
+    // Gradient fade near cup — implemented via two segments with different opacity
+    // Full opacity 70% of length on the ball side, fading 30% near cup via geometry trick
+    const solidEnd = length * 0.7;
+    const fadeStart = solidEnd;
+    const fadeLen = length - fadeStart;
+    const solid = new THREE.Mesh(
+      new THREE.BoxGeometry(sideTh, sideTh, solidEnd),
+      new THREE.MeshBasicMaterial({ color: 0xfff050, transparent: true, opacity: 0.80 })
+    );
+    solid.position.set(0, sideTh/2, length - solidEnd/2);  // ball side
+    scene.add(solid);
+    // Fade segment — staggered alpha by sub-segments
+    const subs = 8;
+    for (let i = 0; i < subs; i++) {
+      const t = i / subs;
+      const segL = fadeLen / subs;
+      const seg = new THREE.Mesh(
+        new THREE.BoxGeometry(sideTh, sideTh, segL),
+        new THREE.MeshBasicMaterial({ color: 0xfff050, transparent: true, opacity: 0.65 * (1 - t) })
+      );
+      seg.position.set(0, sideTh/2, (subs - 1 - i + 0.5) * segL);
+      scene.add(seg);
+    }
+  } else if (mode === 'a04') {
+    // Solid line + perpendicular tick marks every 0.5 m
+    const main = new THREE.Mesh(
+      new THREE.BoxGeometry(sideTh, sideTh, length),
+      new THREE.MeshBasicMaterial({ color: 0xfff050, transparent: true, opacity: 0.78 })
+    );
+    main.position.set(0, sideTh/2, ballZ/2);
+    scene.add(main);
+    // Ticks
+    for (let d = 0.5; d < length; d += 0.5) {
+      const tick = new THREE.Mesh(
+        new THREE.BoxGeometry(0.06, sideTh, sideTh*1.5),
+        new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.85 })
+      );
+      tick.position.set(0, sideTh/2, d);
+      scene.add(tick);
+    }
+  } else if (mode === 'a05') {
+    // Glow line — solid yellow core + larger transparent halo
+    const core = new THREE.Mesh(
+      new THREE.BoxGeometry(sideTh, sideTh, length),
+      new THREE.MeshBasicMaterial({ color: 0xfff050 })
+    );
+    core.position.set(0, sideTh/2, ballZ/2);
+    scene.add(core);
+    // Halo via larger transparent box with additive blending
+    const haloGeom = new THREE.BoxGeometry(sideTh*4.5, sideTh*4.5, length);
+    const halo = new THREE.Mesh(
+      haloGeom,
+      new THREE.MeshBasicMaterial({
+        color: 0xfff050,
+        transparent: true,
+        opacity: 0.35,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false
+      })
+    );
+    halo.position.set(0, sideTh/2, ballZ/2);
+    scene.add(halo);
+  } else if (mode === 'a06') {
+    // Bezier-curved break line
+    // Curves from ball (z=1.49) to hole (z=0), with a sideways bulge of 15 cm
+    const segCount = 40;
+    const ctrl = new THREE.Vector3(0.15, 0, 0.85);  // control point off to right
+    for (let i = 0; i < segCount; i++) {
+      const t1 = i / segCount;
+      const t2 = (i + 1) / segCount;
+      const p1 = quadBezier(new THREE.Vector3(0, 0, ballZ), ctrl, new THREE.Vector3(0, 0, 0), t1);
+      const p2 = quadBezier(new THREE.Vector3(0, 0, ballZ), ctrl, new THREE.Vector3(0, 0, 0), t2);
+      const segL = p1.distanceTo(p2);
+      const mid = p1.clone().lerp(p2, 0.5);
+      const dir = p2.clone().sub(p1).normalize();
+      const angle = Math.atan2(dir.x, dir.z);
+      const seg = new THREE.Mesh(
+        new THREE.BoxGeometry(sideTh, sideTh, segL),
+        new THREE.MeshBasicMaterial({ color: 0xfff050, transparent: true, opacity: 0.75 })
+      );
+      seg.position.set(mid.x, sideTh/2, mid.z);
+      seg.rotation.y = angle;
+      scene.add(seg);
+    }
+  }
+}
+
+function quadBezier(p0, p1, p2, t) {
+  const omt = 1 - t;
+  return new THREE.Vector3(
+    omt*omt*p0.x + 2*omt*t*p1.x + t*t*p2.x,
+    omt*omt*p0.y + 2*omt*t*p1.y + t*t*p2.y,
+    omt*omt*p0.z + 2*omt*t*p1.z + t*t*p2.z
+  );
+}
+
+// --- Render single canvas ---
+function render(canvasId, mode, view) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+  const w = canvas.clientWidth || 380, h = canvas.clientHeight || 240;
+  canvas.width = w*2; canvas.height = h*2;
+  const off = document.createElement('canvas');
+  off.width = w*2; off.height = h*2;
+  const renderer = new THREE.WebGLRenderer({ canvas: off, antialias: true, preserveDrawingBuffer: true });
+  renderer.setSize(w, h, false);
+  renderer.setPixelRatio(2);
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0xb0a890);
+  scene.add(new THREE.HemisphereLight(0xffffff, 0xbfb38f, 0.35));
+  const key = new THREE.DirectionalLight(0xffffff, 2.5);
+  key.position.set(-1.5, 4.0, 1.5); key.castShadow = true;
+  key.shadow.mapSize.width = 2048;
+  key.shadow.mapSize.height = 2048;
+  key.shadow.camera.near = 0.001; key.shadow.camera.far = 8;
+  key.shadow.camera.left = -2; key.shadow.camera.right = 2;
+  key.shadow.camera.top = 2; key.shadow.camera.bottom = -2;
+  key.shadow.bias = -0.00005;
+  scene.add(key);
+  scene.add(new THREE.DirectionalLight(0xfff0d0, 0.18).position.set(-1, 2, -1));
+
+  if (mode.startsWith('b')) {
+    // Ball-only view: floor + ball at origin
+    buildFloor(scene);
+    const opts = {};
+    opts[mode] = true;
+    buildBall(scene, opts);
+  } else if (mode.startsWith('a')) {
+    // Aim-line view: ball + hole + line
+    buildHoleSimple(scene);
+    buildBallSimple(scene, 0, 1.49);
+    buildAimLine(scene, mode);
+  }
+
+  const cam = new THREE.PerspectiveCamera(45, w/h, 0.001, 50);
+  cam.position.set(view.cam.x, view.cam.y, view.cam.z);
+  cam.lookAt(view.look.x, view.look.y, view.look.z);
+  renderer.render(scene, cam);
+  canvas.getContext('2d').drawImage(off, 0, 0, canvas.width, canvas.height);
+  renderer.dispose(); renderer.forceContextLoss();
+}
+
+window.addEventListener('load', () => {
+  setTimeout(() => {
+    // Ball close-up view: low angle, ball fills frame
+    const ballView = { cam: {x: 0.05, y: 0.04, z: 0.10}, look: {x:0, y: BALL_DIA/2, z:0} };
+    ['b01','b02','b03','b04','b05','b06'].forEach(id => render(id, id, ballView));
+
+    // Aim-line view: behind ball looking toward hole (1.49m away at origin)
+    const aimView = { cam: {x: 0, y: 0.25, z: 1.85}, look: {x:0, y: 0.10, z: 0} };
+    ['a01','a02','a03','a04','a05','a06'].forEach(id => render(id, id, aimView));
+  }, 200);
+});
+</script>
+
+</body>
+</html>
