@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>PuttingLab — 10 Hole Design Options</title>
+<title>PuttingLab — 10 Hole Options (3D depth visible)</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
@@ -14,46 +14,57 @@
   }
   h1 { font-size: 30px; margin-bottom: 6px; letter-spacing: -0.5px; }
   .sub { color: #8a93a3; font-size: 14px; margin-bottom: 28px; max-width: 1100px; }
-  .grid {
-    display: grid;
-    grid-template-columns: repeat(5, 1fr);
-    gap: 14px;
-  }
-  .tile {
+  .option {
     background: #141a23;
     border: 1px solid #1f2733;
     border-radius: 14px;
-    padding: 14px;
+    padding: 18px;
+    margin-bottom: 16px;
   }
-  .tile h2 {
-    font-size: 12px;
-    color: #ffffff;
-    margin-bottom: 4px;
-    font-weight: 600;
+  .option-head {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 14px;
   }
-  .tile .num { color: #8a93a3; font-size: 11px; margin-bottom: 10px; }
-  canvas {
+  .option-head h2 { font-size: 17px; color: #fff; font-weight: 600; }
+  .option-head .desc { color: #8a93a3; font-size: 13px; flex: 1; }
+  .three-up {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+  }
+  .frame {
+    background: #d6cdb7;
+    border-radius: 10px;
+    overflow: hidden;
+    position: relative;
+  }
+  .frame canvas {
     display: block;
     width: 100%;
-    height: 220px;
-    border-radius: 10px;
-    background: #d6cdb7;
+    height: 280px;
   }
-  .desc {
-    margin-top: 10px;
-    font-size: 12px;
-    color: #8a93a3;
-    line-height: 1.4;
+  .frame .label {
+    position: absolute;
+    top: 8px;
+    left: 8px;
+    background: rgba(0,0,0,0.55);
+    color: #fff;
+    padding: 3px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.4px;
   }
   .badge {
     display: inline-block;
-    padding: 2px 7px;
+    padding: 3px 8px;
     border-radius: 5px;
     font-size: 10px;
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.5px;
-    margin-bottom: 8px;
   }
   .badge.now { background: #1a3a1a; color: #6fdf6f; }
   .badge.tweak { background: #2a2a3f; color: #9fafff; }
@@ -62,96 +73,16 @@
 </head>
 <body>
 
-<h1>10 Hole Design Options</h1>
+<h1>10 Hole Options — true 3D, three angles each</h1>
 <div class="sub">
-  Side-by-side comparison of every direction we could take the hole render. Column 1 is what's
-  currently shipping in B42. Columns 2–10 are alternatives — pick any combination, or use one as
-  a starting point and we iterate from there.
+  Each option rendered from <b>top-down</b>, <b>putting stance (35°)</b>, and <b>low grazing (8°)</b> so
+  the depth perception works from every viewpoint. Wall uses real lighting now, so the cup
+  interior naturally darkens with depth instead of being a baked gradient. Flagstick casts a
+  shadow on the floor — the universal "this is 3D" cue.
 </div>
 
-<div class="grid">
-
-  <div class="tile">
-    <span class="badge now">Shipping</span>
-    <h2>01. B42 Baseline</h2>
-    <div class="num">Current spec</div>
-    <canvas id="o01"></canvas>
-    <div class="desc">White rim + 3D recessed cup + white flagstick + red triangle flag. Locked at B40 materials. What you'll see in build 43.</div>
-  </div>
-
-  <div class="tile">
-    <span class="badge tweak">Tweak</span>
-    <h2>02. Soft AO Shadow</h2>
-    <div class="num">+ depth perception</div>
-    <canvas id="o02"></canvas>
-    <div class="desc">Replaces hard AO ring with a radial gradient (dark at rim → fade at +1cm). Sells "recessed" much more strongly. Identical render cost.</div>
-  </div>
-
-  <div class="tile">
-    <span class="badge tweak">Tweak</span>
-    <h2>03. Striped Flagstick</h2>
-    <div class="num">+ course-realism</div>
-    <canvas id="o03"></canvas>
-    <div class="desc">5 alternating red/white bands on the pole, mimicking USGA marker tape. Reads as "real golf course".</div>
-  </div>
-
-  <div class="tile">
-    <span class="badge tweak">Tweak</span>
-    <h2>04. Fabric Striped Flag</h2>
-    <div class="num">+ realism</div>
-    <canvas id="o04"></canvas>
-    <div class="desc">Tournament-pin pattern — 3 horizontal red bands on white with fabric noise. Could pair with #03.</div>
-  </div>
-
-  <div class="tile">
-    <span class="badge bold">Bold</span>
-    <h2>05. Glowing Cup Rim ⚡</h2>
-    <div class="num">"lights up"</div>
-    <canvas id="o05"></canvas>
-    <div class="desc">Bright cyan halo glowing around the rim. UnlitMaterial at full brightness — looks like a tracker beacon. Could ALSO pulse if we want animation.</div>
-  </div>
-
-  <div class="tile">
-    <span class="badge bold">Bold</span>
-    <h2>06. Pulse Rim (peak frame)</h2>
-    <div class="num">animated halo</div>
-    <canvas id="o06"></canvas>
-    <div class="desc">Same as #05 but breathing — soft 1 Hz pulse from 20% → 70% opacity. Shown here at peak.</div>
-  </div>
-
-  <div class="tile">
-    <span class="badge bold">Bold</span>
-    <h2>07. Bullseye Target Rings</h2>
-    <div class="num">putting practice aid</div>
-    <canvas id="o07"></canvas>
-    <div class="desc">3 concentric rings around the cup (50cm, 1m, 2m radii) to gauge near-misses. Faint white outlines. Genuinely useful for practice.</div>
-  </div>
-
-  <div class="tile">
-    <span class="badge bold">Bold</span>
-    <h2>08. Premium Gold Rim</h2>
-    <div class="num">luxury aesthetic</div>
-    <canvas id="o08"></canvas>
-    <div class="desc">Gold rim ring + matte black flagstick + small gold ferrule near cup. Reads premium / private-course.</div>
-  </div>
-
-  <div class="tile">
-    <span class="badge bold">Bold</span>
-    <h2>09. Minimalist Void</h2>
-    <div class="num">stripped down</div>
-    <canvas id="o09"></canvas>
-    <div class="desc">No white rim halo, no concentric layers. Just a pure dark recess + a slim flagstick. Most "design app" feel.</div>
-  </div>
-
-  <div class="tile">
-    <span class="badge bold">Bold</span>
-    <h2>10. Deluxe Combo</h2>
-    <div class="num">everything stacked</div>
-    <canvas id="o10"></canvas>
-    <div class="desc">Soft AO + striped flagstick + striped flag + subtle glow ring + bullseye targets. Maxed-out visual fidelity. ~3 hr code work.</div>
-  </div>
-
-</div>
+<!-- Options injected here -->
+<div id="options"></div>
 
 <script type="importmap">
 { "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js" } }
@@ -167,7 +98,7 @@ const POLE_HEIGHT = 0.70;
 const FLAG_W = 0.15;
 const FLAG_H = 0.10;
 
-// --- Texture factories ---
+// --- Textures ---
 function floorTex() {
   const c = document.createElement('canvas'); c.width=c.height=512;
   const ctx = c.getContext('2d');
@@ -179,21 +110,12 @@ function floorTex() {
   t.repeat.set(4,4);
   return t;
 }
-function wallTex() {
+function stripedPoleTex() {
   const c = document.createElement('canvas'); c.width=4; c.height=256;
   const ctx = c.getContext('2d');
-  const g = ctx.createLinearGradient(0,0,0,256);
-  g.addColorStop(0,'#fff'); g.addColorStop(0.35,'#e8e8e8');
-  g.addColorStop(0.7,'#7a7470'); g.addColorStop(1,'#2a2420');
-  ctx.fillStyle = g; ctx.fillRect(0,0,4,256);
-  return new THREE.CanvasTexture(c);
-}
-function stripedPoleTex(colours) {
-  const c = document.createElement('canvas'); c.width=4; c.height=256;
-  const ctx = c.getContext('2d');
-  const bands = colours || ['#fff', '#d61a1a', '#fff', '#d61a1a', '#fff'];
-  const h = 256 / bands.length;
-  bands.forEach((cl, i) => { ctx.fillStyle = cl; ctx.fillRect(0, i*h, 4, h); });
+  const bands = ['#fff','#d61a1a','#fff','#d61a1a','#fff'];
+  const h = 256/bands.length;
+  bands.forEach((cl,i) => { ctx.fillStyle = cl; ctx.fillRect(0, i*h, 4, h); });
   return new THREE.CanvasTexture(c);
 }
 function fabricFlagTex() {
@@ -224,66 +146,75 @@ function glowTex(colour, peak) {
   const ctx = c.getContext('2d');
   const g = ctx.createRadialGradient(128,128,50, 128,128,128);
   g.addColorStop(0, `rgba(${colour}, ${peak ?? 0.85})`);
-  g.addColorStop(0.5, `rgba(${colour}, ${(peak ?? 0.85) * 0.5})`);
+  g.addColorStop(0.5, `rgba(${colour}, ${(peak ?? 0.85)*0.5})`);
   g.addColorStop(1, `rgba(${colour}, 0)`);
   ctx.fillStyle = g; ctx.fillRect(0,0,256,256);
   return new THREE.CanvasTexture(c);
 }
 
-// --- Builders ---
+// --- Scene parts ---
 function buildFloor(scene) {
   const f = new THREE.Mesh(
     new THREE.PlaneGeometry(10,10).rotateX(-Math.PI/2),
     new THREE.MeshStandardMaterial({ map: floorTex(), roughness: 0.85 })
   );
+  f.receiveShadow = true;
   scene.add(f);
 }
 function addRim(scene, opts) {
-  const colour = opts.gold ? 0xd4a847 : 0xffffff;
   if (opts.minimal) return;
+  const colour = opts.gold ? 0xd4a847 : 0xffffff;
   const rim = new THREE.Mesh(
-    new THREE.CircleGeometry(RIM_OUTER/2, 64).rotateX(-Math.PI/2),
-    new THREE.MeshBasicMaterial({ color: colour })
+    new THREE.RingGeometry(HOLE_DIA/2, RIM_OUTER/2, 64).rotateX(-Math.PI/2),
+    new THREE.MeshStandardMaterial({
+      color: colour,
+      roughness: opts.gold ? 0.35 : 0.55,
+      metalness: opts.gold ? 0.85 : 0.0
+    })
   );
-  rim.position.y = 0.0005;
+  rim.position.y = 0.001;
+  rim.receiveShadow = true;
   scene.add(rim);
 }
 function addWall(scene) {
+  // MeshStandardMaterial so the wall is LIT. Inside the cup, light
+  // can't reach the bottom → the wall naturally darkens with depth.
+  // This is what sells the 3D recess instead of the static gradient
+  // I was using before.
   const w = new THREE.Mesh(
     new THREE.CylinderGeometry(HOLE_DIA/2, HOLE_DIA/2, HOLE_DEPTH, 64, 1, true),
-    new THREE.MeshBasicMaterial({ map: wallTex(), side: THREE.DoubleSide })
+    new THREE.MeshStandardMaterial({
+      color: 0xf2f2f2,
+      side: THREE.DoubleSide,
+      roughness: 0.7
+    })
   );
   w.position.y = -HOLE_DEPTH/2;
+  w.receiveShadow = true;
   scene.add(w);
 }
 function addBottom(scene) {
   const b = new THREE.Mesh(
-    new THREE.CircleGeometry(HOLE_DIA/2*0.95, 64).rotateX(-Math.PI/2),
-    new THREE.MeshBasicMaterial({ color: 0x0d0a07 })
+    new THREE.CircleGeometry(HOLE_DIA/2*0.97, 64).rotateX(-Math.PI/2),
+    new THREE.MeshStandardMaterial({ color: 0x0a0805, roughness: 1.0 })
   );
-  b.position.y = -HOLE_DEPTH + 0.001;
+  b.position.y = -HOLE_DEPTH + 0.0008;
+  b.receiveShadow = true;
   scene.add(b);
 }
 function addAO(scene, opts) {
   if (opts.minimal) return;
   if (opts.softAO) {
     const ao = new THREE.Mesh(
-      new THREE.PlaneGeometry(RIM_OUTER*1.6, RIM_OUTER*1.6).rotateX(-Math.PI/2),
+      new THREE.PlaneGeometry(RIM_OUTER*1.8, RIM_OUTER*1.8).rotateX(-Math.PI/2),
       new THREE.MeshBasicMaterial({ map: softAOTex(), transparent: true, depthWrite: false })
     );
-    ao.position.y = 0.0009;
-    scene.add(ao);
-  } else {
-    const ao = new THREE.Mesh(
-      new THREE.RingGeometry(HOLE_DIA/2*0.97, HOLE_DIA/2, 64).rotateX(-Math.PI/2),
-      new THREE.MeshBasicMaterial({ color: 0, transparent: true, opacity: 0.55, side: THREE.DoubleSide })
-    );
-    ao.position.y = 0.0008;
+    ao.position.y = 0.0015;
     scene.add(ao);
   }
+  // No hard AO ring — let the real lighting do the work
 }
 function addGlow(scene, colour, peak, radiusMul) {
-  // Bright halo around the rim, transparent + additive blending so it lights up.
   const size = RIM_OUTER * (radiusMul || 2.5);
   const glow = new THREE.Mesh(
     new THREE.PlaneGeometry(size, size).rotateX(-Math.PI/2),
@@ -294,33 +225,34 @@ function addGlow(scene, colour, peak, radiusMul) {
       blending: THREE.AdditiveBlending
     })
   );
-  glow.position.y = 0.0007;
+  glow.position.y = 0.0012;
   scene.add(glow);
 }
 function addFlagstick(scene, opts) {
   let mat;
-  if (opts.stripedPole) mat = new THREE.MeshBasicMaterial({ map: stripedPoleTex() });
-  else if (opts.blackPole) mat = new THREE.MeshBasicMaterial({ color: 0x121212 });
-  else mat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+  if (opts.stripedPole) mat = new THREE.MeshStandardMaterial({ map: stripedPoleTex(), roughness: 0.5 });
+  else if (opts.blackPole) mat = new THREE.MeshStandardMaterial({ color: 0x121212, roughness: 0.4, metalness: 0.5 });
+  else mat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.55 });
   const pole = new THREE.Mesh(
     new THREE.CylinderGeometry(POLE_DIA/2, POLE_DIA/2, POLE_HEIGHT, 16),
     mat
   );
   pole.position.y = POLE_HEIGHT/2;
+  pole.castShadow = true;
+  pole.receiveShadow = true;
   scene.add(pole);
 
-  // Premium gold ferrule (small ring near base) if requested
   if (opts.goldFerrule) {
     const ferrule = new THREE.Mesh(
       new THREE.CylinderGeometry(POLE_DIA*0.85, POLE_DIA*0.85, 0.02, 16),
-      new THREE.MeshBasicMaterial({ color: 0xd4a847 })
+      new THREE.MeshStandardMaterial({ color: 0xd4a847, roughness: 0.3, metalness: 0.9 })
     );
-    ferrule.position.y = 0.01;
+    ferrule.position.y = 0.015;
+    ferrule.castShadow = true;
     scene.add(ferrule);
   }
 }
 function addFlag(scene, opts) {
-  if (opts.noFlag) return;
   const geo = new THREE.BufferGeometry();
   const v = new Float32Array([
     POLE_DIA/2, 0, 0,
@@ -333,45 +265,73 @@ function addFlag(scene, opts) {
   geo.setIndex([0,2,1,0,1,2]);
   geo.computeVertexNormals();
   const mat = opts.fabricFlag
-    ? new THREE.MeshBasicMaterial({ map: fabricFlagTex(), side: THREE.DoubleSide })
-    : new THREE.MeshBasicMaterial({ color: opts.darkFlag ? 0x121212 : 0xd61a1a, side: THREE.DoubleSide });
+    ? new THREE.MeshStandardMaterial({ map: fabricFlagTex(), side: THREE.DoubleSide, roughness: 0.85 })
+    : new THREE.MeshStandardMaterial({ color: 0xd61a1a, side: THREE.DoubleSide, roughness: 0.75 });
   const f = new THREE.Mesh(geo, mat);
   f.position.y = POLE_HEIGHT - FLAG_H - 0.02;
+  f.castShadow = true;
   scene.add(f);
 }
 function addBullseye(scene) {
-  // 3 concentric faint white rings on the floor at 50cm / 1m / 2m radii
-  [0.5, 1.0, 2.0].forEach((r, i) => {
+  [0.5, 1.0, 2.0].forEach((r,i) => {
     const ring = new THREE.Mesh(
       new THREE.RingGeometry(r - 0.01, r, 96).rotateX(-Math.PI/2),
       new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.35 - i*0.07, side: THREE.DoubleSide })
     );
-    ring.position.y = 0.0006;
+    ring.position.y = 0.0011;
     scene.add(ring);
   });
 }
 
-// --- Per-option render ---
-function render(canvasId, opts) {
-  const canvas = document.getElementById(canvasId);
-  if (!canvas) return;
-  const w = canvas.clientWidth, h = canvas.clientHeight;
+// --- Render a single canvas ---
+//
+// IMPORTANT: this function MUST dispose the WebGL context before
+// returning. Browsers cap concurrent WebGL contexts at ~16 (Chrome
+// default). With 10 options × 3 angles = 30 canvases, the first 14
+// silently lose their context if we keep them alive — that's the
+// "blank canvas" bug we were hitting. We render to an offscreen
+// canvas first, then COPY the pixels into the target canvas via
+// canvas2D drawImage. The offscreen WebGL context is disposed
+// immediately, freeing the slot for the next render.
+function renderCanvas(canvas, opts, view) {
+  const w = canvas.clientWidth || 380, h = canvas.clientHeight || 280;
   canvas.width = w*2; canvas.height = h*2;
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
+  // Offscreen WebGL render target — its context will be disposed
+  // immediately after we copy pixels out.
+  const offscreen = document.createElement('canvas');
+  offscreen.width = w*2; offscreen.height = h*2;
+  const renderer = new THREE.WebGLRenderer({ canvas: offscreen, antialias: true, preserveDrawingBuffer: true });
   renderer.setSize(w, h, false);
   renderer.setPixelRatio(2);
   renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0xb0a890);
-  scene.add(new THREE.AmbientLight(0xffffff, 0.6));
-  const k = new THREE.DirectionalLight(0xffffff, 0.7);
-  k.position.set(1,2,0.5); scene.add(k);
-  const f = new THREE.DirectionalLight(0xffffff, 0.3);
-  f.position.set(-1,1,-0.5); scene.add(f);
+
+  // Indoor-realistic lighting: hemisphere fill + one warm key with shadows.
+  scene.add(new THREE.HemisphereLight(0xffffff, 0xbfb38f, 0.55));
+  const key = new THREE.DirectionalLight(0xffffff, 1.5);
+  key.position.set(1.5, 3.0, 1.0);
+  key.castShadow = true;
+  key.shadow.mapSize.width = 1024;
+  key.shadow.mapSize.height = 1024;
+  key.shadow.camera.near = 0.1;
+  key.shadow.camera.far = 6;
+  key.shadow.camera.left = -1;
+  key.shadow.camera.right = 1;
+  key.shadow.camera.top = 1;
+  key.shadow.camera.bottom = -1;
+  scene.add(key);
+  const back = new THREE.DirectionalLight(0xfff0d0, 0.4);
+  back.position.set(-1, 2, -1);
+  scene.add(back);
 
   buildFloor(scene);
   if (opts.bullseye) addBullseye(scene);
-  if (opts.glow) addGlow(scene, opts.glowColour || '120, 220, 255', opts.glowPeak ?? 0.85, opts.glowRadius);
+  if (opts.glow) addGlow(scene, opts.glowColour || '120,220,255', opts.glowPeak ?? 0.85, opts.glowRadius);
   addRim(scene, opts);
   addWall(scene);
   addBottom(scene);
@@ -379,31 +339,83 @@ function render(canvasId, opts) {
   addFlagstick(scene, opts);
   addFlag(scene, opts);
 
-  // Putting-stance camera consistent across all 10
-  const cam = new THREE.PerspectiveCamera(50, w/h, 0.005, 50);
-  cam.position.set(0, 0.32, 0.30);
-  cam.lookAt(0, 0.15, 0);
+  const cam = new THREE.PerspectiveCamera(45, w/h, 0.005, 50);
+  cam.position.set(view.cam.x, view.cam.y, view.cam.z);
+  cam.lookAt(view.look.x, view.look.y, view.look.z);
   renderer.render(scene, cam);
+
+  // Copy the offscreen pixels into the on-DOM canvas via 2D
+  // drawImage, then immediately dispose the WebGL context so its
+  // slot is released for the next option.
+  const ctx2d = canvas.getContext('2d');
+  ctx2d.drawImage(offscreen, 0, 0, canvas.width, canvas.height);
+  renderer.dispose();
+  renderer.forceContextLoss();
 }
 
-window.addEventListener('load', () => {
-  render('o01', {});
-  render('o02', {softAO: true});
-  render('o03', {stripedPole: true});
-  render('o04', {fabricFlag: true});
-  render('o05', {glow: true, glowColour: '120, 220, 255', glowPeak: 0.85});
-  render('o06', {glow: true, glowColour: '120, 220, 255', glowPeak: 0.55, glowRadius: 3.5});
-  render('o07', {bullseye: true});
-  render('o08', {gold: true, blackPole: true, goldFerrule: true, darkFlag: false});
-  render('o09', {minimal: true});
-  render('o10', {
-    softAO: true,
-    stripedPole: true,
-    fabricFlag: true,
-    glow: true, glowColour: '120, 220, 255', glowPeak: 0.40, glowRadius: 2.2,
-    bullseye: true
+// --- View presets that actually SHOW depth ---
+const VIEWS = {
+  top:    { label: 'Top-down',         cam: {x:0,    y:0.20, z:0.001}, look: {x:0, y:0,    z:0} },
+  stance: { label: 'Stance 35°',       cam: {x:0,    y:0.32, z:0.32},  look: {x:0, y:0.15, z:0} },
+  low:    { label: 'Low grazing 12°',  cam: {x:0.05, y:0.07, z:0.32},  look: {x:0, y:0.06, z:0} },
+};
+
+// --- 10 options ---
+const OPTIONS = [
+  {id:'01', name:'B42 Baseline',         badge:'now',   note:'Current shipping spec',                    opts:{}},
+  {id:'02', name:'Soft AO Shadow',       badge:'tweak', note:'+ depth perception via radial gradient',  opts:{softAO:true}},
+  {id:'03', name:'Striped Flagstick',    badge:'tweak', note:'+ USGA marker-tape bands on pole',        opts:{stripedPole:true}},
+  {id:'04', name:'Fabric Striped Flag',  badge:'tweak', note:'+ tournament-pin texture on flag',        opts:{fabricFlag:true}},
+  {id:'05', name:'Glowing Cup Rim ⚡',   badge:'bold',  note:'"lights up" — bright cyan halo',          opts:{glow:true, glowColour:'120,220,255', glowPeak:0.85}},
+  {id:'06', name:'Pulse Rim (peak)',     badge:'bold',  note:'Animated 1 Hz pulse, shown at peak',      opts:{glow:true, glowColour:'120,220,255', glowPeak:0.5, glowRadius:3.5}},
+  {id:'07', name:'Bullseye Target Rings',badge:'bold',  note:'3 concentric rings — putting practice aid',opts:{bullseye:true}},
+  {id:'08', name:'Premium Gold Rim',     badge:'bold',  note:'Gold metallic rim + black flagstick',     opts:{gold:true, blackPole:true, goldFerrule:true}},
+  {id:'09', name:'Minimalist Void',      badge:'bold',  note:'No rim halo, just dark recess + slim pole',opts:{minimal:true}},
+  {id:'10', name:'Deluxe Combo',         badge:'bold',  note:'Everything stacked — max fidelity',       opts:{softAO:true, stripedPole:true, fabricFlag:true, glow:true, glowColour:'120,220,255', glowPeak:0.4, glowRadius:2.2, bullseye:true}},
+];
+
+function buildPage() {
+  const container = document.getElementById('options');
+  OPTIONS.forEach(opt => {
+    const div = document.createElement('div');
+    div.className = 'option';
+    div.innerHTML = `
+      <div class="option-head">
+        <span class="badge ${opt.badge}">${opt.badge === 'now' ? 'Shipping' : opt.badge}</span>
+        <h2>${opt.id}. ${opt.name}</h2>
+        <div class="desc">${opt.note}</div>
+      </div>
+      <div class="three-up">
+        <div class="frame"><span class="label">${VIEWS.top.label}</span>   <canvas id="${opt.id}-top"></canvas></div>
+        <div class="frame"><span class="label">${VIEWS.stance.label}</span><canvas id="${opt.id}-stance"></canvas></div>
+        <div class="frame"><span class="label">${VIEWS.low.label}</span>   <canvas id="${opt.id}-low"></canvas></div>
+      </div>
+    `;
+    container.appendChild(div);
   });
-});
+
+  // Force a layout pass before reading clientWidth on the canvases —
+  // requestAnimationFrame alone was racing with layout in headless
+  // Chrome, leaving the first few canvases at 0×0 and rendering blank.
+  // Using setTimeout(..., 100) ensures the browser has fully laid out
+  // every option's three-up grid before we start rendering Three.js.
+  setTimeout(() => {
+    OPTIONS.forEach(opt => {
+      ['top', 'stance', 'low'].forEach(viewKey => {
+        const canvas = document.getElementById(`${opt.id}-${viewKey}`);
+        // Force-set a fallback width if clientWidth still reads zero
+        // (defensive — should be set by CSS by now).
+        if (canvas.clientWidth === 0) {
+          canvas.style.width = '380px';
+          canvas.style.height = '280px';
+        }
+        renderCanvas(canvas, opt.opts, VIEWS[viewKey]);
+      });
+    });
+  }, 150);
+}
+
+window.addEventListener('load', buildPage);
 </script>
 
 </body>
