@@ -98,40 +98,47 @@ const floor = new THREE.Mesh(
 floor.receiveShadow = true;
 scene.add(floor);
 
-// Gold rim
+// Gold rim — castsShadow so it can darken the inside of the cup
+// (creates the natural top→bottom gradient on a white wall, which
+// is what a real golf-cup interior looks like).
 const rim = new THREE.Mesh(
   new THREE.RingGeometry(HOLE_DIA/2, RIM_OUTER/2, 96).rotateX(-Math.PI/2),
   new THREE.MeshStandardMaterial({ color: 0xd4a847, roughness: 0.28, metalness: 0.95, side: THREE.DoubleSide })
 );
-rim.position.y = 0.0012; rim.receiveShadow = true;
+rim.position.y = 0.0012;
+rim.receiveShadow = true;
+rim.castShadow = true;
 scene.add(rim);
 
-// Cup wall — LIT MeshStandardMaterial with dark colour. Gemini
-// flagged that the previous white unlit wall blended with the
-// floor and read as a flat decal. Making the wall a medium-dark
-// warm tone means:
-//   (a) it CONTRASTS with the lit floor (depth cue)
-//   (b) the directional light from upper-left creates real
-//       bright/dark asymmetry across the curved inside surface
-//       — the LIT side of the wall is brighter, the SHADOW side
-//       is darker — which sells 3D unambiguously.
+// Cup wall — WHITE PhysicallyBasedMaterial. James's feedback:
+// real golf cups have white plastic liners, not dark interiors.
+// The depth perception comes from the directional light
+// naturally creating a bright/dark gradient: bright at the top
+// rim where the light can enter, progressively darker going
+// down because the rim itself blocks the light from reaching
+// the bottom. Plus shadow cast from the flagstick onto the
+// inside wall creates extra visual depth. With high shadow map
+// resolution + a tight shadow camera around the cup, the
+// darkening reads naturally.
 const wall = new THREE.Mesh(
   new THREE.CylinderGeometry(HOLE_DIA/2 * 0.99, HOLE_DIA/2 * 0.99, HOLE_DEPTH, 96, 1, true),
   new THREE.MeshStandardMaterial({
-    color: 0x3a3530,    // medium-dark warm gray
+    color: 0xf2f2f2,        // near-white plastic
     side: THREE.DoubleSide,
-    roughness: 0.9
+    roughness: 0.85,
+    metalness: 0.0
   })
 );
 wall.position.y = -HOLE_DEPTH/2;
-wall.castShadow = true;
 wall.receiveShadow = true;
 scene.add(wall);
 
-// Bottom — pure black, anchors the depth
+// Bottom — dark warm shadow (deep in the cup where no light
+// reaches). Reads as the "shadow at the bottom of a real cup"
+// rather than a void.
 const bottom = new THREE.Mesh(
   new THREE.CircleGeometry(HOLE_DIA/2 * 0.98, 64).rotateX(-Math.PI/2),
-  new THREE.MeshStandardMaterial({ color: 0x050302, roughness: 1.0 })
+  new THREE.MeshStandardMaterial({ color: 0x1a1410, roughness: 1.0 })
 );
 bottom.position.y = -HOLE_DEPTH + 0.0008;
 bottom.receiveShadow = true;
