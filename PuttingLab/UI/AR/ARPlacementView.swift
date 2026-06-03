@@ -164,20 +164,20 @@ struct ARPlacementView: View {
     @State private var motionManager = MotionManager()
     @State private var motionStreamTask: Task<Void, Never>? = nil
     @State private var latestMotionSample: MotionSample? = nil
-    /// B57: lowered `armThreshold` from default 1.7 → 1.0 rad/s.
-    /// James reported haptic was "slow and late" on B56. The default
-    /// was tuned against the OLD pose (single-hand vertical phone)
-    /// where peak |ω| was 2.1-3.1 rad/s. The new pose (both hands,
-    /// tilted phone) has a different swing-axis distribution and
-    /// likely a lower peak |ω|, so the detector wasn't arming and
-    /// the only haptic feedback was the late `UINotificationFeedback`
-    /// at window close. Lower threshold = arms earlier = haptic
-    /// fires at the actual peak.
-    @State private var liveImpactDetector = LiveImpactDetector(
-        armThreshold: 1.0,
-        disarmThreshold: 0.6,
-        minFireDelayFromTouchDownSeconds: 0.4
-    )
+    /// B58 — restored to defaults (armThreshold 1.7, disarmThreshold 1.0,
+    /// minFireDelayFromTouchDownSeconds 1.0). My B57 retune to 1.0 / 0.6
+    /// / 0.4 was wrong: James's clarification that "[I have always held the
+    /// phone] the same way" means the 80-stroke calibration data IS for his
+    /// actual grip. Running the historical 284-stroke set through analysis:
+    /// - 97.9% of strokes peak above 1.7 rad/s (no need to lower armThreshold)
+    /// - Median time-to-peak is 1.43s (no need to lower the 1.0s fire-delay
+    ///   gate — the gate's original job was suppressing backswing peaks
+    ///   at 469-1023ms; lowering it would re-introduce backswing haptics)
+    /// The "slow and late haptic" James felt on B56 was likely the 2-4% of
+    /// strokes that genuinely fall below threshold + the late
+    /// notification-at-window-close fallback. Better path: ship and
+    /// re-measure on B58 JSON's `live_haptic_fires` counter.
+    @State private var liveImpactDetector = LiveImpactDetector()
     @State private var impactDetector = ImpactDetector()
 
     /// Per-press accumulators. Mirror v0.2.0's PracticeSessionViewModel
@@ -2182,7 +2182,7 @@ struct ARPlacementView: View {
             ballWorld: ball,
             holeWorld: hole,
             impact: impact,
-            speedCalibration: Self.defaultSpeedCalibration,
+            speedCalibration: calibrationProfile?.speedToDistanceFactor ?? Self.defaultSpeedCalibration,
             stimpFeet: BallPhysics.defaultStimp,
             trailEmitter: { world in
                 scene.dropRollTrailMarker(at: world)
@@ -2251,7 +2251,7 @@ struct ARPlacementView: View {
         let sim = BallPhysics.simulatePutt(
             peakVelocity: impact.peakVelocity,
             faceAngleRaw: impact.faceAngleRaw,
-            speedCalibration: Self.defaultSpeedCalibration,
+            speedCalibration: calibrationProfile?.speedToDistanceFactor ?? Self.defaultSpeedCalibration,
             stimpFeet: BallPhysics.defaultStimp,
             startPosition: .zero,
             cupPosition: SIMD2<Double>(Double(aimLen), 0)

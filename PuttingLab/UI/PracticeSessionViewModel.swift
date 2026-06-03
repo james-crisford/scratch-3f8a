@@ -87,6 +87,18 @@ final class PracticeSessionViewModel {
     private var pendingWindow: StrokeWindow?
     private var pendingResult: ImpactResult?
 
+    /// B58 — accumulator for cal-batch strokes used to compute + persist a
+    /// CalibrationProfile to ProfileStore when the cal batch completes.
+    /// Workflow audit confirmed that pre-B58, CalibrationModel.compute()
+    /// was wired only to in-memory TestSessionState.calibrationFaceBaselineRad
+    /// (display-time only) and the resulting CalibrationProfile was never
+    /// persisted. Result: every session ran with a no-op bias correction.
+    private var pendingCalibrationInputs: [CalibrationInput] = []
+
+    /// B58 — shared ProfileStore. Injected for tests; default is the
+    /// standard-UserDefaults store every other consumer also reads from.
+    private let profileStore: ProfileStore
+
     /// Minimum sample count to attempt impact detection. ImpactDetector
     /// already requires >= 3; we set 5 to give the integration step a small
     /// safety margin against the BUNDLE_LOADER short-stroke failure mode.
@@ -109,6 +121,7 @@ final class PracticeSessionViewModel {
         impactDetector: ImpactDetector = ImpactDetector(),
         replayStore: StrokeReplayStore? = StrokeReplayStore.shared,
         liveImpactDetector: LiveImpactDetector = LiveImpactDetector(),
+        profileStore: ProfileStore = ProfileStore(),
         onHaptic: @escaping @MainActor (UIImpactFeedbackGenerator.FeedbackStyle) -> Void = { style in
             UIImpactFeedbackGenerator(style: style).impactOccurred()
         },
@@ -135,6 +148,7 @@ final class PracticeSessionViewModel {
         self.impactDetector = impactDetector
         self.replayStore = replayStore
         self.liveImpactDetector = liveImpactDetector
+        self.profileStore = profileStore
         self.onHaptic = onHaptic
         self.onImpactHaptic = onImpactHaptic
         self.onImpactSound = onImpactSound
@@ -431,6 +445,16 @@ final class PracticeSessionViewModel {
             // calibration baseline.
             if currentBatch.id == "cal" && !result.snappedToSquare {
                 session.recordCalibrationFaceAngle(result.faceAngleRaw)
+                // B58 — also accumulate the full CalibrationInput (window +
+                // impact) so we can compute + persist a CalibrationProfile
+                // when the cal batch completes. Pre-B58 the cal data lived
+                // only in TestSessionState.calibrationFaceAnglesRad (face
+                // angle floats only), which is enough for display-time
+                // arithmetic but NOT for the full CalibrationProfile that
+                // ProfileStore expects (face bias + speed factor + swing
+                // axis + stability).
+                pendingCalibrationInputs.append(CalibrationInput(
+                    window: window, impact: result))
             }
             let replay = StrokeReplay(
                 window: window,
@@ -465,6 +489,17 @@ final class PracticeSessionViewModel {
         if batchComplete {
             // Remember the just-completed batch for the transition card.
             justCompletedBatch = session.currentBatch
+            // B58 — when the cal batch finishes, compute + persist the
+            // CalibrationProfile so downstream consumers (AR mode bias
+            // correction, AR mode speedCalibration) have it on the next
+            // session. This is the wiring that was missing pre-B58: the
+            // CalibrationModel.compute() function existed since the early
+            // builds but ProfileStore.save() was never called for the
+            // computed profile, so the profile only lived in memory
+            // for the duration of the session.
+            if session.currentBatch.id == "cal" {
+                persistCalibrationIfReady()
+            }
             // Advance + check if NEXT batch is the break.
             session.advanceBatch()
             session.save()
@@ -479,6 +514,35 @@ final class PracticeSessionViewModel {
             // Same batch, next stroke — go straight to ready (no re-read).
             phase = .ready
         }
+    }
+
+    /// B58 — compute the CalibrationProfile from the in-memory cal-batch
+    /// buffer + save to ProfileStore. Called once at cal-batch completion.
+    /// Requires ≥3 valid cal strokes (matching TestSessionState's bias
+    /// computation threshold). targetDistanceFeet is sourced from the cal
+    /// batch's published target (defaults to 10 ft if absent).
+    private func persistCalibrationIfReady() {
+        guard pendingCalibrationInputs.count >= 3 else {
+            lastError = "Calibration needs at least 3 valid cal strokes — got \(pendingCalibrationInputs.count)."
+            pendingCalibrationInputs.removeAll(keepingCapacity: false)
+            return
+        }
+        // TestBatch doesn't carry a per-batch target distance; the cal
+        // batch instructions reference an imaginary target. Use the
+        // standard 10ft / Stimp-10 target — matches what
+        // BallPhysics.defaultStimp expects and the historical
+        // calibration the 200+ strokes were taken against.
+        let targetFeet: Double = 10.0
+        let profile = CalibrationModel.compute(
+            from: pendingCalibrationInputs,
+            targetDistanceFeet: targetFeet)
+        do {
+            try profileStore.save(profile)
+            lastError = nil
+        } catch {
+            lastError = "Couldn't save calibration profile: \(error.localizedDescription)"
+        }
+        pendingCalibrationInputs.removeAll(keepingCapacity: false)
     }
 
     /// User tapped "CONTINUE TO BATCH X" on the batch-transition card.
