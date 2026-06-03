@@ -182,20 +182,34 @@ final class BallRollAnimator {
         }
     }
 
+    /// B64 — cup depth used to derive the drop target. Was hardcoded
+    /// as -0.04 (literally `-0.08 / 2` accidentally correct against
+    /// ARPlacementView.holeDepth = 0.08). Workflow audit flagged the
+    /// magic number as a maintenance trap if cup depth ever tunes.
+    private static let cupDepth: Float = 0.08
+
     /// B63 — drop the captured ball into the cup over ~350ms.
     /// Animates Y from the floor-lifted position down to roughly the
     /// middle of the regulation 8cm cup, so "drained" has a satisfying
     /// visual landing. Includes a slight ease-out (cube of progress)
     /// so the ball decelerates as it settles.
+    ///
+    /// B64 — accepts ballEntity as non-optional + guards inside, so
+    /// even if the caller deallocates the wrapping weak ref during
+    /// the 350ms drop the loop can no-op cleanly.
     private func dropBallIntoCup(ballEntity: Entity,
                                   startY: Float,
                                   trailEmitter: ((SIMD3<Float>) -> Void)?) async {
         let dropDurationS: Double = 0.35
-        let targetY: Float = -0.04   // ~half-way into the 8cm cup
+        let targetY: Float = -Self.cupDepth / 2  // ~half-way into the cup
         let frames = Int(dropDurationS / Self.frameInterval)
         let startWall = CACurrentMediaTime()
         for _ in 0..<frames {
             if Task.isCancelled { return }
+            // B64 — defensive: if the entity's parent (anchor) was
+            // deallocated mid-drop, abort early. Entity itself is a
+            // class but its scene attachment could become invalid.
+            guard ballEntity.parent != nil else { return }
             let t = CACurrentMediaTime() - startWall
             let raw = Float(min(1.0, t / dropDurationS))
             let eased = 1 - pow(1 - raw, 3)  // ease-out cubic
@@ -208,6 +222,7 @@ final class BallRollAnimator {
         }
         // Snap final position so float-drift doesn't leave us slightly
         // off-centre.
+        guard ballEntity.parent != nil else { return }
         var p = ballEntity.position
         p.y = targetY
         ballEntity.position = p

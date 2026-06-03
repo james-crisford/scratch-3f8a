@@ -2044,6 +2044,9 @@ struct ARPlacementView: View {
             samplesDuringRecording.removeAll(keepingCapacity: false)
             posesDuringRecording.removeAll(keepingCapacity: false)
             recordingLock = nil
+            // B64 — clear ARKit baseline so the next press doesn't
+            // accidentally reuse a stale value if its capture fails.
+            recordingArkitBaseline = nil
         }
         // P1.1 — quick tap suppression. Anything under 200ms is an
         // accidental tap; silent ignore (no "No swing" toast).
