@@ -48,22 +48,28 @@ struct ARPlacementView: View {
         // tapped "Set address"; we're waiting for the
         // StillnessDetector to fire while the user holds the
         // address pose.
+        // B51 — DEPRECATED, kept compileable for the parallel
+        // press-gesture flow. Will be removed in B52 once the
+        // press flow is confirmed on device.
         case calibratingAddress(ball: SIMD3<Float>, hole: SIMD3<Float>)
         // Stage 3 Slice 3.2 / B47 — address captured. Phone-icon
         // hologram is rendered at the captured pose. From here
         // Slice 3.3 / B48 wires stroke detection.
+        // B51 — DEPRECATED, see above.
         case addressReady(ball: SIMD3<Float>,
                           hole: SIMD3<Float>,
                           pose: AddressPose)
         // Stage 3 Slice 3.3 / B48 — StrokeDetector armed, IMU
         // stream live. The "GO" affordance is shown on the ball;
         // the next phone-swing motion triggers stroke detection.
+        // B51 — DEPRECATED, see above.
         case readyForStroke(ball: SIMD3<Float>,
                             hole: SIMD3<Float>,
                             pose: AddressPose)
         // Stage 3 Slice 3.3 / B48 — stroke motion in progress.
         // StrokeDetector phase has left `.armed` (detected start).
         // Waiting for the detector to return a closed StrokeWindow.
+        // B51 — DEPRECATED, see above.
         case strokeInProgress(ball: SIMD3<Float>,
                               hole: SIMD3<Float>,
                               pose: AddressPose)
@@ -183,6 +189,13 @@ struct ARPlacementView: View {
     /// `BallPhysics.simulatePutt` trajectory.
     @State private var ballRollAnimator: BallRollAnimator? = nil
 
+    /// B51 — press-and-unpress gesture state. True from the
+    /// instant the user presses on the AR view at `.complete`
+    /// until they release. Used by the gesture overlay to avoid
+    /// re-firing handlePressBegan on every DragGesture .onChanged
+    /// event (a single press emits many onChanged calls).
+    @State private var pressActive: Bool = false
+
     /// B50 Slice 3.5 — Mario Kart bucketer. Stateless, reused
     /// across strokes. `Sendable` per the type declaration.
     private static let marioKart = MarioKartAssist()
@@ -209,6 +222,28 @@ struct ARPlacementView: View {
                 onResetAfterInterruption: { resetAfterInterruption() }
             )
             .ignoresSafeArea()
+
+            // B51 — press-and-unpress gesture catcher. Sits
+            // immediately above the AR scene but below all UI
+            // chrome (HUD / buttons / event log) so the chrome
+            // still receives its own taps. Active only at
+            // .complete — the user presses anywhere on the AR
+            // view to lock the address pose and arm StrokeCapture,
+            // then releases when their swing is done. Buttons
+            // higher up in the ZStack still steal taps that hit
+            // their hit-test regions; this only catches presses
+            // on the empty AR area where the user actually grips.
+            if case .complete(let ball, let hole) = placementState {
+                Color.clear
+                    .contentShape(Rectangle())
+                    .ignoresSafeArea()
+                    .gesture(
+                        DragGesture(minimumDistance: 0)
+                            .onChanged { _ in handlePressBegan(ball: ball, hole: hole) }
+                            .onEnded { _ in handlePressEnded(ball: ball, hole: hole) }
+                    )
+                    .accessibilityIdentifier("ar.pressGesture")
+            }
 
             // Centre crosshair so the user can SEE the exact world
             // point they're aiming at before committing — pairs with
@@ -288,29 +323,35 @@ struct ARPlacementView: View {
                                                        outcome: outcome,
                                                        duration: duration),
                         onPuttAgain: {
-                            // Reset ball entity to start + arm a
-                            // new stroke capture preserving the
-                            // address pose.
+                            // B51 — Reset ball + trail and return
+                            // to .complete. User re-presses on the
+                            // AR view to take the next putt; we
+                            // re-snapshot the address pose at that
+                            // press moment rather than re-using the
+                            // prior one (which may no longer match
+                            // the user's current grip).
                             if let ballEntity = scene.ballModelEntity() {
                                 ballEntity.position = SIMD3<Float>(0, 0.0427/2, 0)
                             }
                             scene.clearRollTrail()
-                            armStrokeCapture(ball: ball, hole: hole, pose: pose)
+                            placementState = .complete(ball: ball, hole: hole)
+                            _ = pose  // captured pose no longer used; press will re-snapshot
                         },
                         onResetAll: {
                             reset()
                         },
                         onDismiss: {
-                            // Auto-dismiss timer fired but the
-                            // user hasn't tapped — return to
-                            // .addressReady so the action row
-                            // re-renders the Putt again / Reset
-                            // capsules under the HUD.
-                            if case .rolled(let b, let h, let p, _, _, _) = placementState {
+                            // B51 — auto-dismiss returns to
+                            // .complete; the action row re-renders
+                            // the Putt again / Reset capsules under
+                            // the HUD. The captured address pose is
+                            // discarded — next putt re-snapshots at
+                            // press time.
+                            if case .rolled(let b, let h, _, _, _, _) = placementState {
                                 if let ballEntity = scene.ballModelEntity() {
                                     ballEntity.position = SIMD3<Float>(0, 0.0427/2, 0)
                                 }
-                                placementState = .addressReady(ball: b, hole: h, pose: p)
+                                placementState = .complete(ball: b, hole: h)
                             }
                         }
                     )
@@ -1768,6 +1809,75 @@ struct ARPlacementView: View {
         strokeCapture = nil
     }
 
+    // MARK: - B51 press-and-unpress flow
+
+    /// B51 — snapshot an AddressPose directly from the current
+    /// AR frame + latest IMU sample. Replaces the 1.5 s stillness
+    /// loop in `AddressPoseCapture` — the press itself is the
+    /// deliberate stillness signal. Returns nil if the AR session
+    /// has no current frame yet (extremely rare race at press
+    /// instant).
+    private func snapshotAddressPoseInline(ball: SIMD3<Float>) -> AddressPose? {
+        guard let arView = scene.arView,
+              let frame = arView.session.currentFrame else { return nil }
+        let phoneTransform = frame.camera.transform
+        let phonePos = SIMD3<Float>(phoneTransform.columns.3.x,
+                                     phoneTransform.columns.3.y,
+                                     phoneTransform.columns.3.z)
+        let distance = simd_distance(phonePos, ball)
+        // Compass yaw + gravity: read from the AR camera's Euler
+        // angles since we're not running the dedicated IMU stream
+        // until StrokeCapture arms it. RealityKit gives us
+        // gravity-aligned yaw via the camera's eulerAngles.
+        let euler = frame.camera.eulerAngles
+        return AddressPose(
+            phoneWorldTransform: phoneTransform,
+            phoneToBallM: distance,
+            compassYaw: Double(euler.y),
+            gravity: SIMD3<Double>(0, -1, 0),  // ARKit world-Y is up
+            lockedAt: frame.timestamp
+        )
+    }
+
+    /// B51 — user pressed the AR view at `.complete`. Snapshot the
+    /// address pose inline + arm StrokeCapture immediately. From
+    /// here the existing armStrokeCapture flow runs (state goes
+    /// through .readyForStroke → .strokeInProgress → impact).
+    /// The user holds the press through the swing; releasing
+    /// before a stroke is detected cancels the capture.
+    private func handlePressBegan(ball: SIMD3<Float>, hole: SIMD3<Float>) {
+        guard pressActive == false else { return }
+        guard let pose = snapshotAddressPoseInline(ball: ball) else {
+            showTransientHint("Couldn't lock address — try again")
+            return
+        }
+        pressActive = true
+        logger.log(.note, "Press flow: address snapshot at press",
+                   payload: ["phone_to_ball_m": String(format: "%.4f", pose.phoneToBallM),
+                             "yaw_rad": String(format: "%.4f", pose.compassYaw)])
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        armStrokeCapture(ball: ball, hole: hole, pose: pose)
+    }
+
+    /// B51 — user released the press. If a stroke was already
+    /// detected and is in flight, the unpress is informational
+    /// (the StrokeDetector's own end-of-swing logic will close
+    /// the window). If no stroke yet, treat the release as
+    /// abandonment and disarm.
+    private func handlePressEnded(ball: SIMD3<Float>, hole: SIMD3<Float>) {
+        guard pressActive else { return }
+        pressActive = false
+        logger.log(.note, "Press flow: release",
+                   payload: ["state": String(describing: placementState)])
+        // If we're still in .readyForStroke (no stroke detected
+        // between press and release) → abandon. If we're in
+        // .strokeInProgress → let the detector close naturally.
+        if case .readyForStroke = placementState {
+            cancelStrokeCapture()
+            placementState = .complete(ball: ball, hole: hole)
+        }
+    }
+
     /// StrokeDetector phase has transitioned out of `.armed` —
     /// emit the `strokeStarted` event and move to
     /// `.strokeInProgress`.
@@ -2101,9 +2211,11 @@ final class ARPlacementScene {
         material.metallic = .init(floatLiteral: 0.0)
         material.clearcoat = .init(floatLiteral: 0.55)
         material.clearcoatRoughness = .init(floatLiteral: 0.15)
-        if let dimpleMap = Self.makeDimpleNormalTexture(),
-           let resource = try? TextureResource.generate(from: dimpleMap,
-                                                         options: .init(semantic: .normal)) {
+        // B51 — use the cached dimple texture so we don't regenerate
+        // the 1024×1024 CGImage + TextureResource on every placeBall
+        // call. Previous behaviour: ~80-120 ms hitch when (re)placing
+        // the ball. Cached: first call ~80 ms, subsequent ~0 ms.
+        if let resource = Self.cachedDimpleNormalTexture {
             material.normal = .init(texture: .init(resource))
         }
 
@@ -2133,6 +2245,17 @@ final class ARPlacementScene {
                               "normal_map": "procedural_dimples_32x32",
                               "radius_m": String(format: "%.4f", radius)])
     }
+
+    /// B51 — lazy-built TextureResource of the dimple normal map.
+    /// Computed once on first access and reused for every subsequent
+    /// `placeBall` call. Was previously regenerated each placement,
+    /// causing a visible 80-120 ms hitch when the user replaced the
+    /// ball or the "Putt again" handler reset it.
+    private static let cachedDimpleNormalTexture: TextureResource? = {
+        guard let cg = makeDimpleNormalTexture() else { return nil }
+        return try? TextureResource.generate(from: cg,
+                                              options: .init(semantic: .normal))
+    }()
 
     /// Build a procedural dimple normal-map texture for the tour
     /// ball's surface detail. 1024×1024 canvas, 32×32 staggered grid
