@@ -539,6 +539,11 @@ final class PracticeSessionViewModel {
         do {
             try profileStore.save(profile)
             lastError = nil
+            // B63 — log calibration save event so the JSON pipeline can
+            // show "yes, the profile was actually persisted" when
+            // diagnosing why bias correction does or doesn't apply
+            // downstream. Workflow audit flagged absence of this event.
+            print("[B58/cal] CalibrationProfile saved: bias=\(profile.faceAngleBiasRad)rad, factor=\(profile.speedToDistanceFactor), n=\(pendingCalibrationInputs.count)")
         } catch {
             lastError = "Couldn't save calibration profile: \(error.localizedDescription)"
         }

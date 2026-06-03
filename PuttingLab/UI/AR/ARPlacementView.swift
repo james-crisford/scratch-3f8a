@@ -957,6 +957,19 @@ struct ARPlacementView: View {
             hadPlacedEntities = false
         }
         guard hadPlacedEntities else { return }
+        // B63 — explicitly cancel the ball roll animator + press flow
+        // before clearing entities. Workflow audit flagged that if the
+        // interruption fires mid-roll, the 60Hz animator task keeps
+        // running over cleared state and tries to mutate the now-nil
+        // ball entity, potentially crashing or producing zombie writes.
+        ballRollAnimator?.cancel()
+        ballRollAnimator = nil
+        pressActive = false
+        awaitingRollStart = false
+        samplesDuringRecording.removeAll(keepingCapacity: false)
+        posesDuringRecording.removeAll(keepingCapacity: false)
+        recordingLock = nil
+        recordingArkitBaseline = nil
         scene.clearPlacedEntities()
         let hasSurface = planeCount > 0 || scene.meshAnchorCount() > 0
         placementState = hasSurface ? .readyToPlaceBall : .waitingForPlane
@@ -2046,9 +2059,17 @@ struct ARPlacementView: View {
                        payload: ["samples": "\(samplesDuringRecording.count)"])
             return
         }
+        // B63 — replace `.first!` / `.last!` force-unwraps with guards.
+        // The count check above guarantees both are non-nil today, but
+        // a future refactor could decouple them; failing soft is cheap.
+        guard let firstSample = samplesDuringRecording.first,
+              let lastSample = samplesDuringRecording.last else {
+            logger.log(.failed, "Recording buffer unexpectedly empty after count check")
+            return
+        }
         let window = StrokeWindow(
-            start: samplesDuringRecording.first!.timestamp,
-            end: samplesDuringRecording.last!.timestamp,
+            start: firstSample.timestamp,
+            end: lastSample.timestamp,
             samples: samplesDuringRecording,
             lock: lock
         )
@@ -3402,6 +3423,11 @@ private struct ARPlacementSceneRepresentable: UIViewRepresentable {
             extent: SIMD3<Float>(4, 4, 4)
         )
         arView.session.add(anchor: probe)
+        // B63 — retain the probe ref on the coordinator so dismantleUIView
+        // can remove it. Pre-B63 the probe persisted across every session
+        // restart (open AR → close → open) without removal, leaking ARKit
+        // metadata + cached IBL samples (workflow audit critical finding).
+        context.coordinator.worldOriginProbe = probe
         logger.log(.note, "B45 environment probe anchor added (4m³)")
         // No `debugOptions = .showAnchorGeometry` here — that solid green
         // wireframe overlay was confusing during Slice 1 testing ("paints
@@ -3432,6 +3458,15 @@ private struct ARPlacementSceneRepresentable: UIViewRepresentable {
     }
 
     static func dismantleUIView(_ uiView: ARView, coordinator: Coordinator) {
+        // B63 — remove the world-origin env probe BEFORE pausing the
+        // session. Workflow audit confirmed pre-B63 the probe persisted
+        // across session restarts because no removal path existed; over
+        // many open-close cycles ARKit accumulated orphaned probes
+        // worth of metadata + IBL samples.
+        if let probe = coordinator.worldOriginProbe {
+            uiView.session.remove(anchor: probe)
+            coordinator.worldOriginProbe = nil
+        }
         // Pause the AR session so the camera + IMU stop. ARTrackingManager
         // restart is handled by PracticeSessionView's onDismiss closure
         // (H4 fix) so we don't need to touch it here.
@@ -3522,6 +3557,11 @@ private struct ARPlacementSceneRepresentable: UIViewRepresentable {
         /// overlay. Rebuilt whenever the mesh manager reports a
         /// change in floor-triangle count.
         private var meshOverlayAnchor: AnchorEntity?
+        /// B63 — retained ref to the world-origin env probe so
+        /// dismantleUIView can remove it before the session is torn
+        /// down. Without this the probe leaks across session restarts
+        /// (workflow audit critical finding 2026-06-03).
+        var worldOriginProbe: AREnvironmentProbeAnchor?
         /// B53 — wall-clock timestamp of the last `rebuildMeshOverlay`
         /// call. Used to throttle rebuilds to 2Hz so the green floor
         /// mesh stops jittering on every ARKit anchor update.

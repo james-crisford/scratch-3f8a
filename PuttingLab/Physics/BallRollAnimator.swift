@@ -150,6 +150,16 @@ final class BallRollAnimator {
                     let world = worldPos(from: last.position)
                     ballEntity.position = world
                     trailEmitter?(world)
+                    // B63 — when the ball is CAPTURED, animate it
+                    // descending into the cup over ~350ms. Workflow
+                    // audit flagged that on outcome=.captured the
+                    // ball stayed at floor-level Y, so "drained" felt
+                    // identical to "stopped right next to the cup".
+                    if outcome == .captured {
+                        await dropBallIntoCup(ballEntity: ballEntity,
+                                                startY: world.y,
+                                                trailEmitter: trailEmitter)
+                    }
                 }
                 onComplete?(outcome, totalDuration)
                 onComplete = nil
@@ -170,6 +180,37 @@ final class BallRollAnimator {
 
             try? await Task.sleep(nanoseconds: UInt64(Self.frameInterval * 1_000_000_000))
         }
+    }
+
+    /// B63 — drop the captured ball into the cup over ~350ms.
+    /// Animates Y from the floor-lifted position down to roughly the
+    /// middle of the regulation 8cm cup, so "drained" has a satisfying
+    /// visual landing. Includes a slight ease-out (cube of progress)
+    /// so the ball decelerates as it settles.
+    private func dropBallIntoCup(ballEntity: Entity,
+                                  startY: Float,
+                                  trailEmitter: ((SIMD3<Float>) -> Void)?) async {
+        let dropDurationS: Double = 0.35
+        let targetY: Float = -0.04   // ~half-way into the 8cm cup
+        let frames = Int(dropDurationS / Self.frameInterval)
+        let startWall = CACurrentMediaTime()
+        for _ in 0..<frames {
+            if Task.isCancelled { return }
+            let t = CACurrentMediaTime() - startWall
+            let raw = Float(min(1.0, t / dropDurationS))
+            let eased = 1 - pow(1 - raw, 3)  // ease-out cubic
+            var p = ballEntity.position
+            p.y = startY + (targetY - startY) * eased
+            ballEntity.position = p
+            trailEmitter?(p)
+            try? await Task.sleep(nanoseconds: UInt64(Self.frameInterval * 1_000_000_000))
+            if raw >= 1.0 { break }
+        }
+        // Snap final position so float-drift doesn't leave us slightly
+        // off-centre.
+        var p = ballEntity.position
+        p.y = targetY
+        ballEntity.position = p
     }
 
     /// Convert a 2D green-frame position into AR world coords.
