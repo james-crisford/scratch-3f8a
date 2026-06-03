@@ -67,6 +67,21 @@ struct ARPlacementView: View {
         case strokeInProgress(ball: SIMD3<Float>,
                               hole: SIMD3<Float>,
                               pose: AddressPose)
+        // Stage 3 Slice 3.4 / B49 — ball is physically rolling
+        // under BallRollAnimator. ImpactResult retained so the
+        // result panel + replay (B50) can show what happened.
+        case rolling(ball: SIMD3<Float>,
+                     hole: SIMD3<Float>,
+                     pose: AddressPose,
+                     impact: ImpactResult)
+        // Stage 3 Slice 3.4 / B49 — ball has come to rest.
+        // outcome + duration retained for the result panel.
+        case rolled(ball: SIMD3<Float>,
+                    hole: SIMD3<Float>,
+                    pose: AddressPose,
+                    impact: ImpactResult,
+                    outcome: BallPhysics.Outcome,
+                    durationS: Double)
     }
 
     /// Pre-share confirmation summary. Built by scanning
@@ -163,6 +178,10 @@ struct ARPlacementView: View {
     /// `armStrokeCapture` so the IMU stream + StrokeDetector
     /// reset cleanly between strokes.
     @State private var strokeCapture: StrokeCapture? = nil
+    /// B49 Slice 3.4 — putt-roll animator. Holds the 60 Hz tick
+    /// task that drives the ball entity along the
+    /// `BallPhysics.simulatePutt` trajectory.
+    @State private var ballRollAnimator: BallRollAnimator? = nil
 
     /// The scene-graph "controller" we expose to the UIViewRepresentable.
     /// Lives as a single instance bound to the view so tap callbacks +
@@ -678,7 +697,8 @@ struct ARPlacementView: View {
         let hadPlacedEntities: Bool
         switch placementState {
         case .readyToPlaceHole, .complete, .replacingBall, .replacingHole,
-             .calibratingAddress, .addressReady, .readyForStroke, .strokeInProgress:
+             .calibratingAddress, .addressReady, .readyForStroke, .strokeInProgress,
+             .rolling, .rolled:
             hadPlacedEntities = true
         case .waitingForPlane, .readyToPlaceBall:
             hadPlacedEntities = false
@@ -1011,9 +1031,10 @@ struct ARPlacementView: View {
         // B42: the Move-ball / Move-hole flows are placement-active
         // (user is aiming at the new spot), so full visibility.
         case .replacingBall, .replacingHole: return 0.95
-        // B47/B48: address + stroke states — crosshair isn't being
-        // used (no placement happening), dim it out.
-        case .calibratingAddress, .addressReady, .readyForStroke, .strokeInProgress: return 0.15
+        // B47/B48/B49: address + stroke + roll states — crosshair
+        // isn't being used (no placement happening), dim it out.
+        case .calibratingAddress, .addressReady, .readyForStroke, .strokeInProgress,
+             .rolling, .rolled: return 0.15
         case .complete:         return 0.35
         }
     }
@@ -1057,10 +1078,11 @@ struct ARPlacementView: View {
                 placeAtCenter()
             }
         case .waitingForPlane, .complete, .calibratingAddress, .addressReady,
-             .readyForStroke, .strokeInProgress:
-            // B47/B48 address + stroke states don't use the
-            // crosshair Place button — they're driven by the
-            // explicit action row + IMU stream.
+             .readyForStroke, .strokeInProgress, .rolling, .rolled:
+            // B47/B48/B49 address + stroke + roll states don't
+            // use the crosshair Place button — they're driven by
+            // the explicit action row + IMU stream + physics
+            // animator.
             EmptyView()
         }
     }
@@ -1178,8 +1200,8 @@ struct ARPlacementView: View {
             placementState = .complete(ball: preservedBall, hole: world)
             scene.placeAddressMarkers(ball: preservedBall, hole: world)
         case .complete, .calibratingAddress, .addressReady,
-             .readyForStroke, .strokeInProgress:
-            // No placement action during address / stroke states.
+             .readyForStroke, .strokeInProgress, .rolling, .rolled:
+            // No placement action during the post-placement flows.
             break
         }
     }
@@ -1419,6 +1441,60 @@ struct ARPlacementView: View {
                         .foregroundStyle(.white)
                 }
                 .accessibilityIdentifier("ar.cancelStrokeCapture")
+            case .rolling:
+                // B49 — only Cancel during the roll; no replay
+                // until the ball stops.
+                EmptyView()
+            case .rolled(let ball, let hole, let pose, let impact, _, _):
+                // B49 — three buttons: Reset / Replay last putt /
+                // Putt again. "Putt again" preserves ball + hole +
+                // calibration (the user is still standing in the
+                // same spot, just wants another swing). "Replay
+                // last putt" re-runs the same simulation against
+                // the same impact for visual review. Reset wipes.
+                Button { reset() } label: {
+                    Label("Reset", systemImage: "arrow.counterclockwise")
+                        .font(.callout.weight(.semibold))
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 10)
+                        .background(.black.opacity(0.55), in: Capsule())
+                        .foregroundStyle(.white)
+                }
+                .accessibilityIdentifier("ar.resetButton")
+                Button {
+                    // Re-position the ball back to start and
+                    // re-run the same simulation.
+                    if let ballEntity = scene.ballModelEntity() {
+                        ballEntity.position = SIMD3<Float>(0, 0.0427/2, 0)
+                    }
+                    scene.clearRollTrail()
+                    startRoll(ball: ball, hole: hole, pose: pose, impact: impact)
+                } label: {
+                    Label("Replay last putt", systemImage: "play.circle")
+                        .font(.callout.weight(.semibold))
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 10)
+                        .background(.white.opacity(0.85), in: Capsule())
+                        .foregroundStyle(.black)
+                }
+                .accessibilityIdentifier("ar.replayLastPutt")
+                Button {
+                    // Re-position the ball back to start so the
+                    // user can swing again.
+                    if let ballEntity = scene.ballModelEntity() {
+                        ballEntity.position = SIMD3<Float>(0, 0.0427/2, 0)
+                    }
+                    scene.clearRollTrail()
+                    armStrokeCapture(ball: ball, hole: hole, pose: pose)
+                } label: {
+                    Label("Putt again", systemImage: "figure.golf")
+                        .font(.callout.weight(.bold))
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
+                        .background(.green.opacity(0.95), in: Capsule())
+                        .foregroundStyle(.white)
+                }
+                .accessibilityIdentifier("ar.puttAgain")
             case .replacingBall(let preservedHole):
                 // B42: Cancel returns to .complete with the cached
                 // ball/hole pair. Restore the ball entity by calling
@@ -1512,6 +1588,9 @@ struct ARPlacementView: View {
         // B48 Slice 3.3 — stroke detection states.
         case .readyForStroke:     return "Make your putt"
         case .strokeInProgress:   return "Putting…"
+        // B49 Slice 3.4 — putt-roll states.
+        case .rolling:            return "Rolling…"
+        case .rolled:             return "Result"
         }
     }
 
@@ -1540,6 +1619,16 @@ struct ARPlacementView: View {
             return "Make your putting motion now"
         case .strokeInProgress:
             return "Detecting stroke…"
+        // B49
+        case .rolling:
+            return "Ball rolling — watch the trail"
+        case .rolled(_, _, _, _, let outcome, _):
+            switch outcome {
+            case .captured: return "Drained!"
+            case .lipOut:   return "Lipped out"
+            case .stopped:  return "Stopped — tap Putt again"
+            case .rejected: return "Stroke too soft — try again"
+            }
         }
     }
 
@@ -1547,6 +1636,8 @@ struct ARPlacementView: View {
         logger.log(.reset, "user tapped Start over / Reset")
         cancelAddressCapture()
         cancelStrokeCapture()
+        ballRollAnimator?.cancel()
+        ballRollAnimator = nil
         scene.clearPlacedEntities()
         let hasSurface = planeCount > 0 || scene.meshAnchorCount() > 0
         placementState = hasSurface ? .readyToPlaceBall : .waitingForPlane
@@ -1678,11 +1769,78 @@ struct ARPlacementView: View {
         showTransientHint(String(format: "Stroke: %.2f m/s · face %.1f°",
                                   impact.peakVelocity,
                                   impact.faceAngleDegrees))
-        // Restore the address markers for the next swing — user
-        // is still standing in the same spot.
-        scene.setAddressMarkersVisible(true)
         cancelStrokeCapture()
-        placementState = .addressReady(ball: ball, hole: hole, pose: pose)
+        // B49 — transition to .rolling and start the roll animator.
+        startRoll(ball: ball, hole: hole, pose: pose, impact: impact)
+    }
+
+    /// B49 Slice 3.4 — kick off the BallRollAnimator. Transitions
+    /// to `.rolling` and starts the 60 Hz tick. When the ball
+    /// stops, transitions to `.rolled(outcome:duration:)` ready
+    /// for the result panel in B50.
+    private func startRoll(ball: SIMD3<Float>,
+                            hole: SIMD3<Float>,
+                            pose: AddressPose,
+                            impact: ImpactResult) {
+        guard let ballEntity = scene.ballModelEntity() else {
+            // No ball entity (rare race) — go straight back to
+            // .addressReady so user can retry.
+            placementState = .addressReady(ball: ball, hole: hole, pose: pose)
+            return
+        }
+        let animator = BallRollAnimator()
+        ballRollAnimator = animator
+        scene.clearRollTrail()
+        placementState = .rolling(ball: ball, hole: hole,
+                                   pose: pose, impact: impact)
+        animator.start(
+            ballEntity: ballEntity,
+            ballWorld: ball,
+            holeWorld: hole,
+            impact: impact,
+            speedCalibration: 1.0,
+            stimpFeet: BallPhysics.defaultStimp,
+            trailEmitter: { [weak scene = scene] world in
+                scene?.dropRollTrailMarker(at: world)
+            },
+            onComplete: { [weak self] outcome, duration in
+                self?.handleRollComplete(ball: ball, hole: hole,
+                                          pose: pose, impact: impact,
+                                          outcome: outcome,
+                                          duration: duration)
+            })
+    }
+
+    /// B49 — fired when the ball stops. Snap the haptic, log a
+    /// `strokeResult` placeholder (B50 will replace this with
+    /// the full Mario Kart bucket payload), transition to
+    /// `.rolled`.
+    private func handleRollComplete(ball: SIMD3<Float>,
+                                      hole: SIMD3<Float>,
+                                      pose: AddressPose,
+                                      impact: ImpactResult,
+                                      outcome: BallPhysics.Outcome,
+                                      duration: Double) {
+        logger.log(.strokeResult,
+                   "Ball stopped — outcome=\(outcome)",
+                   payload: ["outcome": String(describing: outcome),
+                             "duration_s": String(format: "%.3f", duration),
+                             "velocity_mps": String(format: "%.4f", impact.peakVelocity),
+                             "face_angle_deg": String(format: "%.2f", impact.faceAngleDegrees)])
+        switch outcome {
+        case .captured:
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
+        case .lipOut, .stopped:
+            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        case .rejected:
+            UINotificationFeedbackGenerator().notificationOccurred(.warning)
+        }
+        // Restore address markers so the user can putt again.
+        scene.setAddressMarkersVisible(true)
+        placementState = .rolled(ball: ball, hole: hole, pose: pose,
+                                   impact: impact, outcome: outcome,
+                                   durationS: duration)
+        ballRollAnimator = nil
     }
 
     /// Address-pose lock fired — log it, render the phone-icon
@@ -1748,6 +1906,11 @@ final class ARPlacementScene {
     /// B47 Slice 3.2 — phone-icon hologram rendered at the captured
     /// address pose so the user can SEE what was captured.
     private var addressHologramAnchor: AnchorEntity?
+    /// B49 Slice 3.4 — anchor + retained list for the roll-trail
+    /// markers. Kept as a flat list so we can FIFO-cap at ~200
+    /// markers (one per 60Hz frame, ~3 s of roll without growth).
+    private var rollTrailAnchor: AnchorEntity?
+    private var rollTrailMarkers: [ModelEntity] = []
     /// Cached world-frame position of the placed ball. The ball's
     /// AnchorEntity sits at this position, but reading
     /// `ballAnchor.position(relativeTo: nil)` is fragile if the entity
@@ -2312,6 +2475,9 @@ final class ARPlacementScene {
         ballWorldPosition = nil
         clearAddressMarkers()
         clearAddressHologram()
+        clearRollTrail()
+        rollTrailAnchor?.removeFromParent()
+        rollTrailAnchor = nil
     }
 
     /// B46 (Slice 3.1) — drop the address-pose foot markers.
@@ -2458,6 +2624,51 @@ final class ARPlacementScene {
     func clearAddressHologram() {
         addressHologramAnchor?.removeFromParent()
         addressHologramAnchor = nil
+    }
+
+    /// B49 Slice 3.4 — expose the ball ModelEntity so the
+    /// BallRollAnimator can mutate its position at 60 Hz. The
+    /// entity sits as the first child of `ballAnchor`. Returns
+    /// nil if the ball hasn't been placed (animator caller
+    /// should guard).
+    func ballModelEntity() -> Entity? {
+        ballAnchor?.children.first
+    }
+
+    /// B49 — drop a small translucent yellow trail marker at the
+    /// ball's current world position. Called once per 60 Hz tick
+    /// by the BallRollAnimator's trailEmitter. Markers fade
+    /// visually via their stored opacity decay (handled at
+    /// render time by RealityKit's blending).
+    func dropRollTrailMarker(at world: SIMD3<Float>) {
+        guard let arView else { return }
+        if rollTrailAnchor == nil {
+            let anchor = AnchorEntity(world: .zero)
+            arView.scene.addAnchor(anchor)
+            rollTrailAnchor = anchor
+        }
+        // Cap the trail at ~200 markers so memory doesn't grow.
+        if rollTrailMarkers.count > 200 {
+            rollTrailMarkers.first?.removeFromParent()
+            rollTrailMarkers.removeFirst()
+        }
+        let mesh = MeshResource.generatePlane(width: 0.018, depth: 0.018,
+                                                cornerRadius: 0.009)
+        var material = UnlitMaterial(
+            color: UIColor(red: 1.0, green: 0.94, blue: 0.20, alpha: 0.65)
+        )
+        material.blending = .transparent(opacity: .init(floatLiteral: 0.65))
+        let marker = ModelEntity(mesh: mesh, materials: [material])
+        marker.position = SIMD3<Float>(world.x, 0.0008, world.z)
+        rollTrailAnchor?.addChild(marker)
+        rollTrailMarkers.append(marker)
+    }
+
+    /// B49 — wipe the trail (called at the start of a new roll
+    /// + on Reset). Keeps the anchor for re-use.
+    func clearRollTrail() {
+        rollTrailMarkers.forEach { $0.removeFromParent() }
+        rollTrailMarkers.removeAll(keepingCapacity: true)
     }
 
     /// B42: drop ONLY the ball entity (Move-ball UX). Leaves the
@@ -3308,11 +3519,12 @@ private struct ARPlacementSceneRepresentable: UIViewRepresentable {
                     scene.placeAddressMarkers(ball: preservedBall, hole: world)
                     lastPlacementAt = Date()
                 case .complete, .calibratingAddress, .addressReady,
-                     .readyForStroke, .strokeInProgress:
-                    // B47/B48: tap is ignored in the
+                     .readyForStroke, .strokeInProgress, .rolling, .rolled:
+                    // B47/B48/B49: tap is ignored in the
                     // post-placement flows — they're driven by
-                    // explicit buttons + the IMU stream.
-                    logger.log(.note, "tap ignored — placement complete or stroke flow active")
+                    // explicit buttons + the IMU stream + the
+                    // physics animator.
+                    logger.log(.note, "tap ignored — placement complete or stroke/roll flow active")
                 }
             }
         }
