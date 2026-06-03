@@ -43,7 +43,39 @@ That said, the typical putting pose looks like this:
 | 7 | **Right-handed users only in v1** — left-handed grip support is post-v1 | ✅ James 2026-06-03 |
 | 8 | User's **own natural grip** — algorithm calibrates per-user from whatever orientation the phone is in at press time | ✅ B4 commit `f06ee52` + James 2026-06-03 |
 
-**Visualised:** see `docs/stance-renders/` for the rendered illustrations.
+### The mental model
+
+Think of holding a **flat tablet horizontally** and **tipping its far end down toward the ground**. Both hands grip the near end. That's the putting pose — phone held like a divining rod, both hands at the near end, far end (top of phone) dipping down toward where the ball / cup would be.
+
+### Phone axis → world direction table
+
+This is what each face / edge of the phone points at when the user is in the putting pose, looking down at the target (hole). The user is facing **forward** along the target line.
+
+| Phone part | iPhone landmark | Where it points in the world |
+|---|---|---|
+| **Bottom edge** (short edge with speakers + lightning port) | charging port | **Toward user's chest** — hands grip here |
+| **Top edge** (short edge with notch / dynamic island + camera bump) | front camera notch | **Down toward the ground, away from user** — the far end of the "wand", tilted lower than the bottom edge |
+| **Long edge A** (one of the two long sides) | volume buttons | **Toward the target** (= the "putt face" — analogous to the leading edge of a putter face) |
+| **Long edge B** (opposite long side) | power button | **Away from target, back toward user's body** |
+| **Back of phone** (rear case with camera lens) | rear camera lens | **Down + toward user's feet / legs** — lens looks at user's lower body |
+| **Front of phone** (screen) | display | **Up + slightly toward user** — user glances down to see it at an angle |
+
+### Confirmation checklist (what James confirmed 2026-06-03)
+
+- [x] Back camera at user's feet / legs
+- [x] One long edge (= putt face) at target, the other away
+- [x] Top of phone angles DOWN at the ground (not vertical)
+- [x] Speakers / lightning toward user's chest
+- [x] User sees screen at a slight angle
+- [x] Both hands on the phone
+- [x] Right-handed users in v1
+
+### Visual diagrams — deferred
+
+The Three.js + SVG attempts at depicting this pose didn't land — 2D rendering of a 3D pose with crude stick figures isn't clear enough to be useful (see `docs/stance-renders/DEPRECATED.md`). Better paths:
+- **One real photo** of James in the putting pose would be the canonical reference — kills all ambiguity instantly
+- A short **video clip** of the swing motion would be even better
+- Until then, the axis-table above is the single source of truth
 
 ---
 
