@@ -1,5 +1,28 @@
 # PuttingLab — Putting Stance & Grip Reference (CORRECTED)
 
+> **CLARIFICATION 2026-06-03 (post-B58):** James confirmed in conversation
+> that **his grip has been CONSTANT throughout development** — the 200+
+> historical strokes (data/raw/by-build/0.1.3 through 0.2.2) are in the
+> SAME grip he uses now. The 2026-06-03 11-point confirmation that
+> originally produced this doc was James **describing his actual practice**,
+> not approving a new design.
+>
+> **There was no "old pose → new pose" transition.** The original spec text
+> (CLAUDE.md §3 #2, spec-putting-lab-v1-FINAL.md §1 row 7) describing
+> "vertical in lead hand, screen facing user" was the **theoretical** spec,
+> not what James ever actually did. The app implementation was always
+> calibrated against his real grip, which this doc accurately describes.
+>
+> Practical implications:
+> - The 80-stroke calibration's `LiveImpactDetector` thresholds DO apply
+>   directly (no "pose change" retune needed)
+> - The 200+ stroke dataset's derived `speedCalibration` factor (~14.4)
+>   IS the correct factor for him today
+> - The `faceAngleBiasRad` computed from his historical strokes IS his
+>   actual stroke bias and applies in-app the moment ProfileStore.save()
+>   is wired into the cal flow (B58.2)
+
+
 > **THE LOCKED OPERATING DESIGN.** Sourced from James's direct confirmation 2026-06-03,
 > Build 4 commit `f06ee52` (2026-05-30 — "orientation instruction rewrite"), and the
 > `PhoneHoldVisual` two-pose card.

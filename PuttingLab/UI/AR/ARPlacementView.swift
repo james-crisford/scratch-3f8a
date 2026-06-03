@@ -2819,14 +2819,28 @@ final class ARPlacementScene {
             let topB = UInt32(((i + 1) % segments) * 2)
             let bottomB = UInt32(((i + 1) % segments) * 2 + 1)
             // Winding: CCW from inside the tube (looking outward).
-            // Triangle 1: topA → topB → bottomA
+            // B59: reversed winding from B55. The B55 order
+            // [topA, topB, bottomA] is CCW viewed from OUTSIDE the
+            // cylinder, which by the right-hand rule produces
+            // OUTWARD normals — opposite to the explicit inward
+            // normals we set above. RealityKit's PhysicallyBasedMaterial
+            // uses winding order for back-face culling, so the cup
+            // wall was being culled (invisible from above) or rendered
+            // with backwards lighting. Either way the cup read as
+            // flat. Workflow audit 2026-06-03 surfaced this with
+            // 99% confidence.
+            //
+            // Reversed order: CCW viewed from INSIDE the tube, which
+            // matches the inward normals + makes the inside surface
+            // the visible "front face" under default culling.
+            // Triangle 1: topA → bottomA → topB
             indices.append(topA)
+            indices.append(bottomA)
+            indices.append(topB)
+            // Triangle 2: topB → bottomA → bottomB
             indices.append(topB)
             indices.append(bottomA)
-            // Triangle 2: topB → bottomB → bottomA
-            indices.append(topB)
             indices.append(bottomB)
-            indices.append(bottomA)
         }
         var descriptor = MeshDescriptor(name: "cupHollowWall")
         descriptor.positions = MeshBuffer(positions)
