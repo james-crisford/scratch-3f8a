@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>PuttingLab — Putting pose (SVG diagrams)</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #0a0d12;
+    color: #e5e9ee;
+    font-family: -apple-system, "SF Pro Display", Inter, system-ui, sans-serif;
+    padding: 32px;
+    line-height: 1.45;
+  }
+  h1 { font-size: 26px; margin-bottom: 6px; letter-spacing: -0.4px; }
+  .sub { color: #8a93a3; font-size: 14px; margin-bottom: 28px; max-width: 1100px; }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 18px;
+  }
+  .tile {
+    background: #141a23;
+    border: 1px solid #1f2733;
+    border-radius: 14px;
+    padding: 18px;
+  }
+  .tile h2 {
+    font-size: 15px;
+    color: #fff;
+    font-weight: 600;
+    margin-bottom: 3px;
+  }
+  .tile .badge {
+    color: #8a93a3;
+    font-size: 11.5px;
+    margin-bottom: 12px;
+  }
+  svg {
+    display: block;
+    width: 100%;
+    height: 380px;
+    border-radius: 10px;
+    background: #f5f1e6;
+  }
+  .desc {
+    margin-top: 12px;
+    font-size: 12.5px;
+    color: #aab3bf;
+    line-height: 1.5;
+  }
+  .desc b { color: #fff; }
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 14px;
+    margin-top: 8px;
+    font-size: 11px;
+    color: #aab3bf;
+  }
+  .legend span { display: inline-flex; align-items: center; gap: 5px; }
+  .swatch {
+    width: 12px; height: 12px; border-radius: 3px;
+    display: inline-block;
+  }
+</style>
+</head>
+<body>
+
+<h1>The putting pose — 4 technical diagrams</h1>
+<div class="sub">
+  Right-handed user, both hands on the phone, in the putting grip. Annotated SVG showing
+  which way each axis of the phone points relative to the target line, the user's body, and
+  the ground. Per James's 11-point confirmation 2026-06-03.
+</div>
+
+<div class="grid">
+
+  <!-- ========================================= -->
+  <!-- VIEW 1: Top-down -->
+  <!-- ========================================= -->
+  <div class="tile">
+    <h2>1. Top-down view</h2>
+    <div class="badge">looking straight down at the floor — target is at the TOP of the frame</div>
+    <svg viewBox="0 0 600 400" xmlns="http://www.w3.org/2000/svg">
+      <!-- background grass -->
+      <rect width="600" height="400" fill="#a8c694"/>
+      <!-- target line (vertical, hole at top) -->
+      <line x1="300" y1="30" x2="300" y2="370" stroke="#222" stroke-width="2" stroke-dasharray="6 6" opacity="0.55"/>
+      <!-- hole + flag -->
+      <circle cx="300" cy="50" r="14" fill="#0a0805"/>
+      <circle cx="300" cy="50" r="18" fill="none" stroke="#222" stroke-width="2" opacity="0.6"/>
+      <text x="320" y="55" font-size="13" fill="#222" font-weight="600">HOLE</text>
+      <polygon points="304,16 354,28 304,40" fill="#d61a1a"/>
+
+      <!-- User (looking down at them) — head -->
+      <circle cx="300" cy="320" r="22" fill="#ddc2a8" stroke="#8b6a4a" stroke-width="1.5"/>
+      <!-- shoulders -->
+      <ellipse cx="300" cy="350" rx="48" ry="14" fill="#2b3845"/>
+      <text x="365" y="324" font-size="12" fill="#222" font-weight="600">USER (looking down)</text>
+
+      <!-- Hands -->
+      <ellipse cx="280" cy="282" rx="11" ry="13" fill="#ddc2a8" stroke="#8b6a4a" stroke-width="1.5"/>
+      <ellipse cx="320" cy="282" rx="11" ry="13" fill="#ddc2a8" stroke="#8b6a4a" stroke-width="1.5"/>
+
+      <!-- Phone seen from above — long edge of phone perpendicular to target line
+           Phone is a rectangle 130 wide × 36 thick. Long axis = horizontal (LEFT-RIGHT)
+           One long edge faces target (UP), the other faces user (DOWN). -->
+      <g transform="translate(300, 250)">
+        <!-- Phone body -->
+        <rect x="-65" y="-18" width="130" height="36" rx="6" fill="#1a1a1c" stroke="#444" stroke-width="1"/>
+        <!-- Screen visible from above (since phone is angled, screen surface visible from this angle) -->
+        <rect x="-58" y="-12" width="116" height="24" rx="3" fill="#2a3a4a"/>
+        <text x="0" y="4" font-size="9" fill="#9fb0c2" text-anchor="middle" font-family="monospace">SCREEN</text>
+        <!-- Camera bump (top of phone — at LEFT end in this view if user is right-handed) -->
+        <circle cx="-50" cy="-9" r="5" fill="#0a0a0a"/>
+        <circle cx="-50" cy="-9" r="2.5" fill="#000"/>
+      </g>
+
+      <!-- "PUTT FACE" arrow pointing TOWARD target from top edge of phone -->
+      <line x1="300" y1="232" x2="300" y2="200" stroke="#1a7a1a" stroke-width="3" marker-end="url(#arrowGreen)"/>
+      <text x="310" y="220" font-size="12" fill="#1a7a1a" font-weight="700">PUTT FACE (long edge → target)</text>
+
+      <!-- Annotations -->
+      <text x="60" y="265" font-size="11" fill="#222">Long axis of phone:</text>
+      <text x="60" y="278" font-size="11" fill="#222" font-weight="600">perpendicular to target line</text>
+
+      <text x="60" y="200" font-size="11" fill="#222" font-weight="600">TARGET LINE ↑</text>
+
+      <!-- Arrow defs -->
+      <defs>
+        <marker id="arrowGreen" markerWidth="10" markerHeight="10" refX="6" refY="3" orient="auto">
+          <path d="M0,0 L6,3 L0,6 z" fill="#1a7a1a"/>
+        </marker>
+        <marker id="arrowOrange" markerWidth="10" markerHeight="10" refX="6" refY="3" orient="auto">
+          <path d="M0,0 L6,3 L0,6 z" fill="#cc6611"/>
+        </marker>
+        <marker id="arrowBlue" markerWidth="10" markerHeight="10" refX="6" refY="3" orient="auto">
+          <path d="M0,0 L6,3 L0,6 z" fill="#2255aa"/>
+        </marker>
+      </defs>
+    </svg>
+    <div class="desc">
+      Phone held with long axis <b>perpendicular to target line</b>. The long edge that's
+      <b>closest to the hole = the "putt face"</b>. The other long edge points back toward the
+      user. Both hands grip the bottom edge of the phone (in 3D, this is where the lightning
+      port is — facing user's chest).
+    </div>
+  </div>
+
+  <!-- ========================================= -->
+  <!-- VIEW 2: Behind the user (along target line) -->
+  <!-- ========================================= -->
+  <div class="tile">
+    <h2>2. Behind the user (target-line POV)</h2>
+    <div class="badge">camera is behind user, looking forward to the hole — shows the tilt</div>
+    <svg viewBox="0 0 600 400" xmlns="http://www.w3.org/2000/svg">
+      <!-- sky -->
+      <rect width="600" height="220" fill="#bcd6e6"/>
+      <!-- grass / horizon -->
+      <rect y="220" width="600" height="180" fill="#a8c694"/>
+      <!-- horizon -->
+      <line x1="0" y1="220" x2="600" y2="220" stroke="#788" stroke-width="0.8" opacity="0.55"/>
+
+      <!-- Distant hole + flag -->
+      <ellipse cx="300" cy="240" rx="18" ry="6" fill="#0a0805"/>
+      <line x1="300" y1="240" x2="300" y2="195" stroke="#1e1a1a" stroke-width="2"/>
+      <polygon points="301,200 327,205 301,215" fill="#d61a1a"/>
+
+      <!-- Target-line dashed on ground -->
+      <line x1="300" y1="270" x2="300" y2="400" stroke="#222" stroke-width="1.5" stroke-dasharray="6 6" opacity="0.45"/>
+
+      <!-- USER seen from behind -->
+      <!-- head -->
+      <ellipse cx="300" cy="170" rx="20" ry="22" fill="#ddc2a8" stroke="#8b6a4a" stroke-width="1.5"/>
+      <!-- shoulders / torso -->
+      <path d="M260,200 Q260,260 270,300 L330,300 Q340,260 340,200 Z" fill="#2b3845"/>
+      <!-- Legs -->
+      <rect x="270" y="295" width="22" height="100" fill="#4a4a4a" rx="2"/>
+      <rect x="308" y="295" width="22" height="100" fill="#4a4a4a" rx="2"/>
+      <!-- Shoes -->
+      <ellipse cx="281" cy="395" rx="14" ry="5" fill="#1a1a1a"/>
+      <ellipse cx="319" cy="395" rx="14" ry="5" fill="#1a1a1a"/>
+      <!-- Arms reaching forward -->
+      <path d="M268,230 Q275,265 290,278" stroke="#ddc2a8" stroke-width="14" fill="none" stroke-linecap="round"/>
+      <path d="M332,230 Q325,265 310,278" stroke="#ddc2a8" stroke-width="14" fill="none" stroke-linecap="round"/>
+
+      <!-- PHONE — seen from behind, tilted forward. We see the BACK of the phone.
+           Top angled DOWN-and-AWAY from user. Long axis runs LEFT-RIGHT. -->
+      <g transform="translate(300, 285) rotate(-8)">
+        <!-- Phone body (the back, since we're behind the user) -->
+        <rect x="-50" y="-28" width="100" height="56" rx="6" fill="#1a1a1c" stroke="#444" stroke-width="1"/>
+        <!-- Camera bump on the back near the top (which is angled down) -->
+        <circle cx="0" cy="-19" r="9" fill="#0a0a0a"/>
+        <circle cx="0" cy="-19" r="4" fill="#000"/>
+        <circle cx="0" cy="-19" r="1.8" fill="#222"/>
+        <text x="0" y="20" font-size="9" fill="#9fb0c2" text-anchor="middle" font-family="monospace">(back of phone)</text>
+      </g>
+
+      <!-- Annotation: camera lens points down at user's feet -->
+      <line x1="300" y1="290" x2="300" y2="380" stroke="#cc6611" stroke-width="2" marker-end="url(#arrowOrange2)" stroke-dasharray="3 3" opacity="0.8"/>
+      <text x="310" y="345" font-size="11" fill="#cc6611" font-weight="600">Camera lens →</text>
+      <text x="310" y="358" font-size="11" fill="#cc6611" font-weight="600">user's feet / legs</text>
+
+      <!-- "PUTT FACE" arrow (going INTO the page toward hole) -->
+      <text x="40" y="285" font-size="11" fill="#1a7a1a" font-weight="700">PUTT FACE (long edge)</text>
+      <text x="40" y="298" font-size="10" fill="#1a7a1a">points INTO the page</text>
+      <text x="40" y="311" font-size="10" fill="#1a7a1a">toward the hole</text>
+
+      <text x="430" y="170" font-size="11" fill="#2255aa" font-weight="700">Hole</text>
+
+      <!-- TOP-of-phone label -->
+      <text x="430" y="280" font-size="11" fill="#222" font-weight="600">Top of phone</text>
+      <text x="430" y="293" font-size="10" fill="#222">angles DOWN at the ground</text>
+
+      <defs>
+        <marker id="arrowOrange2" markerWidth="10" markerHeight="10" refX="6" refY="3" orient="auto">
+          <path d="M0,0 L6,3 L0,6 z" fill="#cc6611"/>
+        </marker>
+      </defs>
+    </svg>
+    <div class="desc">
+      <b>Camera lens points at user's feet</b> (orange arrow). <b>Top of phone angles down toward
+      ground</b>. The "putt face" (long edge facing target) points INTO the page. The hole +
+      flag are in the distance along the target line.
+    </div>
+  </div>
+
+  <!-- ========================================= -->
+  <!-- VIEW 3: Side-on (target's view) -->
+  <!-- ========================================= -->
+  <div class="tile">
+    <h2>3. Side-on — target's view of user</h2>
+    <div class="badge">target is OUT of the frame to the RIGHT; user faces right</div>
+    <svg viewBox="0 0 600 400" xmlns="http://www.w3.org/2000/svg">
+      <rect width="600" height="220" fill="#bcd6e6"/>
+      <rect y="220" width="600" height="180" fill="#a8c694"/>
+      <line x1="0" y1="220" x2="600" y2="220" stroke="#788" stroke-width="0.8" opacity="0.55"/>
+
+      <!-- User in profile, facing right -->
+      <!-- head -->
+      <circle cx="240" cy="170" r="22" fill="#ddc2a8" stroke="#8b6a4a" stroke-width="1.5"/>
+      <!-- Nose (small) -->
+      <path d="M258,170 L265,175 L258,180 Z" fill="#ddc2a8" stroke="#8b6a4a" stroke-width="1"/>
+      <!-- torso -->
+      <path d="M220,195 Q220,250 230,285 L260,285 Q270,250 270,195 Z" fill="#2b3845"/>
+      <!-- arms reaching out / down forward -->
+      <path d="M258,210 Q275,240 295,275" stroke="#ddc2a8" stroke-width="14" fill="none" stroke-linecap="round"/>
+      <!-- Hand at end of arm -->
+      <circle cx="298" cy="280" r="10" fill="#ddc2a8" stroke="#8b6a4a" stroke-width="1.5"/>
+      <!-- Legs -->
+      <path d="M225,285 L218,395" stroke="#4a4a4a" stroke-width="22" stroke-linecap="round"/>
+      <path d="M263,285 L258,395" stroke="#4a4a4a" stroke-width="22" stroke-linecap="round"/>
+      <!-- Shoes -->
+      <ellipse cx="218" cy="395" rx="20" ry="5" fill="#1a1a1a"/>
+      <ellipse cx="262" cy="395" rx="20" ry="5" fill="#1a1a1a"/>
+
+      <!-- PHONE seen from SIDE — we see the thin edge (short edge / side).
+           Phone is tilted: top angled down-and-forward, bottom near hands.
+           From this side angle, the phone looks like a thin rectangle. -->
+      <g transform="translate(308, 285) rotate(60)">
+        <!-- Show the short edge — looks like a thin tall rectangle. -->
+        <rect x="-6" y="-65" width="12" height="130" rx="2" fill="#1a1a1c" stroke="#444" stroke-width="1"/>
+        <!-- Tiny indicator of the camera bump (one end is the top) -->
+        <circle cx="0" cy="-60" r="4" fill="#0a0a0a"/>
+      </g>
+
+      <!-- TARGET ARROW pointing right -->
+      <line x1="320" y1="350" x2="560" y2="350" stroke="#1a7a1a" stroke-width="3" marker-end="url(#arrowGreen3)"/>
+      <text x="430" y="343" font-size="12" fill="#1a7a1a" font-weight="700">TARGET LINE</text>
+
+      <!-- Annotations -->
+      <text x="50" y="170" font-size="11" fill="#222">User profile</text>
+      <text x="50" y="183" font-size="11" fill="#222">(right-handed,</text>
+      <text x="50" y="196" font-size="11" fill="#222">facing target)</text>
+
+      <text x="40" y="290" font-size="11" fill="#cc6611" font-weight="700">Phone</text>
+      <text x="40" y="303" font-size="10" fill="#cc6611">tilted ~60° from</text>
+      <text x="40" y="316" font-size="10" fill="#cc6611">vertical (lie angle)</text>
+
+      <!-- arrow showing top end down -->
+      <line x1="370" y1="345" x2="385" y2="380" stroke="#cc6611" stroke-width="2" stroke-dasharray="3 3" marker-end="url(#arrowOrange3)"/>
+      <text x="395" y="372" font-size="10" fill="#cc6611">top of phone</text>
+      <text x="395" y="385" font-size="10" fill="#cc6611">aims at ground</text>
+
+      <defs>
+        <marker id="arrowGreen3" markerWidth="10" markerHeight="10" refX="6" refY="3" orient="auto">
+          <path d="M0,0 L6,3 L0,6 z" fill="#1a7a1a"/>
+        </marker>
+        <marker id="arrowOrange3" markerWidth="10" markerHeight="10" refX="6" refY="3" orient="auto">
+          <path d="M0,0 L6,3 L0,6 z" fill="#cc6611"/>
+        </marker>
+      </defs>
+    </svg>
+    <div class="desc">
+      Profile view from the side. The phone is held <b>tilted forward at ~60° from vertical</b>
+      (matching natural putter lie angle). Top of the phone (camera end) aims down at the
+      ground. Both hands grip the bottom edge (closer to the user's chest).
+    </div>
+  </div>
+
+  <!-- ========================================= -->
+  <!-- VIEW 4: User's POV - what user sees on screen -->
+  <!-- ========================================= -->
+  <div class="tile">
+    <h2>4. What the user sees</h2>
+    <div class="badge">user's downward glance at the phone screen</div>
+    <svg viewBox="0 0 600 400" xmlns="http://www.w3.org/2000/svg">
+      <rect width="600" height="400" fill="#1a1a1c"/>
+      <!-- Phone screen taking most of the frame, tilted as if seen at an angle -->
+      <g transform="translate(300 220) rotate(-5)">
+        <rect x="-260" y="-150" width="520" height="300" rx="22" fill="#0a0d12" stroke="#444" stroke-width="2"/>
+        <!-- Notch / Dynamic Island at the FAR end (top of phone) -->
+        <rect x="-50" y="-145" width="100" height="22" rx="10" fill="#000"/>
+        <!-- AR scene preview inside the screen -->
+        <rect x="-250" y="-115" width="500" height="240" rx="6" fill="#3f5b7d"/>
+        <!-- Floor in the AR scene -->
+        <polygon points="-250,40 250,40 200,125 -200,125" fill="#7a9858" opacity="0.85"/>
+        <!-- LiDAR mesh hint -->
+        <g opacity="0.5" stroke="#5ae876" stroke-width="0.6" fill="none">
+          <polygon points="-180,55 -90,55 -130,90"/>
+          <polygon points="-90,55 0,55 -40,90"/>
+          <polygon points="0,55 90,55 50,90"/>
+          <polygon points="90,55 180,55 140,90"/>
+        </g>
+        <!-- Gold cup at far end of AR view -->
+        <ellipse cx="0" cy="70" rx="22" ry="6" fill="#d4a847" stroke="#8a6020" stroke-width="1"/>
+        <ellipse cx="0" cy="70" rx="14" ry="3.5" fill="#0a0805"/>
+        <line x1="0" y1="70" x2="0" y2="-10" stroke="#1e1a1a" stroke-width="2.5"/>
+        <polygon points="2,-5 30,0 2,8" fill="#d61a1a"/>
+        <!-- HUD bar at top -->
+        <rect x="-240" y="-105" width="480" height="22" rx="8" fill="#000" opacity="0.55"/>
+        <text x="0" y="-90" font-size="12" fill="#fff" text-anchor="middle" font-family="-apple-system, monospace">PuttingLab · v0.5.5</text>
+        <!-- Bottom hint -->
+        <rect x="-160" y="100" width="320" height="22" rx="11" fill="#fff" opacity="0.85"/>
+        <text x="0" y="115" font-size="12" fill="#000" text-anchor="middle" font-weight="600">Hold to address, swing to putt</text>
+      </g>
+
+      <!-- Hand silhouettes coming in from below -->
+      <path d="M180,400 L200,310 Q230,280 260,290 L320,300 L260,400 Z" fill="#ddc2a8" stroke="#8b6a4a" stroke-width="1.5" opacity="0.95"/>
+      <path d="M420,400 L400,310 Q370,280 340,290 L280,300 L340,400 Z" fill="#ddc2a8" stroke="#8b6a4a" stroke-width="1.5" opacity="0.95"/>
+
+      <text x="20" y="30" font-size="13" fill="#fff" font-weight="700">User's downward view</text>
+      <text x="20" y="48" font-size="11" fill="#aaa">of the phone screen, both hands gripping the bottom edge</text>
+    </svg>
+    <div class="desc">
+      What it looks like from the user's point of view, looking <b>down at the screen at a
+      slight angle</b> while holding the phone in the putting pose. AR scene + hole + flag
+      visible. HUD shows the build version. Single bottom hint: <b>"Hold to address, swing to
+      putt"</b>. Both hands wrap the bottom edge of the phone.
+    </div>
+  </div>
+
+</div>
+
+</body>
+</html>

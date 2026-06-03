@@ -1,133 +1,124 @@
-# PuttingLab — Putting Stance & Grip Reference
+# PuttingLab — Putting Stance & Grip Reference (CORRECTED)
 
-> **The locked design.** Cited from `docs/spec-putting-lab-v1-FINAL.md` (§4) and `CLAUDE.md` (§3) +
-> the actual runtime thresholds in `Sensors/StillnessDetector.swift`, `Sensors/StrokeDetector.swift`,
-> and `Physics/ImpactDetector.swift` as of B50 (0.5.5).
+> **THE LOCKED OPERATING DESIGN.** Sourced from James's direct confirmation 2026-06-03,
+> Build 4 commit `f06ee52` (2026-05-30 — "orientation instruction rewrite"), and the
+> `PhoneHoldVisual` two-pose card.
 >
-> Read this file BEFORE touching any code that affects the address / stroke / impact pipeline.
-> Future James + future Claude can both ground here. If something here conflicts with the spec,
-> the spec wins — raise it, don't silently deviate.
+> **Read this FIRST before touching any code that affects address / stroke / impact.**
+>
+> ⚠️ **Stale design to ignore:** `CLAUDE.md` §3 decision #2 ("vertical in lead hand,
+> screen facing user, back camera facing direction of swing") and `docs/spec-putting-lab-v1-FINAL.md`
+> §1 row 7 say the SAME stale thing. Both predate Build 4. Build 4 explicitly dropped that
+> prescription. **The correct design is below.** If the spec / CLAUDE.md ever drifts back
+> to "vertical / screen toward you", that is a regression — fix the doc, not the code.
 
 ---
 
-## 1. How the user holds the phone
+## 1. The two-pose flow
 
-| Property | Value | Why |
+There are TWO distinct phone-holds in a session. Don't conflate them.
+
+### Reading pose
+Holding the phone normally to look at the screen — portrait, screen toward face.
+This is just normal phone use. Pre-putt UI / instructions / setup happens in this pose.
+
+### Putting pose
+The user's **own natural putting grip**. The app does NOT prescribe one specific orientation.
+The 5-stroke calibration loop personalises "0° face" for whichever grip the user lands on.
+
+That said, the typical putting pose looks like this:
+
+---
+
+## 2. The putting pose — described point-by-point
+
+| # | What | Confirmed |
 |---|---|---|
-| Hand | **Lead hand** | Left hand for right-handed user (the hand closer to the target). Locked decision #2 in CLAUDE.md §3. |
-| Orientation | **Vertical** | Phone is upright, mimicking a putter shaft. |
-| Screen | **Facing the user** | So they can read instructions + see the AR scene reflected back. |
-| Back camera | **Facing the direction of the swing** | Toward the target / hole. The camera feeds the AR view; this is also how ARKit knows where the hole is in world space. |
-| Phone Y axis | **Aligned with the putter shaft** | Pointing roughly up. Spec §4 + CLAUDE.md §3 locked decision #2. |
-| Phone X axis | **Face normal** | Perpendicular to the target line. Phone X is what determines face open/closed. |
+| 1 | **Back camera points at user's feet / legs** (downward, toward user's lower body) | ✅ James 2026-06-03 |
+| 2 | **ONE LONG EDGE (side) of the phone faces the target** — this is the "putt face" (equivalent of the putter face) | ✅ James 2026-06-03 |
+| 3 | **TOP of the phone (camera / notch end) angles DOWN toward the ground** — tilted, NOT vertical | ✅ James 2026-06-03 |
+| 4 | **Speakers / lightning port at the BOTTOM** point toward the user's chest / body | ✅ James 2026-06-03 |
+| 5 | User can see the **screen slightly, at an angle** | ✅ James 2026-06-03 |
+| 6 | **BOTH HANDS on the phone** — like both hands wrapped around a putter grip | ✅ James 2026-06-03 |
+| 7 | **Right-handed users only in v1** — left-handed grip support is post-v1 | ✅ James 2026-06-03 |
+| 8 | User's **own natural grip** — algorithm calibrates per-user from whatever orientation the phone is in at press time | ✅ B4 commit `f06ee52` + James 2026-06-03 |
 
-### Why phone-Y is NOT perfectly vertical (the ~20° tilt)
-
-Real putters have a **lie angle around 70°** — the shaft is NOT perfectly perpendicular to the ground. When the user grips the phone like a putter, the phone-Y axis ends up **about 20° off world vertical** to mirror that natural lie angle.
-
-The spec §4.2 originally said "phone within ±15° of vertical". That was tested-and-rejected: real grip poses fell outside 15°. `StillnessDetector` ships with **`minGravityDot = 0.9` ≈ ±25° tolerance** to accept natural grips while still rejecting "user is holding phone flat on the table".
-
-```
-cos(25°) ≈ 0.906
-minGravityDot: 0.9  // with safety margin for hand tremor
-```
+**Visualised:** see `docs/stance-renders/` for the rendered illustrations.
 
 ---
 
-## 2. The address pose (the silent calibration)
+## 3. The "press" gesture — the trigger
 
-This is **the most important moment in every stroke** (spec §4) — the only time we get to anchor the reference frames.
+This is **the only user input at swing time**. There is no "Set address" button. There is no "Ready" tap.
 
-### The flow (NO BUTTON, INVISIBLE)
+### Sequence
 
-1. User naturally walks to where they want to stand
-2. User grips the phone in lead hand, vertical, back-camera-toward-target
-3. User aims at the hole on the AR screen
-4. **User holds still for 800 ms** — passively detected, no UI gate
-5. App **silently locks** the address — quietly fills a progress ring as feedback
-6. If user breaks stillness, window silently **resets** — no error, no haptic, ring shrinks back
-7. User naturally holds still again; ring re-fills
+1. User holds the phone in their putting pose (both hands, side toward target, top angled down)
+2. User **presses the screen** (any touch, single finger) — this means "I'm about to take my putt now"
+3. The press locks the address pose. Whatever orientation the phone is in at the press moment = "0° face" for this stroke
+4. **User must NOT change grip while pressed.** If they do, the only way to recover is to take their fingers off and re-orient
+5. User makes the putting motion (both hands swing the phone) while still pressed
+6. User releases (unpresses) when the stroke is done
 
-**What we DON'T do** (and B46-B47 violated):
-- No "Set address" button to tap
-- No "Re-calibrate" affordance
-- No phone-icon hologram showing what was captured
-- No prescription of WHERE the user stands
+### Why press + unpress
 
-The spec calls this "auto-address" and explicitly says it must feel invisible (§4.3).
+The software uses **BOTH** the press AND the unpress to detect "is this a real swing or did the user abandon?":
 
-### What gets locked at 800 ms (spec §4.2)
+- Press start = stroke attempt begins
+- Motion during press = the swing data
+- Unpress = stroke attempt complete
+- If a credible swing arc was detected between press and unpress → real attempt → run ImpactDetector + show result
+- If no credible swing arc → ignored, no result shown
 
-| Locked value | Source | Used for |
-|---|---|---|
-| `yaw_target_compass` | `CMDeviceMotion.attitude.yaw` with `.xMagneticNorthZVertical` reference frame | Backup face-angle reference if ARKit loses tracking |
-| `yaw_target_arkit` | `arSession.currentFrame.camera.transform` → Euler yaw | Primary face-angle reference (drift-corrected) |
-| `gravity_reference` | `CMDeviceMotion.gravity` | Defines "up" for the user's grip; used to project rotation onto yaw axis |
-| `address_lock_time` | `mach_absolute_time()` | Anchor timestamp for everything that follows |
-| `pre_swing_imu_baseline` | mean of last 200 ms of IMU samples | Lets the StrokeDetector detect stroke start cleanly above baseline noise |
-
-### Why 800 ms
-
-**Long enough to:**
-- Get a stable magnetometer reading (mag updates at ~10 Hz; need ~3 readings for noise rejection)
-- Let ARKit world tracking converge if it was drifting
-- Give the user a moment of natural settling before the stroke
-
-**Short enough to:**
-- Not feel laggy
-- Match a real golfer's natural pre-shot routine
-
-### Live values in the code
-
-```swift
-// Sensors/StillnessDetector.swift
-static let maxRotationRateRadPerSec: Double = 5.0 * .pi / 180.0   // 5°/s gyro ceiling
-static let maxAccelMagnitude: Double = 0.2                         // 0.2 m/s² accel ceiling
-static let minGravityDot: Double = 0.9                             // ~25° verticality tolerance
-static let requiredDurationSeconds: TimeInterval = 0.8             // 800 ms still required
-```
+This is different from the B47-B48 design I (Claude) shipped — there I had an "address calibration" + "Ready" button flow. Wrong. The press+unpress gesture replaces both.
 
 ---
 
-## 3. The swing motion (the "press the phone down")
+## 4. The swing motion
 
-The putting stroke is a **pendulum motion of the lead arm + putter**. Phone is gripped to the shaft, so phone follows putter.
+- **Both hands swing the phone through the putting arc**, gripped on the bottom edge of the phone like a putter handle
+- The phone moves with the user's hands as a pendulum
+- **"Forward" along the target line is defined by the long-edge of the phone that was facing the target at press time** (face-direction reference locked at the press)
+- **Peak forward velocity = impact moment** (Wii Golf-style — this is the ONE part of CLAUDE.md still correct)
+- At impact, the yaw component of the phone's attitude (rotation about gravity) vs the locked target-line reference = the **raw face angle**
 
-The user **presses the phone down through the stroke** — back-swing up, then down-and-through accelerating toward the imaginary ball position. The lowest point of the arc = the moment of impact = the moment phone forward velocity peaks.
+### Stroke detection thresholds (live in code)
 
-### Stroke detection chain
+```
+Sensors/StrokeDetector.swift:
+    startThresholdRadPerSec  = 30°/s rotation rate
+    startSustainSeconds       = 50 ms sustained
+    endQuietSeconds           = 300 ms of quiet to end
+    hardCutoffSeconds         = 2.0 s max stroke duration
 
-**Trigger** (StrokeDetector arms when StillnessDetector emits a lock):
-
-```swift
-// Sensors/StrokeDetector.swift
-static let startThresholdRadPerSec: Double = 30.0 * .pi / 180.0   // 30°/s rotation rate
-static let startSustainSeconds: TimeInterval = 0.050              // 50 ms sustained
-static let endQuietSeconds: TimeInterval = 0.300                  // 0.3 s of quiet to end
-static let hardCutoffSeconds: TimeInterval = 2.0                  // max stroke duration
+Physics/ImpactDetector.swift:
+    minStrokeDurationSeconds  = 200 ms
+    minPeakVelocityMps        = 0.05 m/s
 ```
 
-State machine: `armed → starting → recording → ended`.
-
-**Impact detection** (runs on the closed StrokeWindow):
-
-```swift
-// Physics/ImpactDetector.swift
-static let minStrokeDurationSeconds: TimeInterval = 0.200
-static let minPeakVelocityMps: Double = 0.05
-```
-
-The `0.05 m/s` minimum was tuned for **putting-specific** motion. The original Wii-Sports default of `0.30 m/s` was calibrated for full-arm swings and **rejected every real putt**, because putting is mostly **rotation** at the IMU rather than translation (a putting stroke held in a closed hand produces ~0.1-0.2 m/s of linear translation at the IMU).
-
-### Impact moment = peak forward hand velocity (Wii Golf style)
-
-This is locked decision #3 in CLAUDE.md §3. **No physical ball** is being hit; the IMU is the only sensor of impact. Peak forward velocity is the proxy.
+`0.05 m/s` was tuned for **putting-specific motion** (mostly rotation at the IMU, not translation). The Wii-Sports-derived `0.30 m/s` default was rejecting every real putt — see commit `816e4c6`.
 
 ---
 
-## 4. After impact — Mario Kart assist
+## 5. Per-user calibration
 
-Locked decision #4 in CLAUDE.md §3. **Snap to square when confidence is low. Never confidently wrong.**
+5-stroke calibration loop (`Calibration/CalibrationCoordinator.swift`) personalises everything because **every user's grip is slightly different**:
+
+- **Per-user "0° face"** — the orientation the phone happens to be in at the user's natural press
+- **Speed-to-distance factor** — how the user's hand peak velocity maps to a real ball-equivalent distance
+- **Typical grip orientation** — calibrated implicitly via the 5 reference strokes
+
+Calibration accepts strokes that satisfy:
+```
+impact.confidence >= 0.5
+window.duration  >= 0.2 s
+impact.peakVelocity >= 0.3 m/s
+```
+(see `CalibrationCoordinator.isValid`)
+
+---
+
+## 6. Mario Kart assist bucket (locked decision #4, CLAUDE.md §3)
 
 ```
 |face_angle_raw| < 6°         →  "Square"           (snap to 0° displayed)
@@ -136,79 +127,92 @@ Locked decision #4 in CLAUDE.md §3. **Snap to square when confidence is low. Ne
 |face_angle_raw| ≥ 20°         →  "Miss"             (display 20–30°, capped)
 ```
 
-(For a right-handed user: negative raw = closed face = pull left.)
+For right-handed v1: negative raw = closed face = pull left.
 
-Confidence-low triggers a snap-to-square (spec §5.2):
-- ARKit lost tracking for >50% of the stroke
+**Confidence-low always snaps to square** (Wii Sports rule #1 — never confidently wrong):
+- ARKit lost >50% of stroke
 - Stroke duration < 200 ms
 - No clear peak velocity
 - Peak speed < 0.3 m/s
 
-Wii Sports Tennis 3 rules (CLAUDE.md §4 — non-negotiable):
-1. Err toward "Square" when uncertain
-2. Surface the cause, not just the result
-3. Never invent direction the user clearly didn't produce
+---
+
+## 7. The AR layer (Stage 2 / B40+) — what's correct vs what's wrong
+
+### Correct
+- LiDAR floor scan + green mesh overlay (B41)
+- Place a virtual ball + virtual hole in world space (B40)
+- Hole render with PBR materials + environment probe (B45 — when working)
+- Ball roll animation across the AR floor (B49)
+- Result card with distance / face / Mario Kart bucket (B50)
+- **Yellow foot markers as an OPTIONAL stance hint** (B46 — advisory only, user stands wherever)
+
+### Wrong (shipped in B47-B48, needs stripping)
+- ❌ "Set address" button — there is no such button in the design
+- ❌ "Ready" button — the press IS the readiness signal
+- ❌ Phone-icon hologram — the captured pose is internal, not user-facing
+- ❌ Any modal or progress ring asking user to confirm the address
+- ❌ The address-flow PlacementState cases (.calibratingAddress, .addressReady, .readyForStroke) — collapse into a single .complete state with press-gesture armed
 
 ---
 
-## 5. What the AR layer ADDS on top (Stage 2 / B40+)
-
-The above (sections 1-4) is the **locked sensor + game-feel design**. The AR placement layer adds:
-
-- Place a virtual ball + hole in world space (B40 / B44 / B45 lighting)
-- Render a stance hint — **foot markers** on the floor 60 cm behind the ball (B46). These are **a hint**, NOT a prescription — user stands wherever feels right.
-- LiDAR scene reconstruction for the floor mesh (B41)
-- Watch the ball roll across the AR floor after impact (B49)
-- See the result card (B50)
-
-The AR layer must NEVER override the locked sensor design. Specifically:
-- No "Set address" button (B47 was wrong — invisible auto-address is the design)
-- No phone-icon hologram showing captured pose (B47 was wrong — captured pose is not user-facing)
-- No "Ready" button before swing (B48 was wrong — once stillness lock fires, app is already armed)
-
----
-
-## 6. The correct end-to-end loop (for B51 forward)
+## 8. The correct end-to-end loop (for B51 forward)
 
 1. User opens AR. LiDAR scans floor.
 2. User taps to place ball. Taps to place hole.
-3. **Yellow foot markers appear** as a stance hint (B46 — kept, but advisory).
-4. User walks to where THEY want to stand.
-5. User grips phone in lead hand, vertical, back-camera toward hole (locked decision #2).
-6. **Stillness detector is silently running.** Once user holds phone still for 800 ms in proper grip pose, address locks. No button. No haptic at lock. Progress ring may fill quietly as feedback.
-7. User swings the phone-as-putter — down-and-through pendulum motion.
-8. StrokeDetector picks up the swing automatically. ImpactDetector computes peak velocity + face angle.
-9. **Ball rolls** on the AR floor per `BallPhysics.simulatePutt`.
-10. User pans camera toward the hole to watch the ball.
-11. Result panel slides up with Mario Kart bucket call (B50 — kept).
+3. (Optional foot markers appear behind ball as a hint — user can stand wherever)
+4. **User walks to where they want to stand.**
+5. **User grips phone in PUTTING POSE** (both hands, side toward target, top angled down — Section 2 above).
+6. **User presses the screen** to lock the address pose (Section 3 above). Press = "I'm putting now".
+7. **User swings the phone while pressed** — pendulum motion (Section 4 above).
+8. **User unpresses** when stroke is complete.
+9. App computes ImpactResult between press and unpress. Mario Kart bucket assigned.
+10. Ball rolls across AR floor per `BallPhysics.simulatePutt`.
+11. User pans camera toward the hole to watch the ball roll into / past / lip out.
+12. Result panel slides up.
+13. **Putt again** preserves placement + calibration; user just re-presses + swings.
 
-**No taps required between step 4 and step 11.** That's the design intent.
-
----
-
-## 7. Common deviations to catch in code review
-
-When the AR / UI layer adds friction the spec didn't want, the spec wins. Watch for:
-
-- ❌ Any modal asking "are you ready?" before swing
-- ❌ Any button labelled "Set address" / "Calibrate" / "Ready to swing"
-- ❌ Any prescriptive geometry telling the user WHERE to physically stand
-- ❌ Any address lock that requires user confirmation (`Re-calibrate` is OK as an escape hatch, but the default path is invisible)
-- ❌ Any sensor-derived pose rendered as a user-facing entity (phone hologram, head marker, etc.)
-
-The correct shape is: **passive sensing, single visible affordance (place ball + hole), invisible address lock, instant stroke detection, ball rolls, result card.**
+**Total taps in the swing flow: 1 (the press).** Total taps to do another putt: 1.
 
 ---
 
-## 8. Cited research (for the curious)
+## 9. Reciprocity test — read this before changing any code
 
-- `docs/spec-putting-lab-v1-FINAL.md` §3 (locked decisions), §4 (address pose), §5 (Mario Kart assist)
-- `CLAUDE.md` §3 (4 locked decisions), §4 (Wii Sports rules)
-- Memory: `project_puttinglab_phone_ergonomics_research` (2026-05-29 v2 — rejected held-phone configurations, confirmed lead-hand-vertical-grip)
-- Memory: `project_puttinglab_putter_stroke_research` (Pelz 82/18, Marquardt 2007 SAM PuttLab)
-- Memory: `project_puttinglab_high_speed_imu_research` (2026-05-29 "claim vs suppress" UX matrix)
-- `golf-swing-game-design` skill (Mario Kart bucket math + Wii Sports Tennis rules)
+If a future change tries to add:
+- A modal asking the user to confirm something pre-swing → **wrong, remove it**
+- A button labelled "Ready" / "Set address" / "Calibrate now" → **wrong, remove it**
+- A rendered marker showing where the user MUST stand → **wrong, foot markers are advisory only**
+- Any text instructing the user to "hold phone vertically" → **wrong, putting pose is tilted**
+- Any text instructing the user "screen toward you" at address → **wrong, screen faces down/body at address**
+- One-handed grip detection / single-hand stillness checks → **wrong, both hands by design**
+
+If a future change goes against this list, **fix the change, not the design**. The design is locked.
 
 ---
 
-*Last updated: 2026-06-03 — after B47-B48 introduced "Set address" + "Ready" buttons that violated the auto-address design. This reference exists to prevent that drift from happening again.*
+## 10. Version control bread-crumbs
+
+| Commit | Date | What |
+|---|---|---|
+| `f06ee52` | 2026-05-30 | B4 — orientation instruction rewrite; dropped "vertical / screen toward you"; introduced two-pose card |
+| `816e4c6` | (post-B4) | Cycle 2 — stillness 25° tolerance for natural grip (was 15° in original spec) |
+| `e0ee72f` | 2026-06-03 | First (wrong) version of this doc — I read the spec without checking version control |
+| **THIS COMMIT** | 2026-06-03 | Corrected — both hands + press-gesture + camera-at-feet + side-at-target |
+
+If the design ever drifts again, search `git log -p --grep="orientation"` to find the next rewrite.
+
+---
+
+## 11. Stale-design watch
+
+These three places STILL say the original (wrong) prescription:
+
+- `CLAUDE.md` §3 decision #2
+- `docs/spec-putting-lab-v1-FINAL.md` §1 Table of Locked Decisions row 7
+- `docs/spec-putting-lab-v1-FINAL.md` §3 phase 2 ("phone within ±15° of vertical")
+
+**Action:** flag these in the docs as superseded. Don't silently fix unless James OKs editing the spec.
+
+---
+
+*Last updated: 2026-06-03 — after James's point-by-point confirmation. This replaces the earlier (incorrect) version of the same file.*

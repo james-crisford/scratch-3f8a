@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>PuttingLab — Putting-pose stance renders (Gemini-validated)</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #0a0d12;
+    color: #e5e9ee;
+    font-family: -apple-system, "SF Pro Display", Inter, system-ui, sans-serif;
+    padding: 32px;
+    line-height: 1.4;
+  }
+  h1 { font-size: 26px; margin-bottom: 6px; letter-spacing: -0.4px; }
+  .sub { color: #8a93a3; font-size: 14px; margin-bottom: 28px; max-width: 1000px; }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 18px;
+  }
+  .tile {
+    background: #141a23;
+    border: 1px solid #1f2733;
+    border-radius: 14px;
+    padding: 16px;
+  }
+  .tile h2 {
+    font-size: 14px;
+    color: #fff;
+    font-weight: 600;
+    margin-bottom: 4px;
+  }
+  .tile .badge {
+    color: #8a93a3;
+    font-size: 11px;
+    margin-bottom: 10px;
+  }
+  canvas {
+    display: block;
+    width: 100%;
+    height: 360px;
+    border-radius: 10px;
+    background: #c8b896;
+  }
+  .desc {
+    margin-top: 10px;
+    font-size: 12.5px;
+    color: #8a93a3;
+  }
+  .desc b { color: #fff; }
+</style>
+</head>
+<body>
+
+<h1>The putting pose — 4 views</h1>
+<div class="sub">
+  Three.js renders of how the user holds the iPhone during the putt, per James's 11-point
+  confirmation 2026-06-03. Right-handed user, both hands on the phone. Long edge of the
+  phone faces the target (= putt-face). Top of phone angled DOWN toward the ground. Back
+  camera lens points at the user's feet / legs. Speakers + lightning port at the bottom
+  point toward the user's chest. Screen visible to the user at a slight angle.
+</div>
+
+<div class="grid">
+
+  <div class="tile">
+    <h2>1. Top-down (bird's-eye)</h2>
+    <div class="badge">target line runs left → right; user is at the bottom</div>
+    <canvas id="v1"></canvas>
+    <div class="desc">Shows which long edge of the phone faces the target. The phone is held
+    sideways relative to the user's body, with its long axis roughly perpendicular to the
+    target line. Both hands grip the bottom edge.</div>
+  </div>
+
+  <div class="tile">
+    <h2>2. Behind the user (target-line POV)</h2>
+    <div class="badge">looking forward along the target line</div>
+    <canvas id="v2"></canvas>
+    <div class="desc">Shows the tilt of the phone. Top of phone (camera/notch end) angles
+    DOWN toward the ground — not vertical. The back camera lens (back of phone) faces
+    DOWN-and-toward-user's-feet. The "putt face" (the long edge) is the leading edge
+    pointing at the hole.</div>
+  </div>
+
+  <div class="tile">
+    <h2>3. Side-on (target's view)</h2>
+    <div class="badge">target is OUT of the frame to the right</div>
+    <canvas id="v3"></canvas>
+    <div class="desc">Profile view from the side. You can see the phone's tilt + the user's
+    grip with both hands. The screen faces partially DOWN + toward the user's body.</div>
+  </div>
+
+  <div class="tile">
+    <h2>4. User's near-POV (over-the-shoulder)</h2>
+    <div class="badge">slightly behind + above the user</div>
+    <canvas id="v4"></canvas>
+    <div class="desc">What it looks like over the user's shoulder. Both hands wrapped on
+    the bottom edge of the phone. The screen is angled so the user can see it slightly.
+    Target line clearly along the long edge facing the hole.</div>
+  </div>
+
+</div>
+
+<script type="importmap">
+{ "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js" } }
+</script>
+<script type="module">
+import * as THREE from 'three';
+
+// ============================================================
+// Scene builder — keeps the figure + phone + ground identical
+// across all four views. Camera placement is the only thing
+// that changes per render.
+// ============================================================
+
+function floorTex() {
+  const c = document.createElement('canvas'); c.width=c.height=512;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#7a9858';  // green like a putting green
+  ctx.fillRect(0,0,512,512);
+  for (let i = 0; i < 5000; i++) {
+    const x = Math.random()*512, y = Math.random()*512;
+    const v = Math.random();
+    ctx.fillStyle = `rgba(${30+v*40},${80+v*60},${30+v*40},${0.4+v*0.3})`;
+    ctx.fillRect(x, y, 1, 1);
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.repeat.set(6,6);
+  return t;
+}
+
+function buildScene() {
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0xa8c4dc);  // sky
+
+  // Lighting — strong key from upper-left, fill from below
+  scene.add(new THREE.HemisphereLight(0xddeefc, 0x556644, 0.55));
+  const key = new THREE.DirectionalLight(0xffffff, 2.4);
+  key.position.set(-2, 4, 1.5);
+  key.castShadow = true;
+  key.shadow.mapSize.width = 2048;
+  key.shadow.mapSize.height = 2048;
+  key.shadow.camera.near = 0.1;
+  key.shadow.camera.far = 12;
+  key.shadow.camera.left = -3; key.shadow.camera.right = 3;
+  key.shadow.camera.top = 3; key.shadow.camera.bottom = -3;
+  key.shadow.bias = -0.0001;
+  scene.add(key);
+
+  // Ground plane (the putting surface)
+  const ground = new THREE.Mesh(
+    new THREE.PlaneGeometry(12, 12).rotateX(-Math.PI/2),
+    new THREE.MeshStandardMaterial({ map: floorTex(), roughness: 0.95 })
+  );
+  ground.receiveShadow = true;
+  scene.add(ground);
+
+  // Target line marker — thin black line on the ground from
+  // user's feet (z = +1.0) toward the hole (z = -2.0).
+  // User at +Z, hole at -Z. So target line is along -Z axis.
+  const lineGeo = new THREE.BoxGeometry(0.008, 0.001, 3.0);
+  const lineMat = new THREE.MeshBasicMaterial({ color: 0x111111, transparent: true, opacity: 0.55 });
+  const line = new THREE.Mesh(lineGeo, lineMat);
+  line.position.set(0, 0.001, -0.5);
+  scene.add(line);
+
+  // Hole — small dark circle at z = -2.0
+  const holeMesh = new THREE.Mesh(
+    new THREE.CircleGeometry(0.054, 32).rotateX(-Math.PI/2),
+    new THREE.MeshBasicMaterial({ color: 0x0a0805 })
+  );
+  holeMesh.position.set(0, 0.0008, -2.0);
+  scene.add(holeMesh);
+  // Flagstick
+  const pole = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.0075, 0.0075, 0.7, 16),
+    new THREE.MeshStandardMaterial({ color: 0x1e1a1a, roughness: 0.55, metalness: 0.25 })
+  );
+  pole.position.set(0, 0.35, -2.0); pole.castShadow = true;
+  scene.add(pole);
+  const flagGeo = new THREE.BufferGeometry();
+  flagGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array([
+    0.0075, 0, 0,
+    0.0075, 0.10, 0,
+    0.0075 + 0.15, 0.05, 0
+  ]), 3));
+  flagGeo.setIndex([0,2,1,0,1,2]);
+  flagGeo.computeVertexNormals();
+  const flag = new THREE.Mesh(flagGeo,
+    new THREE.MeshStandardMaterial({ color: 0xd61a1a, side: THREE.DoubleSide, roughness: 0.7 }));
+  flag.position.set(0, 0.55, -2.0);
+  scene.add(flag);
+
+  // ===================================================
+  // The user — simple low-poly humanoid, right-handed,
+  // standing at z = +0.85 looking at the hole (-Z).
+  // ===================================================
+  const user = new THREE.Group();
+  user.position.set(0.0, 0, 0.85);
+  scene.add(user);
+
+  const skin = new THREE.MeshStandardMaterial({ color: 0xddc2a8, roughness: 0.7 });
+  const shirt = new THREE.MeshStandardMaterial({ color: 0x2b3845, roughness: 0.8 });
+  const trousers = new THREE.MeshStandardMaterial({ color: 0x4a4a4a, roughness: 0.85 });
+  const shoes = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.9 });
+
+  // Head
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.12, 24, 24), skin);
+  head.position.y = 1.62; head.castShadow = true;
+  user.add(head);
+  // Torso
+  const torso = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.17, 0.55, 24), shirt);
+  torso.position.y = 1.24; torso.castShadow = true;
+  user.add(torso);
+  // Pelvis / hips
+  const pelvis = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.14, 0.20, 24), trousers);
+  pelvis.position.y = 0.86; pelvis.castShadow = true;
+  user.add(pelvis);
+  // Legs — separated slightly, stance width
+  const stanceWidth = 0.18;
+  const legGeom = new THREE.CylinderGeometry(0.065, 0.05, 0.75, 16);
+  const legL = new THREE.Mesh(legGeom, trousers);
+  legL.position.set(-stanceWidth, 0.38, 0); legL.castShadow = true;
+  user.add(legL);
+  const legR = new THREE.Mesh(legGeom, trousers);
+  legR.position.set(stanceWidth, 0.38, 0); legR.castShadow = true;
+  user.add(legR);
+  // Shoes
+  const shoeGeom = new THREE.BoxGeometry(0.10, 0.04, 0.18);
+  const shoeL = new THREE.Mesh(shoeGeom, shoes);
+  shoeL.position.set(-stanceWidth, 0.02, 0.03); shoeL.castShadow = true;
+  user.add(shoeL);
+  const shoeR = new THREE.Mesh(shoeGeom, shoes);
+  shoeR.position.set(stanceWidth, 0.02, 0.03); shoeR.castShadow = true;
+  user.add(shoeR);
+  // Arms — both hands forward, holding phone in front.
+  // Right-handed user: hands clasped in front of torso at the
+  // top of the phone (the bottom edge of phone = at hands).
+  const armGeom = new THREE.CylinderGeometry(0.038, 0.028, 0.65, 16);
+  const armPivotL = new THREE.Group();
+  armPivotL.position.set(-0.16, 1.42, 0);
+  user.add(armPivotL);
+  const armL = new THREE.Mesh(armGeom, skin);
+  armL.castShadow = true;
+  armL.position.y = -0.32;
+  armPivotL.add(armL);
+  armPivotL.rotation.x = -0.35;  // bend forward at shoulder
+  armPivotL.rotation.z = 0.25;   // tuck inward toward centre
+
+  const armPivotR = new THREE.Group();
+  armPivotR.position.set(0.16, 1.42, 0);
+  user.add(armPivotR);
+  const armR = new THREE.Mesh(armGeom, skin);
+  armR.castShadow = true;
+  armR.position.y = -0.32;
+  armPivotR.add(armR);
+  armPivotR.rotation.x = -0.35;
+  armPivotR.rotation.z = -0.25;
+
+  // Hands — small spheres at the base of the arms
+  const handGeom = new THREE.SphereGeometry(0.05, 16, 16);
+  const handL = new THREE.Mesh(handGeom, skin);
+  handL.castShadow = true;
+  handL.position.copy(armL.position).y -= 0.30;
+  armPivotL.add(handL);
+  const handR = new THREE.Mesh(handGeom, skin);
+  handR.castShadow = true;
+  handR.position.copy(armR.position).y -= 0.30;
+  armPivotR.add(handR);
+
+  // ===================================================
+  // The PHONE — held at the hands' position.
+  //
+  // Phone dimensions (approx iPhone 13 Pro Max): 16cm x 7.8cm x 0.8cm
+  // Orientation per James 2026-06-03:
+  //   - BACK camera points at user's feet/legs (downward-toward-user)
+  //   - One LONG EDGE faces the target (the "putt face")
+  //   - TOP of phone angles DOWN toward the ground
+  //   - SPEAKERS/LIGHTNING (bottom edge) toward user's chest
+  //
+  // Coordinate setup:
+  //   The phone group is centred between the user's hands at the
+  //   front of the body. We rotate it so:
+  //     - phone's local +X (one long edge) faces -Z (toward hole)
+  //     - phone's local -Y (top of phone) angles down toward
+  //       the ground at ~30° from horizontal
+  //     - phone's local -Z (back) faces down-and-toward-user
+  // ===================================================
+  const phoneGroup = new THREE.Group();
+  phoneGroup.position.set(0, 1.05, 0.32);  // front of user, hand level
+  user.add(phoneGroup);
+
+  // Build phone in its local frame:
+  //   long axis along local X (16 cm)
+  //   short axis along local Y (7.8 cm)
+  //   thickness along local Z (0.8 cm)
+  // Then rotate the whole group to achieve the spec orientation.
+  const phoneBody = new THREE.Mesh(
+    new THREE.BoxGeometry(0.16, 0.078, 0.008),
+    new THREE.MeshStandardMaterial({
+      color: 0x1a1a1c, roughness: 0.32, metalness: 0.45
+    })
+  );
+  phoneBody.castShadow = true;
+  phoneGroup.add(phoneBody);
+
+  // Screen on +Z face of the phone body
+  const screen = new THREE.Mesh(
+    new THREE.PlaneGeometry(0.146, 0.068),
+    new THREE.MeshStandardMaterial({
+      color: 0x223344, roughness: 0.1, metalness: 0.05,
+      emissive: 0x1a2b3a, emissiveIntensity: 0.5
+    })
+  );
+  screen.position.z = 0.0042;
+  phoneGroup.add(screen);
+
+  // Camera bump (back of the phone, near the +X end = the "top")
+  const cameraBump = new THREE.Mesh(
+    new THREE.CircleGeometry(0.012, 24).rotateY(Math.PI),
+    new THREE.MeshStandardMaterial({ color: 0x0a0a0a, roughness: 0.3, metalness: 0.5 })
+  );
+  cameraBump.position.set(0.058, 0.024, -0.0045);
+  phoneGroup.add(cameraBump);
+  // Camera lens (a small dark ring)
+  const lensRing = new THREE.Mesh(
+    new THREE.RingGeometry(0.004, 0.010, 24).rotateY(Math.PI),
+    new THREE.MeshStandardMaterial({ color: 0x222, roughness: 0.5, metalness: 0.3, side: THREE.DoubleSide })
+  );
+  lensRing.position.set(0.058, 0.024, -0.0046);
+  phoneGroup.add(lensRing);
+  // Inner lens (the dark glass)
+  const lensGlass = new THREE.Mesh(
+    new THREE.CircleGeometry(0.004, 24).rotateY(Math.PI),
+    new THREE.MeshStandardMaterial({ color: 0x000, roughness: 0.1, metalness: 0.0 })
+  );
+  lensGlass.position.set(0.058, 0.024, -0.0048);
+  phoneGroup.add(lensGlass);
+
+  // Speaker grille + lightning port indicators on the BOTTOM
+  // edge (local -X)
+  for (let i = -2; i <= 2; i++) {
+    const hole = new THREE.Mesh(
+      new THREE.CircleGeometry(0.0015, 8),
+      new THREE.MeshBasicMaterial({ color: 0x000 })
+    );
+    hole.position.set(-0.078, 0.012*i, 0.0042);
+    hole.rotation.y = -Math.PI/2;
+    phoneGroup.add(hole);
+  }
+
+  // ROTATE the phone to achieve the spec orientation:
+  // Goal:
+  //   - phone's LONG EDGE (local +Y, the long axis of the screen) should face the
+  //     hole = -Z in world. So we need local +X (currently the long axis) to face -Z.
+  //   - Phone's TOP (local +X — the camera/notch end) angles DOWN toward the ground.
+  //   - Phone's BACK (local -Z) faces toward the user's feet (= down + toward +Z).
+  //
+  // Start orientation: phone in XY plane, long axis X, thickness Z (screen +Z).
+  // Step 1: rotate -90° around Y so long axis now points along -Z (toward hole).
+  // Step 2: rotate +30° around the (-Z) axis (which is now the long axis) so the
+  //         camera end angles down toward the ground while screen faces toward user.
+  //
+  // Simplest path: build the desired final basis directly via lookAt-style
+  // construction. The phone's local X axis should point toward the hole (-Z world).
+  // Bank by ~30° toward the ground.
+  const longTarget = new THREE.Vector3(0, -0.15, -1).normalize();   // long edge points target-and-slightly-down
+  const upRef     = new THREE.Vector3(0.4, 0, 0.7).normalize();    // bank: tilt the top down-and-toward-user
+  const longAxis = longTarget.clone();
+  const back = new THREE.Vector3().crossVectors(upRef, longAxis).normalize();  // local -Z
+  const shortAxis = new THREE.Vector3().crossVectors(longAxis, back).normalize();
+  const basis = new THREE.Matrix4();
+  basis.makeBasis(longAxis, shortAxis, back);  // X = long, Y = short, Z = back (forward-of-screen)
+  phoneGroup.quaternion.setFromRotationMatrix(basis);
+
+  // ===================================================
+  // Reference labels — small text sprites for clarity.
+  // Disabled by default; uncomment to label axes.
+  // ===================================================
+  // (skipped for cleanliness)
+
+  return scene;
+}
+
+function render(canvasId, view) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+  const w = canvas.clientWidth || 580, h = canvas.clientHeight || 360;
+  canvas.width = w*2; canvas.height = h*2;
+  const off = document.createElement('canvas');
+  off.width = w*2; off.height = h*2;
+  const renderer = new THREE.WebGLRenderer({ canvas: off, antialias: true, preserveDrawingBuffer: true });
+  renderer.setSize(w, h, false);
+  renderer.setPixelRatio(2);
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+
+  const scene = buildScene();
+  const cam = new THREE.PerspectiveCamera(view.fov || 40, w/h, 0.01, 50);
+  cam.position.set(view.cam.x, view.cam.y, view.cam.z);
+  cam.lookAt(view.look.x, view.look.y, view.look.z);
+  renderer.render(scene, cam);
+  canvas.getContext('2d').drawImage(off, 0, 0, canvas.width, canvas.height);
+  renderer.dispose(); renderer.forceContextLoss();
+}
+
+window.addEventListener('load', () => {
+  setTimeout(() => {
+    // 1. Top-down — straight above
+    render('v1', {
+      fov: 36,
+      cam: {x: 0, y: 3.0, z: 0.001},
+      look: {x: 0, y: 0, z: -0.3}
+    });
+    // 2. Behind the user, looking along target line
+    render('v2', {
+      fov: 40,
+      cam: {x: 0, y: 1.0, z: 1.85},
+      look: {x: 0, y: 1.0, z: -0.5}
+    });
+    // 3. Side-on — from +X looking at -X (target is to the right out of frame)
+    render('v3', {
+      fov: 38,
+      cam: {x: 1.85, y: 1.0, z: 0.85},
+      look: {x: 0, y: 1.0, z: 0.5}
+    });
+    // 4. Over-the-shoulder (slightly above and behind)
+    render('v4', {
+      fov: 36,
+      cam: {x: 0.55, y: 1.45, z: 1.45},
+      look: {x: 0, y: 1.0, z: 0.1}
+    });
+  }, 200);
+});
+</script>
+
+</body>
+</html>
