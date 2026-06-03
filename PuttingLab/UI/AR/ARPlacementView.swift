@@ -183,6 +183,10 @@ struct ARPlacementView: View {
     /// `BallPhysics.simulatePutt` trajectory.
     @State private var ballRollAnimator: BallRollAnimator? = nil
 
+    /// B50 Slice 3.5 — Mario Kart bucketer. Stateless, reused
+    /// across strokes. `Sendable` per the type declaration.
+    private static let marioKart = MarioKartAssist()
+
     /// The scene-graph "controller" we expose to the UIViewRepresentable.
     /// Lives as a single instance bound to the view so tap callbacks +
     /// state changes share one source of truth.
@@ -268,6 +272,50 @@ struct ARPlacementView: View {
                         .transition(.opacity)
                 }
                 .allowsHitTesting(false)
+            }
+
+            // B50 Slice 3.5 — stroke result panel. Slides up from
+            // the bottom of the AR view when the ball has rolled
+            // to rest. Auto-dismisses 6s later; user can also
+            // tap Putt again / Reset all.
+            if case .rolled(let ball, let hole, let pose, let impact,
+                             let outcome, let duration) = placementState {
+                VStack {
+                    Spacer()
+                    StrokeResultPanel(
+                        viewModel: makeStrokeResultVM(ball: ball, hole: hole,
+                                                       impact: impact,
+                                                       outcome: outcome,
+                                                       duration: duration),
+                        onPuttAgain: {
+                            // Reset ball entity to start + arm a
+                            // new stroke capture preserving the
+                            // address pose.
+                            if let ballEntity = scene.ballModelEntity() {
+                                ballEntity.position = SIMD3<Float>(0, 0.0427/2, 0)
+                            }
+                            scene.clearRollTrail()
+                            armStrokeCapture(ball: ball, hole: hole, pose: pose)
+                        },
+                        onResetAll: {
+                            reset()
+                        },
+                        onDismiss: {
+                            // Auto-dismiss timer fired but the
+                            // user hasn't tapped — return to
+                            // .addressReady so the action row
+                            // re-renders the Putt again / Reset
+                            // capsules under the HUD.
+                            if case .rolled(let b, let h, let p, _, _, _) = placementState {
+                                if let ballEntity = scene.ballModelEntity() {
+                                    ballEntity.position = SIMD3<Float>(0, 0.0427/2, 0)
+                                }
+                                placementState = .addressReady(ball: b, hole: h, pose: p)
+                            }
+                        }
+                    )
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
             }
         }
         .statusBarHidden()
@@ -1800,33 +1848,40 @@ struct ARPlacementView: View {
             impact: impact,
             speedCalibration: 1.0,
             stimpFeet: BallPhysics.defaultStimp,
-            trailEmitter: { [weak scene = scene] world in
-                scene?.dropRollTrailMarker(at: world)
+            trailEmitter: { world in
+                scene.dropRollTrailMarker(at: world)
             },
-            onComplete: { [weak self] outcome, duration in
-                self?.handleRollComplete(ball: ball, hole: hole,
-                                          pose: pose, impact: impact,
-                                          outcome: outcome,
-                                          duration: duration)
+            onComplete: { outcome, duration in
+                handleRollComplete(ball: ball, hole: hole,
+                                    pose: pose, impact: impact,
+                                    outcome: outcome,
+                                    duration: duration)
             })
     }
 
-    /// B49 — fired when the ball stops. Snap the haptic, log a
-    /// `strokeResult` placeholder (B50 will replace this with
-    /// the full Mario Kart bucket payload), transition to
-    /// `.rolled`.
+    /// B49/B50 — fired when the ball stops. Logs the full
+    /// `strokeResult` chain with Mario Kart bucket + outcome,
+    /// fires appropriate haptic, transitions to `.rolled`.
     private func handleRollComplete(ball: SIMD3<Float>,
                                       hole: SIMD3<Float>,
                                       pose: AddressPose,
                                       impact: ImpactResult,
                                       outcome: BallPhysics.Outcome,
                                       duration: Double) {
+        let bucket = Self.marioKart.bucket(from: impact)
         logger.log(.strokeResult,
-                   "Ball stopped — outcome=\(outcome)",
-                   payload: ["outcome": String(describing: outcome),
-                             "duration_s": String(format: "%.3f", duration),
-                             "velocity_mps": String(format: "%.4f", impact.peakVelocity),
-                             "face_angle_deg": String(format: "%.2f", impact.faceAngleDegrees)])
+                   "Ball stopped — outcome=\(outcome) bucket=\(bucket.bucket.rawValue)",
+                   payload: [
+                       "outcome": String(describing: outcome),
+                       "duration_s": String(format: "%.3f", duration),
+                       "velocity_mps": String(format: "%.4f", impact.peakVelocity),
+                       "face_angle_deg": String(format: "%.2f", impact.faceAngleDegrees),
+                       "bucket": bucket.bucket.rawValue,
+                       "bucket_label": bucket.label,
+                       "bucket_display_deg": String(format: "%.2f", bucket.displayDegrees),
+                       "bucket_snapped_to_square": bucket.snappedToSquare ? "true" : "false",
+                       "bucket_cause": bucket.cause
+                   ])
         switch outcome {
         case .captured:
             UINotificationFeedbackGenerator().notificationOccurred(.success)
@@ -1841,6 +1896,85 @@ struct ARPlacementView: View {
                                    impact: impact, outcome: outcome,
                                    durationS: duration)
         ballRollAnimator = nil
+    }
+
+    /// B50 — build the result-panel view model from the rolled
+    /// stroke chain. Distance is the simulated travel distance
+    /// from the BallPhysics path (cached via the impact +
+    /// outcome, recomputed deterministically here for display).
+    /// We re-simulate to get the distance instead of caching
+    /// because the impact + outcome + duration alone don't
+    /// carry the path; the sim is fast (<1ms) and idempotent.
+    private func makeStrokeResultVM(ball: SIMD3<Float>,
+                                      hole: SIMD3<Float>,
+                                      impact: ImpactResult,
+                                      outcome: BallPhysics.Outcome,
+                                      duration: Double) -> StrokeResultViewModel {
+        let aimVec = SIMD3<Float>(hole.x - ball.x, 0, hole.z - ball.z)
+        let aimLen = simd_length(aimVec)
+        let sim = BallPhysics.simulatePutt(
+            peakVelocity: impact.peakVelocity,
+            faceAngleRaw: impact.faceAngleRaw,
+            speedCalibration: 1.0,
+            stimpFeet: BallPhysics.defaultStimp,
+            startPosition: .zero,
+            cupPosition: SIMD2<Double>(Double(aimLen), 0)
+        )
+        let distanceMetres = sqrt(sim.endPosition.x * sim.endPosition.x
+                                   + sim.endPosition.y * sim.endPosition.y)
+        let distanceFeet = distanceMetres * 3.28084
+        let bucket = Self.marioKart.bucket(from: impact)
+
+        let outcomeHeadline: String
+        let outcomeTint: Color
+        switch outcome {
+        case .captured:
+            outcomeHeadline = "Drained"
+            outcomeTint = .green
+        case .lipOut:
+            outcomeHeadline = "Lipped out"
+            outcomeTint = .orange
+        case .stopped:
+            let shortBy = Double(aimLen) - distanceMetres
+            if shortBy > 0.3 {
+                outcomeHeadline = "Short"
+            } else if shortBy < -0.3 {
+                outcomeHeadline = "Long"
+            } else {
+                outcomeHeadline = "Stopped"
+            }
+            outcomeTint = .white
+        case .rejected:
+            outcomeHeadline = "Too soft to read"
+            outcomeTint = .yellow
+        }
+
+        // `duration` currently unused in the panel — kept in the
+        // function signature so B51 can wire roll-time display
+        // without a signature break.
+        _ = duration
+        return StrokeResultViewModel(
+            distanceMetres: distanceMetres,
+            distanceFeet: distanceFeet,
+            faceAngleDeg: impact.faceAngleDegrees,
+            peakVelocityMps: impact.peakVelocity,
+            bucketLabel: bucket.label,
+            bucketTint: bucketColor(for: bucket.bucket),
+            causeLine: bucket.cause,
+            outcomeHeadline: outcomeHeadline,
+            outcomeTint: outcomeTint,
+            autoDismissAfter: 6.0
+        )
+    }
+
+    /// Tint for the Mario Kart bucket pill.
+    private func bucketColor(for bucket: DirectionBucket) -> Color {
+        switch bucket {
+        case .square:                       return .green
+        case .slightPull, .slightPush:      return .yellow
+        case .pull, .push:                  return .orange
+        case .miss:                         return .red
+        }
     }
 
     /// Address-pose lock fired — log it, render the phone-icon

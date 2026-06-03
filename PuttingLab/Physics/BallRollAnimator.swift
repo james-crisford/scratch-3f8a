@@ -1,6 +1,7 @@
 import Foundation
 import simd
 import RealityKit
+import QuartzCore
 
 /// Ball-roll animator for Stage 3 Slice 3.4 (B49).
 ///
