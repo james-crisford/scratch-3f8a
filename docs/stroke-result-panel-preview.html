@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>StrokeResultPanel — B50 preview</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #0a0d12;
+    color: #e5e9ee;
+    font-family: -apple-system, "SF Pro Display", "SF Pro Text", Inter, system-ui, sans-serif;
+    padding: 32px;
+    line-height: 1.45;
+  }
+  h1 { font-size: 26px; margin-bottom: 6px; letter-spacing: -0.4px; }
+  .sub { color: #8a93a3; font-size: 14px; margin-bottom: 28px; max-width: 900px; }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 18px;
+  }
+  .device {
+    background: #1a1f29;
+    border: 1px solid #1f2733;
+    border-radius: 32px;
+    padding: 24px 18px 28px;
+    position: relative;
+    aspect-ratio: 9 / 19.5;
+    overflow: hidden;
+    background-image:
+      linear-gradient(180deg, rgba(160,200,140,0.18) 0%, rgba(40,60,30,0.45) 100%),
+      radial-gradient(circle at 45% 60%, rgba(0,0,0,0.4) 0%, rgba(0,0,0,0) 50%);
+  }
+  .device .notch {
+    position: absolute;
+    top: 14px; left: 50%;
+    transform: translateX(-50%);
+    width: 110px; height: 32px;
+    background: #000;
+    border-radius: 18px;
+  }
+  .device .ar-content {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    padding: 18px 14px 22px;
+  }
+  .panel {
+    background: rgba(20, 26, 35, 0.78);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(255,255,255,0.10);
+    border-radius: 18px;
+    padding: 16px 16px 14px;
+  }
+  .panel-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 12px;
+  }
+  .outcome {
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: -0.3px;
+  }
+  .bucket-pill {
+    padding: 3px 10px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 600;
+    color: #fff;
+  }
+  .metrics {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 10px;
+    margin-bottom: 12px;
+  }
+  .metric .label {
+    font-size: 9.5px;
+    font-weight: 600;
+    color: rgba(255,255,255,0.55);
+    letter-spacing: 0.5px;
+    margin-bottom: 2px;
+  }
+  .metric .primary {
+    font-size: 17px;
+    font-weight: 600;
+    letter-spacing: -0.2px;
+    font-feature-settings: "tnum";
+  }
+  .metric .secondary {
+    font-size: 10px;
+    color: rgba(255,255,255,0.55);
+    font-feature-settings: "tnum";
+  }
+  .cause {
+    font-size: 11px;
+    color: rgba(255,255,255,0.75);
+    margin-bottom: 14px;
+  }
+  .actions {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .btn {
+    padding: 7px 12px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .btn-secondary {
+    background: rgba(0,0,0,0.55);
+    color: #fff;
+  }
+  .btn-primary {
+    background: rgba(76, 217, 100, 0.95);
+    color: #fff;
+    font-weight: 700;
+  }
+  .scene-caption {
+    margin-top: 16px;
+    font-size: 12.5px;
+    color: #8a93a3;
+    text-align: center;
+  }
+  .scene-caption b { color: #fff; }
+</style>
+</head>
+<body>
+
+<h1>StrokeResultPanel — B50 preview (3 outcomes)</h1>
+<div class="sub">
+  Mockup of what the StrokeResultPanel will look like when it slides up from the bottom of the
+  AR view after the ball stops rolling. Three example outcomes shown: a perfect drained putt,
+  a slight pull lipped out, a soft tap that came up short. Panel auto-dismisses after 6 s; user
+  can also tap Putt again to loop or Reset all to wipe.
+</div>
+
+<div class="grid">
+
+  <div>
+    <div class="device">
+      <div class="notch"></div>
+      <div class="ar-content">
+        <div class="panel">
+          <div class="panel-head">
+            <span class="outcome" style="color:#4cd964">Drained</span>
+            <span class="bucket-pill" style="background:#4cd964">Square</span>
+          </div>
+          <div class="metrics">
+            <div class="metric">
+              <div class="label">DISTANCE</div>
+              <div class="primary" style="color:#4cd964">1.48 m</div>
+              <div class="secondary">4.9 ft · short</div>
+            </div>
+            <div class="metric">
+              <div class="label">FACE</div>
+              <div class="primary" style="color:#4cd964">+1.2°</div>
+              <div class="secondary">square</div>
+            </div>
+            <div class="metric">
+              <div class="label">PEAK VEL</div>
+              <div class="primary">1.74 m/s</div>
+              <div class="secondary">3.89 mph</div>
+            </div>
+          </div>
+          <div class="cause">Centre strike — straight on the target line.</div>
+          <div class="actions">
+            <span class="btn btn-secondary">↺ Reset all</span>
+            <span class="btn btn-primary">⛳ Putt again</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="scene-caption">1. <b>Drained</b> — 1.48 m, 1.2° face, Square bucket. Green tints everywhere; satisfying outcome.</div>
+  </div>
+
+  <div>
+    <div class="device">
+      <div class="notch"></div>
+      <div class="ar-content">
+        <div class="panel">
+          <div class="panel-head">
+            <span class="outcome" style="color:#ff9500">Lipped out</span>
+            <span class="bucket-pill" style="background:#ffcc00">Slight pull</span>
+          </div>
+          <div class="metrics">
+            <div class="metric">
+              <div class="label">DISTANCE</div>
+              <div class="primary" style="color:#4cd964">2.15 m</div>
+              <div class="secondary">7.1 ft · short</div>
+            </div>
+            <div class="metric">
+              <div class="label">FACE</div>
+              <div class="primary" style="color:#ffcc00">−8.4°</div>
+              <div class="secondary">slight pull</div>
+            </div>
+            <div class="metric">
+              <div class="label">PEAK VEL</div>
+              <div class="primary">2.18 m/s</div>
+              <div class="secondary">4.88 mph</div>
+            </div>
+          </div>
+          <div class="cause">Face closed a touch — toe of the putter led.</div>
+          <div class="actions">
+            <span class="btn btn-secondary">↺ Reset all</span>
+            <span class="btn btn-primary">⛳ Putt again</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="scene-caption">2. <b>Lipped out</b> — 2.15 m at 8.4° pull. Bucket pill yellow, face value orange-tinted. Cause line explains.</div>
+  </div>
+
+  <div>
+    <div class="device">
+      <div class="notch"></div>
+      <div class="ar-content">
+        <div class="panel">
+          <div class="panel-head">
+            <span class="outcome" style="color:#ffffff">Short</span>
+            <span class="bucket-pill" style="background:#ff9500">Push</span>
+          </div>
+          <div class="metrics">
+            <div class="metric">
+              <div class="label">DISTANCE</div>
+              <div class="primary" style="color:#4cd964">0.92 m</div>
+              <div class="secondary">3.0 ft · short</div>
+            </div>
+            <div class="metric">
+              <div class="label">FACE</div>
+              <div class="primary" style="color:#ff9500">+14.7°</div>
+              <div class="secondary">push</div>
+            </div>
+            <div class="metric">
+              <div class="label">PEAK VEL</div>
+              <div class="primary">1.06 m/s</div>
+              <div class="secondary">2.37 mph</div>
+            </div>
+          </div>
+          <div class="cause">Face open at impact — ball goes right of the line.</div>
+          <div class="actions">
+            <span class="btn btn-secondary">↺ Reset all</span>
+            <span class="btn btn-primary">⛳ Putt again</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="scene-caption">3. <b>Short</b> + push — only 0.92 m and 14.7° open. Face orange (push bucket), outcome white (not red — wasn't a long).</div>
+  </div>
+
+</div>
+
+</body>
+</html>
