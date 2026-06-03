@@ -164,7 +164,20 @@ struct ARPlacementView: View {
     @State private var motionManager = MotionManager()
     @State private var motionStreamTask: Task<Void, Never>? = nil
     @State private var latestMotionSample: MotionSample? = nil
-    @State private var liveImpactDetector = LiveImpactDetector()
+    /// B57: lowered `armThreshold` from default 1.7 → 1.0 rad/s.
+    /// James reported haptic was "slow and late" on B56. The default
+    /// was tuned against the OLD pose (single-hand vertical phone)
+    /// where peak |ω| was 2.1-3.1 rad/s. The new pose (both hands,
+    /// tilted phone) has a different swing-axis distribution and
+    /// likely a lower peak |ω|, so the detector wasn't arming and
+    /// the only haptic feedback was the late `UINotificationFeedback`
+    /// at window close. Lower threshold = arms earlier = haptic
+    /// fires at the actual peak.
+    @State private var liveImpactDetector = LiveImpactDetector(
+        armThreshold: 1.0,
+        disarmThreshold: 0.6,
+        minFireDelayFromTouchDownSeconds: 0.4
+    )
     @State private var impactDetector = ImpactDetector()
 
     /// Per-press accumulators. Mirror v0.2.0's PracticeSessionViewModel
@@ -197,15 +210,24 @@ struct ARPlacementView: View {
     @State private var ballRollAnimator: BallRollAnimator? = nil
 
     /// B56 — per-user hand-velocity → ball-launch-velocity multiplier.
-    /// Hardcoded default derived from simulating the 284-stroke
-    /// historical dataset: mean hand peak velocity is 0.151 m/s, ball
-    /// launch needs ~1.91 m/s to deliver a 3m putt at Stimp 10, so
-    /// factor = 1.91 / (0.151 × 0.9 × sqrt(0.95)) ≈ 14.4.
-    ///
-    /// Was hardcoded to 1.0 in B51-B55 which is the reason the ball
-    /// only rolled ~1cm in B54 testing. Will be replaced by a loaded
-    /// CalibrationProfile.speedToDistanceFactor in B57.
+    /// Default derived from simulating the 284-stroke historical
+    /// dataset (mean hand peak 0.151 m/s → 1.91 m/s for 3m putt).
+    /// B57: now overridable by a loaded `CalibrationProfile` (see
+    /// `calibrationProfile` @State below).
     private static let defaultSpeedCalibration: Double = 14.4
+
+    /// B57 — loaded calibration profile (if any). Sourced from the
+    /// shared `ProfileStore` (UserDefaults). Used to:
+    /// - subtract per-user `faceAngleBiasRad` from every measured
+    ///   face angle (the -9° offset James reported on PracticeSessionView
+    ///   was the bias being computed but NEVER subtracted; the
+    ///   workflow agent confirmed `CalibrationModel.applyBias()` is
+    ///   defined but had zero callers in production)
+    /// - eventually (B58+) override `defaultSpeedCalibration` with
+    ///   the per-user `speedToDistanceFactor`
+    @State private var calibrationProfile: CalibrationProfile? = {
+        return try? ProfileStore().load()
+    }()
 
     /// B51 — press-and-unpress gesture state. True from the
     /// instant the user presses on the AR view at `.complete`
@@ -279,6 +301,15 @@ struct ARPlacementView: View {
 
             VStack {
                 topBar
+                // B57.2 — ALWAYS-visible export row. Save/Send-this/
+                // Send-all/Record live inside `eventLog`, which is
+                // hidden when `hudCompact == true`. Auto-recording
+                // sets hudCompact on session start, so the buttons
+                // were effectively unreachable in normal use (James:
+                // "the buttons are in the way that I cant extract the
+                // data"). This compact row renders them independently
+                // of HUD state, anchored just below the topBar.
+                exportButtonRow
                 Spacer()
                 // In compact mode only the bare-essentials chrome
                 // remains visible: a tiny tracking pill, the place
@@ -956,6 +987,82 @@ struct ARPlacementView: View {
                 .accessibilityIdentifier("ar.titleBadge")
         }
         .padding(.top, 12)
+    }
+
+    /// B57.2 — slim always-visible row of Record / Save / Send-this /
+    /// Send-all. Mirrors the same actions that live deeper inside
+    /// `eventLog` but stays accessible even when `hudCompact == true`
+    /// (auto-on during recording, which is every session by default).
+    /// Sized for a thumb-tap target on the iPhone XR/13 series while
+    /// staying out of the main AR scene.
+    private var exportButtonRow: some View {
+        HStack(spacing: 6) {
+            Button { toggleRecording() } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: isRecording ? "stop.circle.fill" : "record.circle")
+                    Text(isRecording ? "Stop" : "Rec")
+                }
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background((isRecording ? Color.red : Color.red.opacity(0.6)),
+                             in: Capsule())
+            }
+            .accessibilityIdentifier("ar.recordButtonAlwaysVisible")
+            Button {
+                logger.log(.note, "Snapshot saved manually (export row)")
+                logger.saveSnapshot()
+            } label: {
+                Text("Save")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(.green.opacity(0.7), in: Capsule())
+            }
+            .accessibilityIdentifier("ar.saveButtonAlwaysVisible")
+            Button {
+                logger.log(.note, "Send-this-only requested (export row)")
+                Task {
+                    if isRecording { await stopRecordingAsync() }
+                    await logger.saveSnapshotAndWait()
+                    let urls = collectCurrentSessionURLs()
+                    sendPreflight = buildPreflight(scope: .thisOnly, urls: urls)
+                    shareSheetURLs = urls
+                    showSendPreflight = true
+                }
+            } label: {
+                Text("Send this")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(.blue.opacity(0.9), in: Capsule())
+            }
+            .accessibilityIdentifier("ar.sendThisButtonAlwaysVisible")
+            Button {
+                logger.log(.note, "Send-all requested (export row)")
+                Task {
+                    if isRecording { await stopRecordingAsync() }
+                    await logger.saveSnapshotAndWait()
+                    let urls = await ARLogExport.collectAllLogURLs()
+                    sendPreflight = buildPreflight(scope: .all, urls: urls)
+                    shareSheetURLs = urls
+                    showSendPreflight = true
+                }
+            } label: {
+                Text("Send all")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(.indigo.opacity(0.9), in: Capsule())
+            }
+            .accessibilityIdentifier("ar.sendAllButtonAlwaysVisible")
+            Spacer()
+        }
+        .padding(.top, 4)
     }
 
     /// Minimal status pill shown ONLY in compact mode. Replaces the
@@ -1946,13 +2053,38 @@ struct ARPlacementView: View {
     private func handleStrokeCompleted(ball: SIMD3<Float>,
                                          hole: SIMD3<Float>,
                                          pose: AddressPose,
-                                         impact: ImpactResult,
+                                         impact rawImpact: ImpactResult,
                                          window: StrokeWindow) {
+        // B57.1 — apply per-user calibration bias to the face angle at
+        // source. CalibrationModel.applyBias() existed since the early
+        // builds but was never called in production (workflow audit
+        // confirmed: zero callers outside the unit test). This caused
+        // James's measured -9° stroke bias to flow uncorrected into
+        // JSON, BallPhysics, and the result chip.
+        let impact: ImpactResult = {
+            guard let profile = calibrationProfile else { return rawImpact }
+            let correctedAngle = CalibrationModel.applyBias(
+                rawImpact.faceAngleRaw, profile: profile)
+            return ImpactResult(
+                timestamp: rawImpact.timestamp,
+                peakVelocity: rawImpact.peakVelocity,
+                faceAngleRaw: correctedAngle,
+                attitudeAtImpact: rawImpact.attitudeAtImpact,
+                confidence: rawImpact.confidence,
+                snappedToSquare: rawImpact.snappedToSquare,
+                snapReason: rawImpact.snapReason
+            )
+        }()
+        let biasAppliedDeg = (impact.faceAngleRaw - rawImpact.faceAngleRaw)
+            * 180.0 / .pi
         logger.log(.peakImpact, "Peak impact computed",
                    payload: [
                        "timestamp": String(format: "%.4f", impact.timestamp),
                        "velocity_mps": String(format: "%.4f", impact.peakVelocity),
                        "face_angle_deg": String(format: "%.2f", impact.faceAngleDegrees),
+                       "face_angle_raw_deg": String(format: "%.2f", rawImpact.faceAngleDegrees),
+                       "bias_applied_deg": String(format: "%.2f", biasAppliedDeg),
+                       "calibrated": calibrationProfile == nil ? "false" : "true",
                        "confidence": String(format: "%.3f", impact.confidence),
                        "snapped_to_square": impact.snappedToSquare ? "true" : "false",
                        "snap_reason": impact.snapReason?.rawValue ?? "",
@@ -1986,10 +2118,15 @@ struct ARPlacementView: View {
     /// users with shaky hands. Reads `latestMotionSample` which the
     /// long-lived motion stream updates continuously.
     private func waitForCameraStillness(onSteady: @escaping () -> Void) {
+        // B57: tightened thresholds — James reported "rather slow
+        // before [the ball] started" on B56. Was 0.5 rad/s steady
+        // for 300ms with 2.5s timeout. Now 1.0 rad/s for 100ms with
+        // 1.0s timeout — ball starts rolling near-instantly while
+        // still giving the user enough beat to look at the cup.
         let startedAt = Date()
-        let steadyMagnitude: Double = 0.5
-        let requiredSteadyS: TimeInterval = 0.3
-        let timeoutS: TimeInterval = 2.5
+        let steadyMagnitude: Double = 1.0
+        let requiredSteadyS: TimeInterval = 0.1
+        let timeoutS: TimeInterval = 1.0
         var steadyStreakStartedAt: Date? = nil
         Task { @MainActor in
             while true {
@@ -2925,23 +3062,25 @@ final class ARPlacementScene {
         // Perpendicular in the floor plane (rotate 90° about Y).
         let perp = SIMD3<Float>(-aim.z, 0, aim.x)
 
-        // Marker geometry — 24 cm long × 10 cm wide. B55: raise the
-        // markers to 1 cm above the floor (was 1 mm) so the LiDAR
-        // mesh occlusion doesn't hide them. Switch to UnlitMaterial
-        // for the colour — Gemini B54 confirmed markers weren't
-        // visible, and the root cause was PBR alpha not blending
-        // correctly. UnlitMaterial honours transparency cleanly.
+        // Marker geometry — 24 cm long × 10 cm wide.
+        // B57: Y raised to 5cm (was 1cm in B55) — James reported
+        // markers STILL invisible on B56. Root cause likely the
+        // LiDAR mesh occlusion plane sits 3-5cm above floor due to
+        // scan accuracy, so 1cm markers were hidden under it.
+        // 5cm sits clearly above the worst-case LiDAR mesh anchor.
+        // Switched to FULLY OPAQUE UnlitMaterial — the previous
+        // 0.78-alpha transparent rendering also didn't blend well
+        // with the camera-feed grey carpet.
         let footLen: Float = 0.24
         let footWid: Float = 0.10
         let footMesh = MeshResource.generatePlane(width: footLen,
                                                    depth: footWid,
                                                    cornerRadius: 0.02)
 
-        var footMaterial = UnlitMaterial(color: UIColor(red: 1.0,
+        let footMaterial = UnlitMaterial(color: UIColor(red: 1.0,
                                                           green: 0.92,
                                                           blue: 0.20,
-                                                          alpha: 0.78))
-        footMaterial.blending = .transparent(opacity: .init(floatLiteral: 0.78))
+                                                          alpha: 1.0))
 
         // Stance position: 60 cm behind the ball along -aim. Foot
         // markers spread 26 cm apart sideways via ±perp.
@@ -2957,13 +3096,13 @@ final class ARPlacementScene {
 
         let leftFoot = ModelEntity(mesh: footMesh, materials: [footMaterial])
         leftFoot.position = stanceCenter - footOffset
-        leftFoot.position.y = 0.01
+        leftFoot.position.y = 0.05
         leftFoot.orientation = footRot
         anchor.addChild(leftFoot)
 
         let rightFoot = ModelEntity(mesh: footMesh, materials: [footMaterial])
         rightFoot.position = stanceCenter + footOffset
-        rightFoot.position.y = 0.01
+        rightFoot.position.y = 0.05
         rightFoot.orientation = footRot
         anchor.addChild(rightFoot)
 
@@ -3563,14 +3702,19 @@ private struct ARPlacementSceneRepresentable: UIViewRepresentable {
                 // flicker an empty state).
                 return
             }
-            // B53 — drop overlay opacity from 35% to 22%. Lower
-            // opacity hides the mesh-edge jitter that's intrinsic to
-            // ARKit's tessellation. Still readable as "there's a
-            // mesh here" but no longer attention-grabbing.
-            let overlayColor = UIColor(red: 0.20, green: 0.95,
-                                        blue: 0.40, alpha: 0.22)
+            // B57 — switched green→blue + opacity 22%→42% per James's
+            // 2026-06-03 feedback "the mapped area needs to be more
+            // clear what mapped and what isnt". Bright blue contrasts
+            // with the typical real-world floor (carpet, wood, tile)
+            // far better than the previous translucent green, which
+            // washed out against grass-like or grey surfaces. The
+            // 2Hz rebuild throttle (B53) still suppresses the
+            // edge-jitter from ARKit re-tessellation; we no longer
+            // need 22% opacity to hide it.
+            let overlayColor = UIColor(red: 0.20, green: 0.60,
+                                        blue: 1.0, alpha: 0.42)
             var material = UnlitMaterial(color: overlayColor)
-            material.blending = .transparent(opacity: .init(floatLiteral: 0.22))
+            material.blending = .transparent(opacity: .init(floatLiteral: 0.42))
 
             if let entity = meshOverlayEntity {
                 entity.model?.mesh = resource
