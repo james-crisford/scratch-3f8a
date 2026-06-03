@@ -44,6 +44,17 @@ struct ARPlacementView: View {
         // the .complete tuple cleanly.
         case replacingBall(hole: SIMD3<Float>)
         case replacingHole(ball: SIMD3<Float>)
+        // Stage 3 Slice 3.2 / B47 — address calibration. User
+        // tapped "Set address"; we're waiting for the
+        // StillnessDetector to fire while the user holds the
+        // address pose.
+        case calibratingAddress(ball: SIMD3<Float>, hole: SIMD3<Float>)
+        // Stage 3 Slice 3.2 / B47 — address captured. Phone-icon
+        // hologram is rendered at the captured pose. From here
+        // Slice 3.3 / B48 will wire stroke detection.
+        case addressReady(ball: SIMD3<Float>,
+                          hole: SIMD3<Float>,
+                          pose: AddressPose)
     }
 
     /// Pre-share confirmation summary. Built by scanning
@@ -131,6 +142,11 @@ struct ARPlacementView: View {
     /// B45 — once-per-session flag so the "scan more of the floor"
     /// transient hint doesn't re-fire every 0.5 s tick.
     @State private var scanMoreHintShown: Bool = false
+    /// B47 Slice 3.2 — one-shot address capture controller. Lives
+    /// for the lifetime of the View; recreated on demand each
+    /// time the user taps "Set address" so the underlying
+    /// MotionManager + StillnessDetector get fresh state.
+    @State private var addressCapture: AddressPoseCapture? = nil
 
     /// The scene-graph "controller" we expose to the UIViewRepresentable.
     /// Lives as a single instance bound to the view so tap callbacks +
@@ -645,7 +661,8 @@ struct ARPlacementView: View {
     private func resetAfterInterruption() {
         let hadPlacedEntities: Bool
         switch placementState {
-        case .readyToPlaceHole, .complete, .replacingBall, .replacingHole:
+        case .readyToPlaceHole, .complete, .replacingBall, .replacingHole,
+             .calibratingAddress, .addressReady:
             hadPlacedEntities = true
         case .waitingForPlane, .readyToPlaceBall:
             hadPlacedEntities = false
@@ -978,6 +995,9 @@ struct ARPlacementView: View {
         // B42: the Move-ball / Move-hole flows are placement-active
         // (user is aiming at the new spot), so full visibility.
         case .replacingBall, .replacingHole: return 0.95
+        // B47: address-calibration states — crosshair isn't being
+        // used (no placement happening), dim it out.
+        case .calibratingAddress, .addressReady: return 0.15
         case .complete:         return 0.35
         }
     }
@@ -1020,7 +1040,10 @@ struct ARPlacementView: View {
                             id: "ar.replaceHoleButton") {
                 placeAtCenter()
             }
-        case .waitingForPlane, .complete:
+        case .waitingForPlane, .complete, .calibratingAddress, .addressReady:
+            // B47 address states don't use the crosshair Place
+            // button — calibration is driven by the
+            // address-action row instead.
             EmptyView()
         }
     }
@@ -1137,7 +1160,8 @@ struct ARPlacementView: View {
                                  "ball_z": String(format: "%.4f", preservedBall.z)])
             placementState = .complete(ball: preservedBall, hole: world)
             scene.placeAddressMarkers(ball: preservedBall, hole: world)
-        case .complete:
+        case .complete, .calibratingAddress, .addressReady:
+            // No placement action during address-flow states.
             break
         }
     }
@@ -1289,6 +1313,61 @@ struct ARPlacementView: View {
                         .foregroundStyle(.black)
                 }
                 .accessibilityIdentifier("ar.moveHoleButton")
+                // B47 Slice 3.2 — primary "Set address" CTA.
+                // Tapping starts the address-pose capture flow.
+                Button {
+                    startAddressCapture(ball: ball, hole: hole)
+                } label: {
+                    Label("Set address", systemImage: "figure.golf")
+                        .font(.callout.weight(.bold))
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
+                        .background(.green.opacity(0.95), in: Capsule())
+                        .foregroundStyle(.white)
+                }
+                .accessibilityIdentifier("ar.setAddressButton")
+            case .calibratingAddress(let ball, let hole):
+                // B47 — single Cancel during capture. Tearing down
+                // motion stream + reverting to .complete is the
+                // user's escape hatch if they don't want to capture.
+                Button {
+                    cancelAddressCapture()
+                    placementState = .complete(ball: ball, hole: hole)
+                    logger.log(.note, "Address capture cancelled by user")
+                } label: {
+                    Label("Cancel", systemImage: "xmark")
+                        .font(.callout.weight(.semibold))
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
+                        .background(.black.opacity(0.55), in: Capsule())
+                        .foregroundStyle(.white)
+                }
+                .accessibilityIdentifier("ar.cancelAddressCapture")
+            case .addressReady(let ball, let hole, _):
+                // B47 — at .addressReady, user can either re-do
+                // the capture or reset entirely. B48 will add the
+                // stroke-detection start affordance.
+                Button { reset() } label: {
+                    Label("Reset", systemImage: "arrow.counterclockwise")
+                        .font(.callout.weight(.semibold))
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 10)
+                        .background(.black.opacity(0.55), in: Capsule())
+                        .foregroundStyle(.white)
+                }
+                .accessibilityIdentifier("ar.resetButton")
+                Button {
+                    scene.clearAddressHologram()
+                    startAddressCapture(ball: ball, hole: hole)
+                } label: {
+                    Label("Re-calibrate", systemImage: "arrow.clockwise")
+                        .font(.callout.weight(.semibold))
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 10)
+                        .background(.white.opacity(0.85), in: Capsule())
+                        .foregroundStyle(.black)
+                }
+                .accessibilityIdentifier("ar.recalibrateAddress")
             case .replacingBall(let preservedHole):
                 // B42: Cancel returns to .complete with the cached
                 // ball/hole pair. Restore the ball entity by calling
@@ -1373,37 +1452,115 @@ struct ARPlacementView: View {
         case .waitingForPlane:  return "Scanning for floor"
         case .readyToPlaceBall: return "Tap to place ball"
         case .readyToPlaceHole: return "Tap to place hole"
-        case .complete:         return "Placement complete"
+        case .complete:         return "Stand on the markers"
         case .replacingBall:    return "Re-place ball"
         case .replacingHole:    return "Re-place hole"
+        // B47 Slice 3.2 — address calibration states.
+        case .calibratingAddress: return "Hold still…"
+        case .addressReady:       return "Ready to putt"
         }
     }
 
     private var instructionText: String {
         switch placementState {
         case .waitingForPlane:
-            return "Slowly move your phone so the camera sees the floor / table. A horizontal plane should appear within a few seconds."
+            return "Slowly pan the phone — the green floor will appear"
         case .readyToPlaceBall:
-            return "Tap a spot on the floor where you'd address the ball."
+            return "Tap where you'll address the ball"
         case .readyToPlaceHole:
-            return "Tap another spot where the hole should be. Aim line will appear."
+            return "Tap where the hole goes"
         case .complete:
-            // B46 Slice 3.1: yellow foot markers show stance.
-            // Slice 3.2 will add "Set address" affordance; for now
-            // we just point out the stance markers.
-            return "Stand on the yellow markers — putting setup ready"
+            return "Tap Set address when you're ready"
         case .replacingBall:
-            return "Aim the crosshair at the new ball spot. Hole stays put."
+            return "Aim the crosshair at the new ball spot"
         case .replacingHole:
-            return "Aim the crosshair at the new hole spot. Ball + aim line will refresh."
+            return "Aim the crosshair at the new hole spot"
+        // B47 — short clear instructions ≤ 8 words each per the
+        // Stage 3 UX clause #7.
+        case .calibratingAddress:
+            return "Stay still — capturing your address pose"
+        case .addressReady:
+            return "Make your putting motion (B48 wires detection)"
         }
     }
 
     private func reset() {
         logger.log(.reset, "user tapped Start over / Reset")
+        cancelAddressCapture()
         scene.clearPlacedEntities()
         let hasSurface = planeCount > 0 || scene.meshAnchorCount() > 0
         placementState = hasSurface ? .readyToPlaceBall : .waitingForPlane
+    }
+
+    /// B47 Slice 3.2 — kick off the address-pose capture flow.
+    /// Transitions to `.calibratingAddress`, starts a fresh
+    /// `AddressPoseCapture` runner, and waits for the existing
+    /// StillnessDetector to fire a lock. On capture, transitions
+    /// to `.addressReady(ball, hole, pose)` and renders the phone-
+    /// icon hologram at the captured position.
+    private func startAddressCapture(ball: SIMD3<Float>, hole: SIMD3<Float>) {
+        guard let arView = scene.arView else { return }
+        // Tear down any prior capture (e.g. user tapped
+        // Re-calibrate from .addressReady) before starting fresh.
+        addressCapture?.stop()
+        let capture = AddressPoseCapture()
+        addressCapture = capture
+        placementState = .calibratingAddress(ball: ball, hole: hole)
+        logger.log(.note, "Address capture started",
+                   payload: ["ball_x": String(format: "%.4f", ball.x),
+                             "ball_y": String(format: "%.4f", ball.y),
+                             "ball_z": String(format: "%.4f", ball.z)])
+        // Light haptic so the user feels the capture begin even
+        // if they're focused on holding still.
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        capture.start(session: arView.session,
+                       ballWorld: ball,
+                       onCapture: { pose in
+            handleAddressCaptured(ball: ball, hole: hole, pose: pose)
+        }, onFailure: { msg in
+            logger.log(.failed, "Address capture failed: \(msg)")
+            showTransientHint("Couldn't capture address — try again")
+            placementState = .complete(ball: ball, hole: hole)
+            addressCapture?.stop()
+            addressCapture = nil
+        })
+    }
+
+    /// Cancel any in-flight address capture. Called from the
+    /// Cancel button + reset paths.
+    private func cancelAddressCapture() {
+        addressCapture?.stop()
+        addressCapture = nil
+        scene.clearAddressHologram()
+    }
+
+    /// Address-pose lock fired — log it, render the phone-icon
+    /// hologram, advance the state machine.
+    private func handleAddressCaptured(ball: SIMD3<Float>,
+                                        hole: SIMD3<Float>,
+                                        pose: AddressPose) {
+        let euler = pose.eulerYPR
+        logger.log(.addressCalibrated,
+                   "Address pose captured",
+                   payload: [
+                       "phone_x": String(format: "%.4f", pose.phoneWorldPosition.x),
+                       "phone_y": String(format: "%.4f", pose.phoneWorldPosition.y),
+                       "phone_z": String(format: "%.4f", pose.phoneWorldPosition.z),
+                       "phone_to_ball_m": String(format: "%.4f", pose.phoneToBallM),
+                       "compass_yaw_rad": String(format: "%.4f", pose.compassYaw),
+                       "gravity_x": String(format: "%.4f", pose.gravity.x),
+                       "gravity_y": String(format: "%.4f", pose.gravity.y),
+                       "gravity_z": String(format: "%.4f", pose.gravity.z),
+                       "euler_yaw_deg": String(format: "%.2f", euler.yaw * 180 / .pi),
+                       "euler_pitch_deg": String(format: "%.2f", euler.pitch * 180 / .pi),
+                       "euler_roll_deg": String(format: "%.2f", euler.roll * 180 / .pi),
+                       "locked_at": String(format: "%.4f", pose.lockedAt),
+                   ])
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
+        scene.placeAddressHologram(at: pose)
+        addressCapture?.stop()
+        addressCapture = nil
+        placementState = .addressReady(ball: ball, hole: hole, pose: pose)
     }
 }
 
@@ -1437,6 +1594,9 @@ final class ARPlacementScene {
     /// putt. Hidden when stroke begins (B48 hides via setIsActive
     /// on the underlying entities).
     private var addressMarkersAnchor: AnchorEntity?
+    /// B47 Slice 3.2 — phone-icon hologram rendered at the captured
+    /// address pose so the user can SEE what was captured.
+    private var addressHologramAnchor: AnchorEntity?
     /// Cached world-frame position of the placed ball. The ball's
     /// AnchorEntity sits at this position, but reading
     /// `ballAnchor.position(relativeTo: nil)` is fragile if the entity
@@ -2000,6 +2160,7 @@ final class ARPlacementScene {
         lineAnchor = nil
         ballWorldPosition = nil
         clearAddressMarkers()
+        clearAddressHologram()
     }
 
     /// B46 (Slice 3.1) — drop the address-pose foot markers.
@@ -2101,6 +2262,51 @@ final class ARPlacementScene {
     /// stroke without tearing them down.
     func setAddressMarkersVisible(_ visible: Bool) {
         addressMarkersAnchor?.isEnabled = visible
+    }
+
+    /// B47 Slice 3.2 — render a small phone-icon hologram at the
+    /// captured address pose. Uses a thin matte box approximating
+    /// an iPhone (15 cm tall × 7.5 cm wide × 0.8 cm thick) with a
+    /// `PhysicallyBasedMaterial` so it shades correctly under the
+    /// B45 environment-probe lighting. The hologram inherits the
+    /// captured world transform — so it points the same way the
+    /// user's phone pointed at lock time.
+    func placeAddressHologram(at pose: AddressPose) {
+        guard let arView else { return }
+        clearAddressHologram()
+
+        // iPhone proportions — keep small enough that it reads as
+        // a marker, not as the real device.
+        let phoneMesh = MeshResource.generateBox(width: 0.075,
+                                                  height: 0.150,
+                                                  depth: 0.008,
+                                                  cornerRadius: 0.012)
+        var phoneMaterial = PhysicallyBasedMaterial()
+        phoneMaterial.baseColor = .init(tint: UIColor(red: 0.20,
+                                                       green: 0.85,
+                                                       blue: 0.45,
+                                                       alpha: 0.85))
+        phoneMaterial.roughness = .init(floatLiteral: 0.35)
+        phoneMaterial.metallic = .init(floatLiteral: 0.0)
+        phoneMaterial.blending = .transparent(opacity: .init(floatLiteral: 0.85))
+
+        let phone = ModelEntity(mesh: phoneMesh, materials: [phoneMaterial])
+
+        // Apply the captured transform directly so the hologram
+        // shows the exact pose the IMU saw. Helps the user verify
+        // visually whether the capture matched their stance.
+        let anchor = AnchorEntity(world: .zero)
+        anchor.transform.matrix = pose.phoneWorldTransform
+        anchor.addChild(phone)
+        arView.scene.addAnchor(anchor)
+        addressHologramAnchor = anchor
+    }
+
+    /// B47 — tear down the phone-icon hologram (Re-calibrate, Reset,
+    /// or returning to .complete after Cancel).
+    func clearAddressHologram() {
+        addressHologramAnchor?.removeFromParent()
+        addressHologramAnchor = nil
     }
 
     /// B42: drop ONLY the ball entity (Move-ball UX). Leaves the
@@ -2950,8 +3156,11 @@ private struct ARPlacementSceneRepresentable: UIViewRepresentable {
                     _placementState.wrappedValue = .complete(ball: preservedBall, hole: world)
                     scene.placeAddressMarkers(ball: preservedBall, hole: world)
                     lastPlacementAt = Date()
-                case .complete:
-                    logger.log(.note, "tap ignored — placement complete")
+                case .complete, .calibratingAddress, .addressReady:
+                    // B47: tap is ignored once placement is done.
+                    // The address-flow states are driven by the
+                    // explicit buttons / IMU stillness, not taps.
+                    logger.log(.note, "tap ignored — placement complete or in address flow")
                 }
             }
         }

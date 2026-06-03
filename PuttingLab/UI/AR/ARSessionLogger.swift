@@ -191,6 +191,12 @@ final class ARSessionLogger {
             case meshUpdated
             case meshRemoved
             case meshStats
+            // Stage 3 — stroke / putt lifecycle
+            case addressCalibrated   // B47 — phone IMU pose at address captured
+            case strokeStarted        // B48 — motion-stream start triggered by GO
+            case peakImpact           // B48 — peak velocity / face angle frame
+            case strokeEnded          // B48 — motion below threshold for N samples
+            case strokeResult         // B50 — Mario Kart bucket + outcome
         }
     }
 }
