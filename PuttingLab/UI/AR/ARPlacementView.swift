@@ -188,6 +188,16 @@ struct ARPlacementView: View {
     @State private var recordingLock: StillnessLock? = nil
     @State private var pressBeganAt: TimeInterval = 0
     @State private var liveHapticFireCount: Int = 0
+    /// B62 — baseline ARKit camera yaw captured at touchDown from
+    /// the first ARFrame in the recording. Used by
+    /// `ImpactDetector.detect(arkitBaselineYaw:)` to fuse ARKit's
+    /// gravity-aligned yaw with the IMU's compass yaw for a more
+    /// magnetometer-resilient face-angle measurement. Workflow audit
+    /// (b62-comprehensive-diagnostic) flagged that the prior code
+    /// passed `nil` here — meaning the ARKit fusion path was dead
+    /// code and every stroke fell back to compass yaw alone (worse
+    /// near steel rebar / AirPods / MagSafe / fluorescents).
+    @State private var recordingArkitBaseline: Double? = nil
 
     /// B55 / P1.4 — retained haptic generators. Per Apple docs,
     /// `UI{Impact,Notification}FeedbackGenerator` instances need to be
@@ -514,6 +524,22 @@ struct ARPlacementView: View {
             startMotionStream()
             pressHaptic.prepare()
             impactHaptic.prepare()
+            // B62 — reload calibration profile every time AR view appears.
+            // SwiftUI @State initialisers run ONCE at view instantiation, so
+            // if the user opened AR mode before running their 5-stroke
+            // calibration in PracticeSessionView, the @State default of nil
+            // would persist for the WHOLE session even after the cal flow
+            // saved a profile to ProfileStore. Workflow audit
+            // b62-comprehensive-diagnostic flagged this as the #1 reason
+            // the calibration loop appeared to silently no-op.
+            calibrationProfile = try? ProfileStore().load()
+            if calibrationProfile != nil {
+                logger.log(.note, "Calibration profile loaded at onAppear",
+                           payload: ["bias_rad": String(format: "%.4f", calibrationProfile?.faceAngleBiasRad ?? 0),
+                                     "speed_factor": String(format: "%.3f", calibrationProfile?.speedToDistanceFactor ?? 0)])
+            } else {
+                logger.log(.note, "No calibration profile saved yet — using defaults")
+            }
             // CI / XCUITest hook: simulator never detects a plane, so
             // the Place buttons would otherwise be unreachable. The
             // -uiTestMode launch argument fakes the readyToPlaceBall
@@ -1907,10 +1933,11 @@ struct ARPlacementView: View {
         samplesDuringRecording.append(sample)
         if let arView = scene.arView,
            let frame = arView.session.currentFrame {
+            // B62 — real tracking state, not hardcoded .normal.
             let arPose = ARPose(
                 timestamp: frame.timestamp,
                 transform: frame.camera.transform,
-                trackingState: .normal
+                trackingState: ARTrackingState(frame.camera.trackingState)
             )
             posesDuringRecording.append(arPose)
         }
@@ -1947,14 +1974,25 @@ struct ARPlacementView: View {
         recordingLock = lock
         samplesDuringRecording = [latest]
         posesDuringRecording = []
+        recordingArkitBaseline = nil
         if let arView = scene.arView,
            let frame = arView.session.currentFrame {
+            // B62 — capture real ARKit tracking state (was hardcoded
+            // .normal). Lets FaceAngleComputer see degraded frames and
+            // apply confidence penalties / fallback origins properly.
+            let trackingState = ARTrackingState(frame.camera.trackingState)
             let arPose = ARPose(
                 timestamp: frame.timestamp,
                 transform: frame.camera.transform,
-                trackingState: .normal
+                trackingState: trackingState
             )
             posesDuringRecording.append(arPose)
+            // B62 — compute the baseline ARKit yaw at touchDown from
+            // the first ARFrame's camera transform. Passed to
+            // ImpactDetector.detect(arkitBaselineYaw:) so the ARKit
+            // fusion path (FaceAngleComputer line 32) actually fires
+            // instead of dead-falling back to compass-only yaw.
+            recordingArkitBaseline = ARTrackingManager.yaw(from: frame.camera.transform)
         }
         liveImpactDetector.reset()
         liveHapticFireCount = 0
@@ -2018,7 +2056,10 @@ struct ARPlacementView: View {
             let result = try impactDetector.detect(
                 in: window,
                 arkitPoses: posesDuringRecording,
-                arkitBaselineYaw: nil
+                // B62 — wire the ARKit baseline yaw captured at touchDown
+                // so the FaceAngleComputer's ARKit fusion path (line 32)
+                // actually fires instead of dead-falling to compass yaw.
+                arkitBaselineYaw: recordingArkitBaseline
             )
             // Build an AddressPose for downstream consumers (e.g. the
             // roll animator + result panel). v0.2.0 didn't need one
@@ -3110,13 +3151,13 @@ final class ARPlacementScene {
 
         let leftFoot = ModelEntity(mesh: footMesh, materials: [footMaterial])
         leftFoot.position = stanceCenter - footOffset
-        leftFoot.position.y = 0.05
+        leftFoot.position.y = 0.08
         leftFoot.orientation = footRot
         anchor.addChild(leftFoot)
 
         let rightFoot = ModelEntity(mesh: footMesh, materials: [footMaterial])
         rightFoot.position = stanceCenter + footOffset
-        rightFoot.position.y = 0.05
+        rightFoot.position.y = 0.08
         rightFoot.orientation = footRot
         anchor.addChild(rightFoot)
 
