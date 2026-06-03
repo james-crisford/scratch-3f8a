@@ -1640,49 +1640,26 @@ struct ARPlacementView: View {
         }
     }
 
-    /// B53 — top result chip. Bucket-led copy: bucket emoji + word,
-    /// distance, face angle. Tap to expand the full result panel.
-    /// Colour tints by outcome: drained=green, lipped=orange,
-    /// other=white.
+    /// B54 — top result chip. Per James's 2026-06-03 feedback the
+    /// chip no longer shows outcome data inline. It's a simple
+    /// prompt: tap to open the full StrokeResultPanel. The user has
+    /// already physically observed the result via the AR scene; the
+    /// chip just asks "do you want to see the stats?".
     private func resultChip(impact: ImpactResult,
                              outcome: BallPhysics.Outcome) -> some View {
-        let outcomeText: String = {
-            switch outcome {
-            case .captured: return "Drained"
-            case .lipOut:   return "Lipped out"
-            case .stopped:  return "Stopped"
-            case .rejected: return "Too soft"
-            }
-        }()
-        let outcomeTint: Color = {
-            switch outcome {
-            case .captured: return Color.green
-            case .lipOut:   return Color.orange
-            case .stopped:  return Color.white
-            case .rejected: return Color.gray
-            }
-        }()
-        let direction = Self.marioKart.bucket(from: impact)
-        let bucketText = direction.label
+        _ = impact
+        _ = outcome
         return HStack(spacing: 8) {
-            Text(outcomeText)
-                .font(.callout.weight(.bold))
-                .foregroundStyle(outcomeTint)
-            Text("·")
-                .foregroundStyle(.white.opacity(0.45))
-            Text(bucketText)
+            Image(systemName: "chart.bar.xaxis")
                 .font(.callout.weight(.semibold))
-                .foregroundStyle(.white.opacity(0.9))
-            Text("·")
-                .foregroundStyle(.white.opacity(0.45))
-            Text(String(format: "%.0f°", abs(impact.faceAngleDegrees)))
-                .font(.callout.weight(.regular))
-                .foregroundStyle(.white.opacity(0.7))
-                .monospacedDigit()
+                .foregroundStyle(.white.opacity(0.85))
+            Text("View result")
+                .font(.callout.weight(.semibold))
+                .foregroundStyle(.white)
             Image(systemName: "chevron.up")
                 .font(.caption2.weight(.semibold))
                 .foregroundStyle(.white.opacity(0.55))
-                .padding(.leading, 4)
+                .padding(.leading, 2)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 9)
@@ -1882,9 +1859,9 @@ struct ARPlacementView: View {
                              "window_end": String(format: "%.4f", window.end),
                              "window_duration_s": String(format: "%.4f", window.duration)])
         UINotificationFeedbackGenerator().notificationOccurred(.success)
-        showTransientHint(String(format: "Stroke: %.2f m/s · face %.1f°",
-                                  impact.peakVelocity,
-                                  impact.faceAngleDegrees))
+        // B54 — no impact-time stat hint. User physically observes
+        // the roll first; stats come later via the opt-in "View
+        // result" chip after ball comes to rest.
         cancelStrokeCapture()
         // B49 — transition to .rolling and start the roll animator.
         startRoll(ball: ball, hole: hole, pose: pose, impact: impact)
