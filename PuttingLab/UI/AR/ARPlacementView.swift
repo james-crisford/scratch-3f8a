@@ -160,6 +160,15 @@ struct ARPlacementView: View {
     /// swung" (cancel) from "user pressed and swung" (let detector
     /// close naturally).
     @State private var strokeInFlight: Bool = false
+    /// B53 — result chip visibility. False during the 500ms quiet
+    /// window after .rolled so the user gets an unobstructed AR
+    /// view of where the ball ended up, then fades in.
+    @State private var resultChipVisible: Bool = false
+    /// B53 — true when the user has tapped the chip to expand the
+    /// full StrokeResultPanel. The slide-up panel is now opt-in
+    /// rather than automatic (it covered too much of the AR scene
+    /// per James's 2026-06-03 feedback + the roleplay walkthrough).
+    @State private var resultPanelExpanded: Bool = false
     /// B49 Slice 3.4 — putt-roll animator. Holds the 60 Hz tick
     /// task that drives the ball entity along the
     /// `BallPhysics.simulatePutt` trajectory.
@@ -285,57 +294,123 @@ struct ARPlacementView: View {
                 .allowsHitTesting(false)
             }
 
-            // B50 Slice 3.5 — stroke result panel. Slides up from
-            // the bottom of the AR view when the ball has rolled
-            // to rest. Auto-dismisses 6s later; user can also
-            // tap Putt again / Reset all.
+            // B53 — result UX overhaul per the 2026-06-03 roleplay.
+            // The B50 full slide-up panel covered ~half the screen
+            // exactly when the user wanted to look at where the ball
+            // ended up. Replaced with:
+            //   1. 500ms quiet window after .rolled fires — nothing
+            //      covering the AR view. The visual IS the data.
+            //   2. Top-anchored result chip fades in at 500ms with
+            //      bucket-led copy: "Drained · Square · 1.48m".
+            //   3. Bottom-right Putt again capsule for the loop.
+            //   4. Tap chip → full StrokeResultPanel slides up
+            //      (B50 design retained, now opt-in).
+            //   5. Auto-dismiss chip → .complete after 10s of idle.
             if case .rolled(let ball, let hole, let pose, let impact,
                              let outcome, let duration) = placementState {
-                VStack {
-                    Spacer()
-                    StrokeResultPanel(
-                        viewModel: makeStrokeResultVM(ball: ball, hole: hole,
-                                                       impact: impact,
-                                                       outcome: outcome,
-                                                       duration: duration),
-                        onPuttAgain: {
-                            // B51 — Reset ball + trail and return
-                            // to .complete. User re-presses on the
-                            // AR view to take the next putt; we
-                            // re-snapshot the address pose at that
-                            // press moment rather than re-using the
-                            // prior one (which may no longer match
-                            // the user's current grip).
-                            if let ballEntity = scene.ballModelEntity() {
-                                ballEntity.position = SIMD3<Float>(0, 0.0427/2, 0)
+                // Top chip (bucket + distance + face). Hidden during
+                // the 500ms quiet window; fades in after.
+                if resultChipVisible {
+                    VStack {
+                        Button {
+                            withAnimation(.spring(response: 0.3)) {
+                                resultPanelExpanded = true
                             }
-                            scene.clearRollTrail()
-                            placementState = .complete(ball: ball, hole: hole)
-                            _ = pose  // captured pose no longer used; press will re-snapshot
-                        },
-                        onResetAll: {
-                            reset()
-                        },
-                        onDismiss: {
-                            // B51 — auto-dismiss returns to
-                            // .complete; the action row re-renders
-                            // the Putt again / Reset capsules under
-                            // the HUD. The captured address pose is
-                            // discarded — next putt re-snapshots at
-                            // press time.
-                            if case .rolled(let b, let h, _, _, _, _) = placementState {
+                        } label: {
+                            resultChip(impact: impact, outcome: outcome)
+                        }
+                        .accessibilityIdentifier("ar.resultChip")
+                        Spacer()
+                    }
+                    .padding(.top, 8)
+                    .transition(.opacity)
+                }
+
+                // Bottom-right Putt again button. Always visible while
+                // .rolled — one tap loops back to .complete.
+                if resultChipVisible {
+                    VStack {
+                        Spacer()
+                        HStack {
+                            Spacer()
+                            Button {
                                 if let ballEntity = scene.ballModelEntity() {
                                     ballEntity.position = SIMD3<Float>(0, 0.0427/2, 0)
                                 }
-                                placementState = .complete(ball: b, hole: h)
+                                scene.clearRollTrail()
+                                resultChipVisible = false
+                                resultPanelExpanded = false
+                                placementState = .complete(ball: ball, hole: hole)
+                                _ = pose
+                            } label: {
+                                Label("Putt again", systemImage: "figure.golf")
+                                    .font(.callout.weight(.semibold))
+                                    .padding(.horizontal, 14)
+                                    .padding(.vertical, 10)
+                                    .background(.green.opacity(0.95), in: Capsule())
+                                    .foregroundStyle(.white)
                             }
+                            .accessibilityIdentifier("ar.puttAgainButton")
                         }
-                    )
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    }
+                    .padding(.trailing, 16)
+                    .padding(.bottom, 32)
+                    .transition(.opacity)
+                }
+
+                // Opt-in full result panel (B50 design, only shown
+                // when user taps the chip).
+                if resultPanelExpanded {
+                    VStack {
+                        Spacer()
+                        StrokeResultPanel(
+                            viewModel: makeStrokeResultVM(ball: ball, hole: hole,
+                                                           impact: impact,
+                                                           outcome: outcome,
+                                                           duration: duration),
+                            onPuttAgain: {
+                                if let ballEntity = scene.ballModelEntity() {
+                                    ballEntity.position = SIMD3<Float>(0, 0.0427/2, 0)
+                                }
+                                scene.clearRollTrail()
+                                resultChipVisible = false
+                                resultPanelExpanded = false
+                                placementState = .complete(ball: ball, hole: hole)
+                                _ = pose
+                            },
+                            onResetAll: { reset() },
+                            onDismiss: {
+                                withAnimation(.easeOut(duration: 0.2)) {
+                                    resultPanelExpanded = false
+                                }
+                            }
+                        )
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                    }
                 }
             }
         }
         .statusBarHidden()
+        .onChange(of: placementState) { _, newValue in
+            // B53 — 500ms quiet window after .rolled before the
+            // result chip fades in. Lets the user look at where the
+            // ball ended up unobstructed.
+            if case .rolled = newValue {
+                resultChipVisible = false
+                resultPanelExpanded = false
+                Task { @MainActor in
+                    try? await Task.sleep(nanoseconds: 500_000_000)
+                    if case .rolled = placementState {
+                        withAnimation(.easeIn(duration: 0.25)) {
+                            resultChipVisible = true
+                        }
+                    }
+                }
+            } else {
+                resultChipVisible = false
+                resultPanelExpanded = false
+            }
+        }
         .onChange(of: planeCount) { _, newValue in
             // Auto-advance "waitingForPlane" → "readyToPlaceBall" once any
             // horizontal surface is found.
@@ -1565,6 +1640,55 @@ struct ARPlacementView: View {
         }
     }
 
+    /// B53 — top result chip. Bucket-led copy: bucket emoji + word,
+    /// distance, face angle. Tap to expand the full result panel.
+    /// Colour tints by outcome: drained=green, lipped=orange,
+    /// other=white.
+    private func resultChip(impact: ImpactResult,
+                             outcome: BallPhysics.Outcome) -> some View {
+        let outcomeText: String = {
+            switch outcome {
+            case .captured: return "Drained"
+            case .lipOut:   return "Lipped out"
+            case .stopped:  return "Stopped"
+            case .rejected: return "Too soft"
+            }
+        }()
+        let outcomeTint: Color = {
+            switch outcome {
+            case .captured: return Color.green
+            case .lipOut:   return Color.orange
+            case .stopped:  return Color.white
+            case .rejected: return Color.gray
+            }
+        }()
+        let direction = Self.marioKart.bucket(from: impact)
+        let bucketText = direction.label
+        return HStack(spacing: 8) {
+            Text(outcomeText)
+                .font(.callout.weight(.bold))
+                .foregroundStyle(outcomeTint)
+            Text("·")
+                .foregroundStyle(.white.opacity(0.45))
+            Text(bucketText)
+                .font(.callout.weight(.semibold))
+                .foregroundStyle(.white.opacity(0.9))
+            Text("·")
+                .foregroundStyle(.white.opacity(0.45))
+            Text(String(format: "%.0f°", abs(impact.faceAngleDegrees)))
+                .font(.callout.weight(.regular))
+                .foregroundStyle(.white.opacity(0.7))
+                .monospacedDigit()
+            Image(systemName: "chevron.up")
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.white.opacity(0.55))
+                .padding(.leading, 4)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 9)
+        .background(.black.opacity(0.78), in: Capsule())
+    }
+
     private var instructionText: String {
         switch placementState {
         case .waitingForPlane:
@@ -2008,17 +2132,19 @@ final class ARPlacementScene {
         // environmentTexturing = .automatic + AREnvironmentProbeAnchor
         // (both wired in makeUIView); without those the PBR shading is
         // flat and the dimples won't read.
+        // B53 — PBR polish per Gemini B51 6/10 read: stronger clearcoat
+        // sheen + lower roughness so the IBL probe's reflection is more
+        // visible. Dimple normal-map amplitude bumped to 0.32 (was 0.18)
+        // in makeDimpleNormalTexture() — on device the IBL contrast is
+        // weaker than the Three.js mockup so the dimples need more
+        // depth to read.
         var material = PhysicallyBasedMaterial()
-        material.baseColor = .init(tint: UIColor(red: 0.997, green: 0.997,
+        material.baseColor = .init(tint: UIColor(red: 0.998, green: 0.998,
                                                   blue: 1.0, alpha: 1.0))
-        material.roughness = .init(floatLiteral: 0.25)
+        material.roughness = .init(floatLiteral: 0.18)
         material.metallic = .init(floatLiteral: 0.0)
-        material.clearcoat = .init(floatLiteral: 0.55)
-        material.clearcoatRoughness = .init(floatLiteral: 0.15)
-        // B51 — use the cached dimple texture so we don't regenerate
-        // the 1024×1024 CGImage + TextureResource on every placeBall
-        // call. Previous behaviour: ~80-120 ms hitch when (re)placing
-        // the ball. Cached: first call ~80 ms, subsequent ~0 ms.
+        material.clearcoat = .init(floatLiteral: 0.7)
+        material.clearcoatRoughness = .init(floatLiteral: 0.12)
         if let resource = Self.cachedDimpleNormalTexture {
             material.normal = .init(texture: .init(resource))
         }
@@ -2039,14 +2165,32 @@ final class ARPlacementScene {
         ballAnchor = anchor
         ballWorldPosition = worldPosition
 
-        logger?.log(.materialApplied, "B45 ball material applied",
+        // B53 — drop a small local environment probe at the ball
+        // position. The world-origin 4m³ probe (added in makeUIView)
+        // provides scene-wide IBL but its sampling at the ball's
+        // actual position can be muted. A tight 0.6m³ probe centred
+        // on the ball gives sharper local reflections — the gold
+        // floor/wall around it actually shows up in the clearcoat
+        // sheen. Gemini B51 ball score 6/10 cited weak IBL.
+        var probeTransform = matrix_identity_float4x4
+        probeTransform.columns.3 = SIMD4<Float>(worldPosition.x,
+                                                  worldPosition.y + 0.1,
+                                                  worldPosition.z, 1)
+        let localProbe = AREnvironmentProbeAnchor(
+            transform: probeTransform,
+            extent: SIMD3<Float>(0.6, 0.6, 0.6)
+        )
+        arView.session.add(anchor: localProbe)
+
+        logger?.log(.materialApplied, "B53 ball material applied",
                     payload: ["entity": "ball",
-                              "design": "b45_dimpled_tour_ball",
+                              "design": "b53_dimpled_tour_ball_v2",
                               "material": "PhysicallyBasedMaterial",
-                              "clearcoat": "0.55",
-                              "roughness": "0.25",
+                              "clearcoat": "0.7",
+                              "roughness": "0.18",
                               "metallic": "0.0",
-                              "normal_map": "procedural_dimples_32x32",
+                              "normal_map": "procedural_dimples_32x32_deep",
+                              "local_probe_extent_m": "0.6",
                               "radius_m": String(format: "%.4f", radius)])
     }
 
@@ -2100,7 +2244,12 @@ final class ARPlacementScene {
                 for i in 0..<steps {
                     let ringR = dimpleR * (1.0 - CGFloat(i) / CGFloat(steps))
                     let slopeT = CGFloat(i) / CGFloat(steps)
-                    let tilt = (1.0 - slopeT) * 0.43
+                    // B53 — bump tilt 0.43 → 0.62 (≈45% deeper) so the
+                    // dimples have stronger normal contrast. On device
+                    // the IBL contrast is weaker than the Three.js
+                    // mockup, so dimples need more depth to read.
+                    // Gemini B51 ball score 6/10 cited weak dimple read.
+                    let tilt = (1.0 - slopeT) * 0.62
                     var angle: CGFloat = 0
                     while angle < .pi * 2 {
                         let dx = cos(angle)
@@ -2994,6 +3143,10 @@ private struct ARPlacementSceneRepresentable: UIViewRepresentable {
         /// overlay. Rebuilt whenever the mesh manager reports a
         /// change in floor-triangle count.
         private var meshOverlayAnchor: AnchorEntity?
+        /// B53 — wall-clock timestamp of the last `rebuildMeshOverlay`
+        /// call. Used to throttle rebuilds to 2Hz so the green floor
+        /// mesh stops jittering on every ARKit anchor update.
+        private var lastMeshRebuildAt: TimeInterval = 0
         private var meshOverlayEntity: ModelEntity?
         /// Throttle for `.meshUpdated` log emission. ARKit updates
         /// mesh anchors at ~1-2 Hz; we log at most every 2 s per
@@ -3210,19 +3363,29 @@ private struct ARPlacementSceneRepresentable: UIViewRepresentable {
         /// throttled didUpdate tick).
         private func rebuildMeshOverlay() {
             guard let arView else { return }
+            // B53 — throttle rebuilds to 2Hz (was every anchor update,
+            // i.e. up to 60Hz). Halves the edge-jitter Gemini scored
+            // 7/10 in B51 — the overlay was re-tessellating faster
+            // than the user could focus on a single triangle. Next
+            // ARKit anchor update naturally retries within 50ms so
+            // we don't need an explicit re-queue.
+            let now = CACurrentMediaTime()
+            if now - lastMeshRebuildAt < 0.5 { return }
+            lastMeshRebuildAt = now
             guard let resource = meshManager.buildFloorMesh() else {
                 // No floor triangles yet — leave any existing
                 // overlay in place (better to keep stale than to
                 // flicker an empty state).
                 return
             }
-            // Translucent green, UnlitMaterial so the colour stays
-            // green regardless of ARKit lighting. Same material
-            // recipe the rim/wall use, but green with 35% alpha.
+            // B53 — drop overlay opacity from 35% to 22%. Lower
+            // opacity hides the mesh-edge jitter that's intrinsic to
+            // ARKit's tessellation. Still readable as "there's a
+            // mesh here" but no longer attention-grabbing.
             let overlayColor = UIColor(red: 0.20, green: 0.95,
-                                        blue: 0.40, alpha: 0.35)
+                                        blue: 0.40, alpha: 0.22)
             var material = UnlitMaterial(color: overlayColor)
-            material.blending = .transparent(opacity: .init(floatLiteral: 0.35))
+            material.blending = .transparent(opacity: .init(floatLiteral: 0.22))
 
             if let entity = meshOverlayEntity {
                 entity.model?.mesh = resource
