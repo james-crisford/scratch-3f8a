@@ -45,6 +45,20 @@ final class ARVisualFlowTests: XCTestCase {
     /// which never appeared because the sim has no plane to raycast
     /// against, triggering an 8-minute GitHub Actions timeout).
     func testCaptureScreenshotsAtReachableStates() throws {
+        // B61 — hard-skip at the top when running on iOS Simulator.
+        // The simulator has no real ARKit camera/LiDAR, and CI runs
+        // a per-test 60s execution-time allowance. My B60 attempt to
+        // skip gracefully after taps still spent 3+ minutes evaluating
+        // each `waitForExistence(timeout:)` call before hitting the
+        // XCTSkip, which exceeded the allowance + caused an outer
+        // 8-min action-level timeout in GitHub Actions.
+        //
+        // Until a `-fakePlane` launch arg lands (TODO B62), the only
+        // way this test makes sense is on a real device — gated on
+        // `targetEnvironment(simulator)` compile-time check.
+        #if targetEnvironment(simulator)
+        throw XCTSkip("Visual flow test requires a real ARKit camera/LiDAR. Run on a physical device or wait for -fakePlane (TODO B62).")
+        #endif
         let app = XCUIApplication()
         app.launchArguments += ["-skipToARPlacement", "-uiTestMode", "1"]
         app.launch()
