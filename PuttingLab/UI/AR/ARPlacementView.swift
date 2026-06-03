@@ -51,10 +51,22 @@ struct ARPlacementView: View {
         case calibratingAddress(ball: SIMD3<Float>, hole: SIMD3<Float>)
         // Stage 3 Slice 3.2 / B47 — address captured. Phone-icon
         // hologram is rendered at the captured pose. From here
-        // Slice 3.3 / B48 will wire stroke detection.
+        // Slice 3.3 / B48 wires stroke detection.
         case addressReady(ball: SIMD3<Float>,
                           hole: SIMD3<Float>,
                           pose: AddressPose)
+        // Stage 3 Slice 3.3 / B48 — StrokeDetector armed, IMU
+        // stream live. The "GO" affordance is shown on the ball;
+        // the next phone-swing motion triggers stroke detection.
+        case readyForStroke(ball: SIMD3<Float>,
+                            hole: SIMD3<Float>,
+                            pose: AddressPose)
+        // Stage 3 Slice 3.3 / B48 — stroke motion in progress.
+        // StrokeDetector phase has left `.armed` (detected start).
+        // Waiting for the detector to return a closed StrokeWindow.
+        case strokeInProgress(ball: SIMD3<Float>,
+                              hole: SIMD3<Float>,
+                              pose: AddressPose)
     }
 
     /// Pre-share confirmation summary. Built by scanning
@@ -147,6 +159,10 @@ struct ARPlacementView: View {
     /// time the user taps "Set address" so the underlying
     /// MotionManager + StillnessDetector get fresh state.
     @State private var addressCapture: AddressPoseCapture? = nil
+    /// B48 Slice 3.3 — stroke capture runner. Recreated on each
+    /// `armStrokeCapture` so the IMU stream + StrokeDetector
+    /// reset cleanly between strokes.
+    @State private var strokeCapture: StrokeCapture? = nil
 
     /// The scene-graph "controller" we expose to the UIViewRepresentable.
     /// Lives as a single instance bound to the view so tap callbacks +
@@ -662,7 +678,7 @@ struct ARPlacementView: View {
         let hadPlacedEntities: Bool
         switch placementState {
         case .readyToPlaceHole, .complete, .replacingBall, .replacingHole,
-             .calibratingAddress, .addressReady:
+             .calibratingAddress, .addressReady, .readyForStroke, .strokeInProgress:
             hadPlacedEntities = true
         case .waitingForPlane, .readyToPlaceBall:
             hadPlacedEntities = false
@@ -995,9 +1011,9 @@ struct ARPlacementView: View {
         // B42: the Move-ball / Move-hole flows are placement-active
         // (user is aiming at the new spot), so full visibility.
         case .replacingBall, .replacingHole: return 0.95
-        // B47: address-calibration states — crosshair isn't being
+        // B47/B48: address + stroke states — crosshair isn't being
         // used (no placement happening), dim it out.
-        case .calibratingAddress, .addressReady: return 0.15
+        case .calibratingAddress, .addressReady, .readyForStroke, .strokeInProgress: return 0.15
         case .complete:         return 0.35
         }
     }
@@ -1040,10 +1056,11 @@ struct ARPlacementView: View {
                             id: "ar.replaceHoleButton") {
                 placeAtCenter()
             }
-        case .waitingForPlane, .complete, .calibratingAddress, .addressReady:
-            // B47 address states don't use the crosshair Place
-            // button — calibration is driven by the
-            // address-action row instead.
+        case .waitingForPlane, .complete, .calibratingAddress, .addressReady,
+             .readyForStroke, .strokeInProgress:
+            // B47/B48 address + stroke states don't use the
+            // crosshair Place button — they're driven by the
+            // explicit action row + IMU stream.
             EmptyView()
         }
     }
@@ -1160,8 +1177,9 @@ struct ARPlacementView: View {
                                  "ball_z": String(format: "%.4f", preservedBall.z)])
             placementState = .complete(ball: preservedBall, hole: world)
             scene.placeAddressMarkers(ball: preservedBall, hole: world)
-        case .complete, .calibratingAddress, .addressReady:
-            // No placement action during address-flow states.
+        case .complete, .calibratingAddress, .addressReady,
+             .readyForStroke, .strokeInProgress:
+            // No placement action during address / stroke states.
             break
         }
     }
@@ -1343,10 +1361,10 @@ struct ARPlacementView: View {
                         .foregroundStyle(.white)
                 }
                 .accessibilityIdentifier("ar.cancelAddressCapture")
-            case .addressReady(let ball, let hole, _):
-                // B47 — at .addressReady, user can either re-do
-                // the capture or reset entirely. B48 will add the
-                // stroke-detection start affordance.
+            case .addressReady(let ball, let hole, let pose):
+                // B47/B48 — at .addressReady, user can either
+                // re-do the capture, reset, or proceed to the
+                // stroke-detection arm via the primary CTA.
                 Button { reset() } label: {
                     Label("Reset", systemImage: "arrow.counterclockwise")
                         .font(.callout.weight(.semibold))
@@ -1368,6 +1386,39 @@ struct ARPlacementView: View {
                         .foregroundStyle(.black)
                 }
                 .accessibilityIdentifier("ar.recalibrateAddress")
+                Button {
+                    armStrokeCapture(ball: ball, hole: hole, pose: pose)
+                } label: {
+                    Label("Ready", systemImage: "figure.golf")
+                        .font(.callout.weight(.bold))
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
+                        .background(.green.opacity(0.95), in: Capsule())
+                        .foregroundStyle(.white)
+                }
+                .accessibilityIdentifier("ar.armStrokeButton")
+            case .readyForStroke(let ball, let hole, _),
+                 .strokeInProgress(let ball, let hole, _):
+                // B48 — Cancel returns to .addressReady (the pose
+                // stays captured; user can re-arm). Doesn't reset
+                // the address-calibration work the user just did.
+                Button {
+                    cancelStrokeCapture()
+                    if case .readyForStroke(_, _, let pose) = placementState {
+                        placementState = .addressReady(ball: ball, hole: hole, pose: pose)
+                    } else if case .strokeInProgress(_, _, let pose) = placementState {
+                        placementState = .addressReady(ball: ball, hole: hole, pose: pose)
+                    }
+                    logger.log(.note, "Stroke capture cancelled by user")
+                } label: {
+                    Label("Cancel", systemImage: "xmark")
+                        .font(.callout.weight(.semibold))
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
+                        .background(.black.opacity(0.55), in: Capsule())
+                        .foregroundStyle(.white)
+                }
+                .accessibilityIdentifier("ar.cancelStrokeCapture")
             case .replacingBall(let preservedHole):
                 // B42: Cancel returns to .complete with the cached
                 // ball/hole pair. Restore the ball entity by calling
@@ -1458,6 +1509,9 @@ struct ARPlacementView: View {
         // B47 Slice 3.2 — address calibration states.
         case .calibratingAddress: return "Hold still…"
         case .addressReady:       return "Ready to putt"
+        // B48 Slice 3.3 — stroke detection states.
+        case .readyForStroke:     return "Make your putt"
+        case .strokeInProgress:   return "Putting…"
         }
     }
 
@@ -1480,13 +1534,19 @@ struct ARPlacementView: View {
         case .calibratingAddress:
             return "Stay still — capturing your address pose"
         case .addressReady:
-            return "Make your putting motion (B48 wires detection)"
+            return "Tap Ready when you're set"
+        // B48
+        case .readyForStroke:
+            return "Make your putting motion now"
+        case .strokeInProgress:
+            return "Detecting stroke…"
         }
     }
 
     private func reset() {
         logger.log(.reset, "user tapped Start over / Reset")
         cancelAddressCapture()
+        cancelStrokeCapture()
         scene.clearPlacedEntities()
         let hasSurface = planeCount > 0 || scene.meshAnchorCount() > 0
         placementState = hasSurface ? .readyToPlaceBall : .waitingForPlane
@@ -1532,6 +1592,97 @@ struct ARPlacementView: View {
         addressCapture?.stop()
         addressCapture = nil
         scene.clearAddressHologram()
+    }
+
+    /// B48 Slice 3.3 — arm the StrokeCapture runner. Transitions
+    /// to `.readyForStroke`, fires haptic, and waits for the
+    /// underlying StrokeDetector to fire.
+    private func armStrokeCapture(ball: SIMD3<Float>,
+                                   hole: SIMD3<Float>,
+                                   pose: AddressPose) {
+        strokeCapture?.disarm()
+        let capture = StrokeCapture()
+        strokeCapture = capture
+        placementState = .readyForStroke(ball: ball, hole: hole, pose: pose)
+        logger.log(.note, "Stroke capture armed",
+                   payload: ["phone_to_ball_m": String(format: "%.4f", pose.phoneToBallM)])
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+
+        capture.arm(with: pose,
+                     onStarted: {
+            handleStrokeStarted(ball: ball, hole: hole, pose: pose)
+        }, onCompleted: { impact, window in
+            handleStrokeCompleted(ball: ball, hole: hole, pose: pose,
+                                   impact: impact, window: window)
+        }, onFailure: { msg in
+            logger.log(.failed, "Stroke capture failed: \(msg)")
+            showTransientHint("Stroke detection failed")
+            cancelStrokeCapture()
+            placementState = .addressReady(ball: ball, hole: hole, pose: pose)
+        })
+    }
+
+    /// Cancel the stroke capture. Used by Cancel button + Reset
+    /// paths. Doesn't tear down the address pose.
+    private func cancelStrokeCapture() {
+        strokeCapture?.disarm()
+        strokeCapture = nil
+    }
+
+    /// StrokeDetector phase has transitioned out of `.armed` —
+    /// emit the `strokeStarted` event and move to
+    /// `.strokeInProgress`.
+    private func handleStrokeStarted(ball: SIMD3<Float>,
+                                       hole: SIMD3<Float>,
+                                       pose: AddressPose) {
+        logger.log(.strokeStarted, "Stroke detected",
+                   payload: ["ball_x": String(format: "%.4f", ball.x),
+                             "ball_y": String(format: "%.4f", ball.y),
+                             "ball_z": String(format: "%.4f", ball.z),
+                             "hole_x": String(format: "%.4f", hole.x),
+                             "hole_y": String(format: "%.4f", hole.y),
+                             "hole_z": String(format: "%.4f", hole.z),
+                             "phone_to_ball_m": String(format: "%.4f", pose.phoneToBallM)])
+        // B46 hint: hide address foot markers during the stroke
+        // (they're stance affordances, not stroke affordances).
+        scene.setAddressMarkersVisible(false)
+        placementState = .strokeInProgress(ball: ball, hole: hole, pose: pose)
+    }
+
+    /// StrokeDetector returned a closed window + ImpactDetector
+    /// computed a result. Log `peakImpact` + `strokeEnded`,
+    /// disarm the capture, return to `.addressReady` ready for
+    /// the next swing. Slice 3.4 will wire the BallRollAnimator
+    /// off of this hook.
+    private func handleStrokeCompleted(ball: SIMD3<Float>,
+                                         hole: SIMD3<Float>,
+                                         pose: AddressPose,
+                                         impact: ImpactResult,
+                                         window: StrokeWindow) {
+        logger.log(.peakImpact, "Peak impact computed",
+                   payload: [
+                       "timestamp": String(format: "%.4f", impact.timestamp),
+                       "velocity_mps": String(format: "%.4f", impact.peakVelocity),
+                       "face_angle_deg": String(format: "%.2f", impact.faceAngleDegrees),
+                       "confidence": String(format: "%.3f", impact.confidence),
+                       "snapped_to_square": impact.snappedToSquare ? "true" : "false",
+                       "snap_reason": impact.snapReason?.rawValue ?? "",
+                       "samples": "\(window.samples.count)",
+                       "window_duration_s": String(format: "%.4f", window.duration)
+                   ])
+        logger.log(.strokeEnded, "Stroke window closed",
+                   payload: ["window_start": String(format: "%.4f", window.start),
+                             "window_end": String(format: "%.4f", window.end),
+                             "window_duration_s": String(format: "%.4f", window.duration)])
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
+        showTransientHint(String(format: "Stroke: %.2f m/s · face %.1f°",
+                                  impact.peakVelocity,
+                                  impact.faceAngleDegrees))
+        // Restore the address markers for the next swing — user
+        // is still standing in the same spot.
+        scene.setAddressMarkersVisible(true)
+        cancelStrokeCapture()
+        placementState = .addressReady(ball: ball, hole: hole, pose: pose)
     }
 
     /// Address-pose lock fired — log it, render the phone-icon
@@ -3156,11 +3307,12 @@ private struct ARPlacementSceneRepresentable: UIViewRepresentable {
                     _placementState.wrappedValue = .complete(ball: preservedBall, hole: world)
                     scene.placeAddressMarkers(ball: preservedBall, hole: world)
                     lastPlacementAt = Date()
-                case .complete, .calibratingAddress, .addressReady:
-                    // B47: tap is ignored once placement is done.
-                    // The address-flow states are driven by the
-                    // explicit buttons / IMU stillness, not taps.
-                    logger.log(.note, "tap ignored — placement complete or in address flow")
+                case .complete, .calibratingAddress, .addressReady,
+                     .readyForStroke, .strokeInProgress:
+                    // B47/B48: tap is ignored in the
+                    // post-placement flows — they're driven by
+                    // explicit buttons + the IMU stream.
+                    logger.log(.note, "tap ignored — placement complete or stroke flow active")
                 }
             }
         }
