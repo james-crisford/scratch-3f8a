@@ -23,6 +23,19 @@
 - Face angle (deg): n=284, min=-34.828, p10=-19.608, median=-6.695, mean=-6.588, p90=5.699, max=33.780
 - Computed distance (m): n=284, min=0.000, p10=1.439, median=2.795, mean=3.290, p90=5.520, max=15.243
 
+## Face-angle bucket x outcome (push/pull strokes should miss)
+
+| Bucket | n | captured | lipOut | stopped | median lat. offset |
+|---|---|---|---|---|---|
+| Square | 89 | 3 | 4 | 82 | +0.161m |
+| Slight pull | 127 | 0 | 0 | 127 | +0.363m |
+| Slight push | 11 | 0 | 0 | 11 | -0.360m |
+| Pull | 13 | 0 | 0 | 13 | +1.537m |
+| Push | 11 | 0 | 0 | 11 | -0.738m |
+| Miss | 33 | 0 | 0 | 33 | +1.270m |
+
+**Cup radius = 0.054m. Captures should only come from |face| < ~2deg (at 2m cup distance, lateral offset = 2 * sin(face_angle)). Bucket 'Square' covers up to 6deg so most Squares should miss too.**
+
 ## Per-build distance stats
 
 | Build | n | min | p10 | median | p90 | max |

@@ -270,6 +270,29 @@ def main():
         b = r["build"]
         per_build.setdefault(b, []).append(r["computed_distance_m"])
 
+    # Mario Kart bucket × outcome cross-tab.
+    # Buckets per MarioKartAssist:
+    #   |angle| < 6   -> Square
+    #   6  <= |angle| < 12 -> Slight pull (-) / Slight push (+)
+    #   12 <= |angle| < 20 -> Pull (-) / Push (+)
+    #   |angle| >= 20      -> Miss
+    def bucket_for(face_deg: float) -> str:
+        a = abs(face_deg)
+        sign = "push" if face_deg > 0 else "pull"
+        if a < 6:    return "Square"
+        if a < 12:   return f"Slight {sign}"
+        if a < 20:   return sign.capitalize()
+        return "Miss"
+    bucket_outcomes = {}  # bucket -> Counter of outcomes
+    bucket_lat_offset = {}  # bucket -> list of lateral offsets at cup
+    for r in rows:
+        b = bucket_for(r["face_angle_deg"])
+        bucket_outcomes.setdefault(b, Counter())[r["outcome"]] += 1
+        bucket_lat_offset.setdefault(b, []).append(r["end_y_m"])
+    # Cup radius from BallPhysics = 0.054m (5.4cm), ball radius ~0.021m,
+    # so effective capture half-width ~0.075m. Lateral offset at cup
+    # distance d=2m: y = 2 * sin(face_angle).
+
     summary = []
     summary.append(f"# Historical stroke simulation — B55 BallPhysics replay\n")
     summary.append(f"**Replayed {len(rows)} strokes** from `data/raw/by-build/` + `.tmp/b1[23]-strokes/` "
@@ -291,6 +314,25 @@ def main():
     summary.append(f"- {stats('Face angle (deg)', face_angles_deg)}")
     summary.append(f"- {stats('Computed distance (m)', distances)}")
     summary.append("")
+    summary.append(f"## Face-angle bucket x outcome (push/pull strokes should miss)\n")
+    summary.append(f"| Bucket | n | captured | lipOut | stopped | median lat. offset |")
+    summary.append(f"|---|---|---|---|---|---|")
+    bucket_order = ["Square", "Slight pull", "Slight push", "Pull", "Push", "Miss"]
+    for b in bucket_order:
+        if b not in bucket_outcomes: continue
+        outcomes_b = bucket_outcomes[b]
+        n = sum(outcomes_b.values())
+        cap = outcomes_b.get("captured", 0)
+        lip = outcomes_b.get("lipOut", 0)
+        stop = outcomes_b.get("stopped", 0)
+        ys = sorted(bucket_lat_offset[b])
+        med_y = ys[len(ys) // 2] if ys else 0.0
+        summary.append(f"| {b} | {n} | {cap} | {lip} | {stop} | {med_y:+.3f}m |")
+    summary.append("")
+    summary.append(f"**Cup radius = 0.054m. Captures should only come from |face| < ~2deg "
+                    f"(at 2m cup distance, lateral offset = 2 * sin(face_angle)). "
+                    f"Bucket 'Square' covers up to 6deg so most Squares should miss too.**\n")
+
     summary.append(f"## Per-build distance stats\n")
     summary.append(f"| Build | n | min | p10 | median | p90 | max |")
     summary.append(f"|---|---|---|---|---|---|---|")
