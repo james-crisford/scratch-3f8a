@@ -196,6 +196,17 @@ struct ARPlacementView: View {
     /// `BallPhysics.simulatePutt` trajectory.
     @State private var ballRollAnimator: BallRollAnimator? = nil
 
+    /// B56 — per-user hand-velocity → ball-launch-velocity multiplier.
+    /// Hardcoded default derived from simulating the 284-stroke
+    /// historical dataset: mean hand peak velocity is 0.151 m/s, ball
+    /// launch needs ~1.91 m/s to deliver a 3m putt at Stimp 10, so
+    /// factor = 1.91 / (0.151 × 0.9 × sqrt(0.95)) ≈ 14.4.
+    ///
+    /// Was hardcoded to 1.0 in B51-B55 which is the reason the ball
+    /// only rolled ~1cm in B54 testing. Will be replaced by a loaded
+    /// CalibrationProfile.speedToDistanceFactor in B57.
+    private static let defaultSpeedCalibration: Double = 14.4
+
     /// B51 — press-and-unpress gesture state. True from the
     /// instant the user presses on the AR view at `.complete`
     /// until they release. Used by the gesture overlay to avoid
@@ -2034,7 +2045,7 @@ struct ARPlacementView: View {
             ballWorld: ball,
             holeWorld: hole,
             impact: impact,
-            speedCalibration: 1.0,
+            speedCalibration: Self.defaultSpeedCalibration,
             stimpFeet: BallPhysics.defaultStimp,
             trailEmitter: { world in
                 scene.dropRollTrailMarker(at: world)
@@ -2103,7 +2114,7 @@ struct ARPlacementView: View {
         let sim = BallPhysics.simulatePutt(
             peakVelocity: impact.peakVelocity,
             faceAngleRaw: impact.faceAngleRaw,
-            speedCalibration: 1.0,
+            speedCalibration: Self.defaultSpeedCalibration,
             stimpFeet: BallPhysics.defaultStimp,
             startPosition: .zero,
             cupPosition: SIMD2<Double>(Double(aimLen), 0)
