@@ -2055,6 +2055,11 @@ final class ARPlacementScene {
     /// putt. Hidden when stroke begins (B48 hides via setIsActive
     /// on the underlying entities).
     private var addressMarkersAnchor: AnchorEntity?
+    /// B53 — local env probe dropped at the ball position for sharper
+    /// IBL. Retained so the next `placeBall` (or `clearBall`) can
+    /// remove the previous probe before adding a new one. Without
+    /// this, every placement leaks a probe to the ARSession.
+    private var ballLocalProbe: AREnvironmentProbeAnchor?
     /// B49 Slice 3.4 — anchor + retained list for the roll-trail
     /// markers. Kept as a flat list so we can FIFO-cap at ~200
     /// markers (one per 60Hz frame, ~3 s of roll without growth).
@@ -2149,6 +2154,12 @@ final class ARPlacementScene {
         // on the ball gives sharper local reflections — the gold
         // floor/wall around it actually shows up in the clearcoat
         // sheen. Gemini B51 ball score 6/10 cited weak IBL.
+        // B53/B54-fix — drop the previous probe before adding a new
+        // one. Without this every placeBall accumulates a probe on
+        // the ARSession (caught in pre-ship audit 2026-06-03).
+        if let old = ballLocalProbe {
+            arView.session.remove(anchor: old)
+        }
         var probeTransform = matrix_identity_float4x4
         probeTransform.columns.3 = SIMD4<Float>(worldPosition.x,
                                                   worldPosition.y + 0.1,
@@ -2158,6 +2169,7 @@ final class ARPlacementScene {
             extent: SIMD3<Float>(0.6, 0.6, 0.6)
         )
         arView.session.add(anchor: localProbe)
+        ballLocalProbe = localProbe
 
         logger?.log(.materialApplied, "B53 ball material applied",
                     payload: ["entity": "ball",
@@ -2674,6 +2686,11 @@ final class ARPlacementScene {
         holeAnchor = nil
         lineAnchor = nil
         ballWorldPosition = nil
+        // B53/B54-fix — remove local env probe on full reset
+        if let probe = ballLocalProbe {
+            arView?.session.remove(anchor: probe)
+            ballLocalProbe = nil
+        }
         clearAddressMarkers()
         clearRollTrail()
         rollTrailAnchor?.removeFromParent()
@@ -2839,6 +2856,11 @@ final class ARPlacementScene {
         ballAnchor = nil
         lineAnchor = nil
         ballWorldPosition = nil
+        // B53/B54-fix — remove local env probe when ball is cleared
+        if let probe = ballLocalProbe {
+            arView?.session.remove(anchor: probe)
+            ballLocalProbe = nil
+        }
         clearAddressMarkers()
     }
 
