@@ -150,16 +150,38 @@ struct ARPlacementView: View {
     /// B45 — once-per-session flag so the "scan more of the floor"
     /// transient hint doesn't re-fire every 0.5 s tick.
     @State private var scanMoreHintShown: Bool = false
-    /// B48 Slice 3.3 — stroke capture runner. Recreated on each
-    /// `armStrokeCapture` so the IMU stream + StrokeDetector
-    /// reset cleanly between strokes.
-    @State private var strokeCapture: StrokeCapture? = nil
-    /// B52 — tracks whether the StrokeDetector has fired its
-    /// onStarted callback yet for the current press. Used by
-    /// handlePressEnded to distinguish "user pressed but never
-    /// swung" (cancel) from "user pressed and swung" (let detector
-    /// close naturally).
-    @State private var strokeInFlight: Bool = false
+    /// B55 — long-lived MotionManager + impactDetector + LiveImpactDetector.
+    /// This is the v0.2.0 design that James confirmed worked end-to-end on
+    /// 80 strokes. Replaces the broken B51 inline pose snapshot + the
+    /// StrokeCapture wrapper.
+    ///
+    /// Lifecycle: started in onAppear, stopped in onDisappear.
+    /// Stream consumer task updates `latestMotionSample` on every IMU sample
+    /// (~100Hz) AND appends samples to `samplesDuringRecording` while
+    /// `pressActive == true`. The LiveImpactDetector runs over those samples
+    /// in real time and fires `impactHaptic` at peak rotation rate — that's
+    /// the "ball strike" feedback the user feels DURING the swing.
+    @State private var motionManager = MotionManager()
+    @State private var motionStreamTask: Task<Void, Never>? = nil
+    @State private var latestMotionSample: MotionSample? = nil
+    @State private var liveImpactDetector = LiveImpactDetector()
+    @State private var impactDetector = ImpactDetector()
+
+    /// Per-press accumulators. Mirror v0.2.0's PracticeSessionViewModel
+    /// pattern verbatim — samples + poses appended during the press, lock
+    /// captured at press-begin, fed to ImpactDetector at press-end.
+    @State private var samplesDuringRecording: [MotionSample] = []
+    @State private var posesDuringRecording: [ARPose] = []
+    @State private var recordingLock: StillnessLock? = nil
+    @State private var pressBeganAt: TimeInterval = 0
+    @State private var liveHapticFireCount: Int = 0
+
+    /// B55 / P1.4 — retained haptic generators. Per Apple docs,
+    /// `UI{Impact,Notification}FeedbackGenerator` instances need to be
+    /// retained between `prepare()` and the actual fire — instantiating
+    /// fresh + immediately firing (as B51-B54 did) often drops the haptic.
+    @State private var pressHaptic = UIImpactFeedbackGenerator(style: .medium)
+    @State private var impactHaptic = UINotificationFeedbackGenerator()
     /// B53 — result chip visibility. False during the 500ms quiet
     /// window after .rolled so the user gets an unobstructed AR
     /// view of where the ball ended up, then fades in.
@@ -180,6 +202,13 @@ struct ARPlacementView: View {
     /// re-firing handlePressBegan on every DragGesture .onChanged
     /// event (a single press emits many onChanged calls).
     @State private var pressActive: Bool = false
+    /// B55 — true between handlePressEnded (when the stroke window
+    /// closes) and the actual start of the BallRollAnimator (after
+    /// the stillness wait). Used by the action row to hide
+    /// Reset/Move ball/Move hole during that brief window so they
+    /// don't flash for a half-second while the user is looking at
+    /// the cup waiting for the roll to start.
+    @State private var awaitingRollStart: Bool = false
 
     /// B50 Slice 3.5 — Mario Kart bucketer. Stateless, reused
     /// across strokes. `Sendable` per the type declaration.
@@ -248,13 +277,19 @@ struct ARPlacementView: View {
                 // whole frame. Material UX win + helps the Gemini
                 // video reviewer see the actual scene without HUD
                 // chrome dominating every frame.
-                if hudCompact {
-                    compactStatusPill
-                    // GT markers stay reachable even in compact mode
-                    // so the user can tag what they just saw without
-                    // expanding the HUD again. Smaller, emoji-only,
-                    // no labels — just the icon glyphs.
-                    compactMarkerRow
+                // B55 / P2.2 — when showing the result chip / panel,
+                // force-collapse the HUD even if the user previously
+                // toggled it on. Avoids the debug overlay overlapping
+                // the result UI that Gemini saw at 00:54 in B54.
+                let forceCompact: Bool = {
+                    if case .rolled = placementState { return true }
+                    return resultPanelExpanded
+                }()
+                if hudCompact || forceCompact {
+                    if !forceCompact {
+                        compactStatusPill
+                        compactMarkerRow
+                    }
                 } else {
                     hud
                     if showStillnessHint && planeCount == 0 {
@@ -432,6 +467,11 @@ struct ARPlacementView: View {
             logger.log(.sessionStart, "Slice 2 placement view opened")
             scene.logger = logger
             scene.logDeviceInfo()
+            // B55 — start the long-lived MotionManager stream + retain the
+            // haptic generators (v0.2.0 pattern restored).
+            startMotionStream()
+            pressHaptic.prepare()
+            impactHaptic.prepare()
             // CI / XCUITest hook: simulator never detects a plane, so
             // the Place buttons would otherwise be unreachable. The
             // -uiTestMode launch argument fakes the readyToPlaceBall
@@ -487,6 +527,12 @@ struct ARPlacementView: View {
                         logger.saveSnapshot()
                     }
                 }
+            }
+            // B55 — tear down the motion stream + cancel the consumer task.
+            motionStreamTask?.cancel()
+            motionStreamTask = nil
+            if motionManager.isRunning {
+                motionManager.stop()
             }
             logger.log(.sessionEnd, "Slice 2 placement view dismissed")
             logger.saveSnapshot()
@@ -1444,51 +1490,54 @@ struct ARPlacementView: View {
         HStack(spacing: 8) {
             switch placementState {
             case .complete(let ball, let hole):
-                // B42: at .complete, three capsule buttons.
-                // Reset = destructive-all (wipe both).
-                // Move ball / Move hole = constructive-replace-one,
-                // preserves the OTHER entity's world coord.
-                Button { reset() } label: {
-                    Label("Reset", systemImage: "arrow.counterclockwise")
-                        .font(.callout.weight(.semibold))
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 10)
-                        .background(.black.opacity(0.55), in: Capsule())
-                        .foregroundStyle(.white)
+                // B55 / P2.1 — hide the action row during the press
+                // window. Only the press gesture is meaningful during
+                // a swing; showing Reset / Move ball / Move hole as
+                // active controls just confuses the user (Gemini B54
+                // 3/5 severity).
+                if !pressActive && !awaitingRollStart {
+                    Button { reset() } label: {
+                        Label("Reset", systemImage: "arrow.counterclockwise")
+                            .font(.callout.weight(.semibold))
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 10)
+                            .background(.black.opacity(0.55), in: Capsule())
+                            .foregroundStyle(.white)
+                    }
+                    .accessibilityIdentifier("ar.resetButton")
+                    Button {
+                        scene.clearBall()
+                        placementState = .replacingBall(hole: hole)
+                        logger.log(.note, "Move ball tapped",
+                                   payload: ["preserved_hole_x": String(format: "%.4f", hole.x),
+                                             "preserved_hole_y": String(format: "%.4f", hole.y),
+                                             "preserved_hole_z": String(format: "%.4f", hole.z)])
+                    } label: {
+                        Label("Move ball", systemImage: "circle.dashed")
+                            .font(.callout.weight(.semibold))
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 10)
+                            .background(.white.opacity(0.85), in: Capsule())
+                            .foregroundStyle(.black)
+                    }
+                    .accessibilityIdentifier("ar.moveBallButton")
+                    Button {
+                        scene.clearHole()
+                        placementState = .replacingHole(ball: ball)
+                        logger.log(.note, "Move hole tapped",
+                                   payload: ["preserved_ball_x": String(format: "%.4f", ball.x),
+                                             "preserved_ball_y": String(format: "%.4f", ball.y),
+                                             "preserved_ball_z": String(format: "%.4f", ball.z)])
+                    } label: {
+                        Label("Move hole", systemImage: "scope")
+                            .font(.callout.weight(.semibold))
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 10)
+                            .background(.yellow.opacity(0.95), in: Capsule())
+                            .foregroundStyle(.black)
+                    }
+                    .accessibilityIdentifier("ar.moveHoleButton")
                 }
-                .accessibilityIdentifier("ar.resetButton")
-                Button {
-                    scene.clearBall()
-                    placementState = .replacingBall(hole: hole)
-                    logger.log(.note, "Move ball tapped",
-                               payload: ["preserved_hole_x": String(format: "%.4f", hole.x),
-                                         "preserved_hole_y": String(format: "%.4f", hole.y),
-                                         "preserved_hole_z": String(format: "%.4f", hole.z)])
-                } label: {
-                    Label("Move ball", systemImage: "circle.dashed")
-                        .font(.callout.weight(.semibold))
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 10)
-                        .background(.white.opacity(0.85), in: Capsule())
-                        .foregroundStyle(.black)
-                }
-                .accessibilityIdentifier("ar.moveBallButton")
-                Button {
-                    scene.clearHole()
-                    placementState = .replacingHole(ball: ball)
-                    logger.log(.note, "Move hole tapped",
-                               payload: ["preserved_ball_x": String(format: "%.4f", ball.x),
-                                         "preserved_ball_y": String(format: "%.4f", ball.y),
-                                         "preserved_ball_z": String(format: "%.4f", ball.z)])
-                } label: {
-                    Label("Move hole", systemImage: "scope")
-                        .font(.callout.weight(.semibold))
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 10)
-                        .background(.yellow.opacity(0.95), in: Capsule())
-                        .foregroundStyle(.black)
-                }
-                .accessibilityIdentifier("ar.moveHoleButton")
                 // B52 — no "Set address" / "Ready" buttons at
                 // .complete. The press-anywhere gesture (DragGesture
                 // overlay on the AR view) IS the address-lock +
@@ -1532,13 +1581,14 @@ struct ARPlacementView: View {
                 }
                 .accessibilityIdentifier("ar.replayLastPutt")
                 Button {
-                    // Re-position the ball back to start so the
-                    // user can swing again.
+                    // B55 — reset ball + return to .complete. User
+                    // re-presses on the AR view to take next putt.
                     if let ballEntity = scene.ballModelEntity() {
                         ballEntity.position = SIMD3<Float>(0, 0.0427/2, 0)
                     }
                     scene.clearRollTrail()
-                    armStrokeCapture(ball: ball, hole: hole, pose: pose)
+                    placementState = .complete(ball: ball, hole: hole)
+                    _ = pose
                 } label: {
                     Label("Putt again", systemImage: "figure.golf")
                         .font(.callout.weight(.bold))
@@ -1548,20 +1598,18 @@ struct ARPlacementView: View {
                         .foregroundStyle(.white)
                 }
                 .accessibilityIdentifier("ar.puttAgain")
-            case .replacingBall(let preservedHole):
-                // B42: Cancel returns to .complete with the cached
-                // ball/hole pair. Restore the ball entity by calling
-                // placeBall at the LAST cached world coord — but we
-                // don't have it; the user just tapped Move ball
-                // which cleared the ball. So Cancel here means
-                // "restore the ball at the same spot it was". Since
-                // the View doesn't cache the previous ball coord,
-                // Cancel is best-effort: we re-enter .readyToPlaceBall
-                // with the hole still there, asking the user to
-                // place the ball again.
+            case .replacingBall:
+                // B55 fix (Gemini-flagged pre-existing B42 bug):
+                // Previously the Cancel button set placementState =
+                // .readyToPlaceHole(preservedHole), which is a TYPE
+                // MISMATCH — that case expects the BALL position, not
+                // the hole position. The downstream tap-to-place
+                // handler would then build a .complete with swapped
+                // ball/hole coords. Fixed by routing Cancel through
+                // reset() — abort + start over, semantically clean.
                 Button {
-                    placementState = .readyToPlaceHole(preservedHole)
-                    logger.log(.note, "Move ball cancelled — back to hole-preserved state")
+                    reset()
+                    logger.log(.note, "Move ball cancelled — full reset")
                 } label: {
                     Label("Cancel", systemImage: "xmark")
                         .font(.callout.weight(.semibold))
@@ -1696,8 +1744,11 @@ struct ARPlacementView: View {
 
     private func reset() {
         logger.log(.reset, "user tapped Start over / Reset")
-        cancelStrokeCapture()
         pressActive = false
+        awaitingRollStart = false
+        samplesDuringRecording.removeAll(keepingCapacity: false)
+        posesDuringRecording.removeAll(keepingCapacity: false)
+        recordingLock = nil
         ballRollAnimator?.cancel()
         ballRollAnimator = nil
         scene.clearPlacedEntities()
@@ -1705,139 +1756,182 @@ struct ARPlacementView: View {
         placementState = hasSurface ? .readyToPlaceBall : .waitingForPlane
     }
 
-    /// B52 — arm the StrokeCapture runner. Called from
-    /// `handlePressBegan` (press flow). Stays at `.complete`
-    /// throughout (UI tracks press via `@State pressActive`).
-    /// The IMU stream + StrokeDetector run in the background;
-    /// `handleStrokeStarted` / `handleStrokeCompleted` fire as
-    /// the detector phase changes.
-    private func armStrokeCapture(ball: SIMD3<Float>,
-                                   hole: SIMD3<Float>,
-                                   pose: AddressPose) {
-        strokeCapture?.disarm()
-        let capture = StrokeCapture()
-        strokeCapture = capture
-        strokeInFlight = false
-        logger.log(.note, "Stroke capture armed",
-                   payload: ["phone_to_ball_m": String(format: "%.4f", pose.phoneToBallM)])
+    // MARK: - B55 press flow (v0.2.0 pattern restored)
 
-        capture.arm(with: pose,
-                     onStarted: {
-            handleStrokeStarted(ball: ball, hole: hole, pose: pose)
-        }, onCompleted: { impact, window in
-            handleStrokeCompleted(ball: ball, hole: hole, pose: pose,
-                                   impact: impact, window: window)
-        }, onFailure: { msg in
-            logger.log(.failed, "Stroke capture failed: \(msg)")
-            showTransientHint("Stroke detection failed")
-            cancelStrokeCapture()
-            strokeInFlight = false
-            placementState = .complete(ball: ball, hole: hole)
-        })
+    /// B55 — start the long-lived MotionManager stream. Spawned in
+    /// onAppear, torn down in onDisappear. While running, the stream
+    /// consumer task calls `handleMotionSample(_:)` on every IMU
+    /// sample (~100Hz), which updates `latestMotionSample` AND, while
+    /// the user is pressing, appends to `samplesDuringRecording` +
+    /// feeds the LiveImpactDetector for the real-time impact haptic.
+    private func startMotionStream() {
+        guard !motionManager.isRunning else { return }
+        do {
+            let stream = try motionManager.start()
+            motionStreamTask = Task { @MainActor in
+                for await sample in stream {
+                    handleMotionSample(sample)
+                }
+            }
+        } catch {
+            logger.log(.failed, "Motion start failed: \(error)")
+            showTransientHint("Sensors unavailable — try restarting the app")
+        }
     }
 
-    /// Cancel the stroke capture. Used by Cancel button + Reset
-    /// paths. Doesn't tear down the address pose.
-    private func cancelStrokeCapture() {
-        strokeCapture?.disarm()
-        strokeCapture = nil
+    /// B55 — per-sample consumer. v0.2.0's `handle(_:)` pattern
+    /// transcribed into the AR view.
+    private func handleMotionSample(_ sample: MotionSample) {
+        latestMotionSample = sample
+        guard pressActive else { return }
+        // Cap the recording buffer at ~15s (1500 samples @ 100Hz).
+        guard samplesDuringRecording.count < 1500 else { return }
+        samplesDuringRecording.append(sample)
+        if let arView = scene.arView,
+           let frame = arView.session.currentFrame {
+            let arPose = ARPose(
+                timestamp: frame.timestamp,
+                transform: frame.camera.transform,
+                trackingState: .normal
+            )
+            posesDuringRecording.append(arPose)
+        }
+        // LiveImpactDetector fires the real-time "impact thwack"
+        // haptic at peak |rotationRate|. This is the v0.2.0 feedback
+        // that James said was missing in B54.
+        if liveImpactDetector.consume(sample) {
+            liveHapticFireCount += 1
+            impactHaptic.notificationOccurred(.warning)
+            impactHaptic.prepare()
+        }
     }
 
-    // MARK: - B51 press-and-unpress flow
-
-    /// B51 — snapshot an AddressPose directly from the current
-    /// AR frame + latest IMU sample. Replaces the 1.5 s stillness
-    /// loop in `AddressPoseCapture` — the press itself is the
-    /// deliberate stillness signal. Returns nil if the AR session
-    /// has no current frame yet (extremely rare race at press
-    /// instant).
-    private func snapshotAddressPoseInline(ball: SIMD3<Float>) -> AddressPose? {
-        guard let arView = scene.arView,
-              let frame = arView.session.currentFrame else { return nil }
-        let phoneTransform = frame.camera.transform
+    /// B55 — user pressed the AR view at `.complete`. Ports v0.2.0's
+    /// `touchDown()` verbatim: snapshot address-pose lock from the
+    /// real IMU `latestMotionSample` (not from ARKit Euler), seed the
+    /// per-press buffers, reset the LiveImpactDetector, fire the
+    /// retained press haptic.
+    ///
+    /// Fixes B51's regression where `frame.camera.eulerAngles.y` was
+    /// used as compassYaw (wrong reference frame → -65° face angles).
+    private func handlePressBegan(ball: SIMD3<Float>, hole: SIMD3<Float>) {
+        guard pressActive == false else { return }
+        guard let latest = latestMotionSample else {
+            showTransientHint("Sensors warming up — wait a moment")
+            return
+        }
+        _ = hole
+        let lock = StillnessLock(
+            yawTargetCompass: latest.compassYaw,
+            gravity: latest.gravity,
+            lockedAt: latest.timestamp
+        )
+        recordingLock = lock
+        samplesDuringRecording = [latest]
+        posesDuringRecording = []
+        if let arView = scene.arView,
+           let frame = arView.session.currentFrame {
+            let arPose = ARPose(
+                timestamp: frame.timestamp,
+                transform: frame.camera.transform,
+                trackingState: .normal
+            )
+            posesDuringRecording.append(arPose)
+        }
+        liveImpactDetector.reset()
+        liveHapticFireCount = 0
+        pressBeganAt = latest.timestamp
+        pressActive = true
+        pressHaptic.impactOccurred()
+        pressHaptic.prepare()
+        let phoneTransform = posesDuringRecording.first?.transform ?? matrix_identity_float4x4
         let phonePos = SIMD3<Float>(phoneTransform.columns.3.x,
                                      phoneTransform.columns.3.y,
                                      phoneTransform.columns.3.z)
-        let distance = simd_distance(phonePos, ball)
-        // Compass yaw + gravity: read from the AR camera's Euler
-        // angles since we're not running the dedicated IMU stream
-        // until StrokeCapture arms it. RealityKit gives us
-        // gravity-aligned yaw via the camera's eulerAngles.
-        let euler = frame.camera.eulerAngles
-        return AddressPose(
-            phoneWorldTransform: phoneTransform,
-            phoneToBallM: distance,
-            compassYaw: Double(euler.y),
-            gravity: SIMD3<Double>(0, -1, 0),  // ARKit world-Y is up
-            lockedAt: frame.timestamp
-        )
+        let phoneToBall = simd_distance(phonePos, ball)
+        logger.log(.note, "touchDown — address lock captured",
+                   payload: [
+                       "compass_yaw_rad": String(format: "%.4f", latest.compassYaw),
+                       "gravity_x": String(format: "%.4f", latest.gravity.x),
+                       "gravity_y": String(format: "%.4f", latest.gravity.y),
+                       "gravity_z": String(format: "%.4f", latest.gravity.z),
+                       "phone_to_ball_m": String(format: "%.4f", phoneToBall),
+                   ])
     }
 
-    /// B52 — user pressed the AR view at `.complete`. Snapshot the
-    /// address pose inline + arm StrokeCapture immediately. Stays
-    /// at `.complete` throughout (UI tracks press via pressActive).
-    /// The user holds the press through the swing; releasing
-    /// before a stroke is detected cancels the capture.
-    private func handlePressBegan(ball: SIMD3<Float>, hole: SIMD3<Float>) {
-        guard pressActive == false else { return }
-        guard let pose = snapshotAddressPoseInline(ball: ball) else {
-            showTransientHint("Couldn't lock address — try again")
-            return
-        }
-        pressActive = true
-        logger.log(.note, "Press flow: address snapshot at press",
-                   payload: ["phone_to_ball_m": String(format: "%.4f", pose.phoneToBallM),
-                             "yaw_rad": String(format: "%.4f", pose.compassYaw)])
-        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-        armStrokeCapture(ball: ball, hole: hole, pose: pose)
-    }
-
-    /// B51 — user released the press. If a stroke was already
-    /// detected and is in flight, the unpress is informational
-    /// (the StrokeDetector's own end-of-swing logic will close
-    /// the window). If no stroke yet, treat the release as
-    /// abandonment and disarm.
+    /// B55 — user released the press. v0.2.0's `touchUp()` pattern:
+    /// build a `StrokeWindow` from the recording buffer, run
+    /// `ImpactDetector.detect` to get the result, transition to the
+    /// stillness-wait phase before starting the roll (P0.3).
+    ///
+    /// P1.1: presses shorter than 200ms are treated as accidental
+    /// taps (no "No swing" hint). Presses longer than 200ms with
+    /// fewer than the minimum samples show the hint.
     private func handlePressEnded(ball: SIMD3<Float>, hole: SIMD3<Float>) {
         guard pressActive else { return }
         pressActive = false
-        logger.log(.note, "Press flow: release",
-                   payload: ["stroke_in_flight": strokeInFlight ? "true" : "false"])
-        // If stroke not yet started → abandon. If stroke is in
-        // flight, the StrokeDetector closes its window naturally
-        // when the swing finishes.
-        _ = hole
-        if !strokeInFlight, strokeCapture != nil {
-            cancelStrokeCapture()
-            showTransientHint("No swing — try again")
-            placementState = .complete(ball: ball, hole: hole)
+        let pressDurationS = (latestMotionSample?.timestamp ?? 0) - pressBeganAt
+        defer {
+            samplesDuringRecording.removeAll(keepingCapacity: false)
+            posesDuringRecording.removeAll(keepingCapacity: false)
+            recordingLock = nil
+        }
+        // P1.1 — quick tap suppression. Anything under 200ms is an
+        // accidental tap; silent ignore (no "No swing" toast).
+        if pressDurationS < 0.2 {
+            logger.log(.note, "Press too short — silent ignore",
+                       payload: ["duration_s": String(format: "%.3f", pressDurationS)])
+            return
+        }
+        guard let lock = recordingLock else { return }
+        guard samplesDuringRecording.count >= 5 else {
+            showTransientHint("Too quick — press, complete the stroke, then release")
+            logger.log(.note, "Press ended with too-few samples",
+                       payload: ["samples": "\(samplesDuringRecording.count)"])
+            return
+        }
+        let window = StrokeWindow(
+            start: samplesDuringRecording.first!.timestamp,
+            end: samplesDuringRecording.last!.timestamp,
+            samples: samplesDuringRecording,
+            lock: lock
+        )
+        do {
+            let result = try impactDetector.detect(
+                in: window,
+                arkitPoses: posesDuringRecording,
+                arkitBaselineYaw: nil
+            )
+            // Build an AddressPose for downstream consumers (e.g. the
+            // roll animator + result panel). v0.2.0 didn't need one
+            // because PracticeSessionView had its own flow; we keep
+            // the shape compatible with B49-B54.
+            let phoneTransform = posesDuringRecording.first?.transform ?? matrix_identity_float4x4
+            let phonePos = SIMD3<Float>(phoneTransform.columns.3.x,
+                                         phoneTransform.columns.3.y,
+                                         phoneTransform.columns.3.z)
+            let distance = simd_distance(phonePos, ball)
+            let pose = AddressPose(
+                phoneWorldTransform: phoneTransform,
+                phoneToBallM: distance,
+                compassYaw: lock.yawTargetCompass,
+                gravity: lock.gravity,
+                lockedAt: lock.lockedAt
+            )
+            handleStrokeCompleted(ball: ball, hole: hole, pose: pose,
+                                   impact: result, window: window)
+        } catch {
+            logger.log(.failed, "Impact detect failed: \(error)")
+            showTransientHint("Stroke not detected — try again")
         }
     }
 
-    /// StrokeDetector phase has transitioned out of `.armed` —
-    /// emit the `strokeStarted` event. Stays at `.complete`; the
-    /// `strokeInFlight` flag tells handlePressEnded not to cancel.
-    private func handleStrokeStarted(ball: SIMD3<Float>,
-                                       hole: SIMD3<Float>,
-                                       pose: AddressPose) {
-        logger.log(.strokeStarted, "Stroke detected",
-                   payload: ["ball_x": String(format: "%.4f", ball.x),
-                             "ball_y": String(format: "%.4f", ball.y),
-                             "ball_z": String(format: "%.4f", ball.z),
-                             "hole_x": String(format: "%.4f", hole.x),
-                             "hole_y": String(format: "%.4f", hole.y),
-                             "hole_z": String(format: "%.4f", hole.z),
-                             "phone_to_ball_m": String(format: "%.4f", pose.phoneToBallM)])
-        strokeInFlight = true
-        // B46 hint: hide address foot markers during the stroke
-        // (they're stance affordances, not stroke affordances).
-        scene.setAddressMarkersVisible(false)
-    }
-
-    /// StrokeDetector returned a closed window + ImpactDetector
-    /// computed a result. Log `peakImpact` + `strokeEnded`,
-    /// disarm the capture, return to `.addressReady` ready for
-    /// the next swing. Slice 3.4 will wire the BallRollAnimator
-    /// off of this hook.
+    /// B55 — touchUp finished + ImpactDetector returned a result.
+    /// Log peakImpact + strokeEnded. P0.3: wait for the user's phone
+    /// to settle (so they can look at the cup) BEFORE starting the
+    /// roll animation. Without this the camera swings away during
+    /// the follow-through and the user misses the roll entirely
+    /// (Gemini B54 verdict: "fatal — core gameplay is invisible").
     private func handleStrokeCompleted(ball: SIMD3<Float>,
                                          hole: SIMD3<Float>,
                                          pose: AddressPose,
@@ -1852,19 +1946,67 @@ struct ARPlacementView: View {
                        "snapped_to_square": impact.snappedToSquare ? "true" : "false",
                        "snap_reason": impact.snapReason?.rawValue ?? "",
                        "samples": "\(window.samples.count)",
-                       "window_duration_s": String(format: "%.4f", window.duration)
+                       "window_duration_s": String(format: "%.4f", window.duration),
+                       "live_haptic_fires": "\(liveHapticFireCount)"
                    ])
         logger.log(.strokeEnded, "Stroke window closed",
                    payload: ["window_start": String(format: "%.4f", window.start),
                              "window_end": String(format: "%.4f", window.end),
                              "window_duration_s": String(format: "%.4f", window.duration)])
-        UINotificationFeedbackGenerator().notificationOccurred(.success)
-        // B54 — no impact-time stat hint. User physically observes
-        // the roll first; stats come later via the opt-in "View
-        // result" chip after ball comes to rest.
-        cancelStrokeCapture()
-        // B49 — transition to .rolling and start the roll animator.
-        startRoll(ball: ball, hole: hole, pose: pose, impact: impact)
+        // P1.4 — retained haptic instance. Success notification at
+        // window-close (the "confirmation" haptic, distinct from the
+        // LiveImpactDetector's mid-swing "thwack").
+        impactHaptic.notificationOccurred(.success)
+        impactHaptic.prepare()
+        // P0.3 — show "Look at the cup" hint, wait for phone to be
+        // still for 300ms continuous (or 2.5s hard timeout), THEN
+        // start the roll. User gets to see the ball move.
+        showTransientHint("Look at the cup…")
+        awaitingRollStart = true
+        waitForCameraStillness {
+            awaitingRollStart = false
+            startRoll(ball: ball, hole: hole, pose: pose, impact: impact)
+        }
+    }
+
+    /// B55 P0.3 — wait for the phone to be steady before invoking
+    /// `onSteady`. Steady = rotationRate magnitude < 0.5 rad/s for
+    /// 300ms continuous. Hard timeout at 2.5s to avoid stranding
+    /// users with shaky hands. Reads `latestMotionSample` which the
+    /// long-lived motion stream updates continuously.
+    private func waitForCameraStillness(onSteady: @escaping () -> Void) {
+        let startedAt = Date()
+        let steadyMagnitude: Double = 0.5
+        let requiredSteadyS: TimeInterval = 0.3
+        let timeoutS: TimeInterval = 2.5
+        var steadyStreakStartedAt: Date? = nil
+        Task { @MainActor in
+            while true {
+                let elapsed = Date().timeIntervalSince(startedAt)
+                if elapsed > timeoutS {
+                    logger.log(.note, "Stillness wait timeout — starting roll anyway",
+                               payload: ["elapsed_s": String(format: "%.3f", elapsed)])
+                    onSteady()
+                    return
+                }
+                let mag: Double = latestMotionSample?.rotationMagnitude ?? .greatestFiniteMagnitude
+                if mag < steadyMagnitude {
+                    if steadyStreakStartedAt == nil {
+                        steadyStreakStartedAt = Date()
+                    } else if let s = steadyStreakStartedAt,
+                              Date().timeIntervalSince(s) >= requiredSteadyS {
+                        logger.log(.note, "Stillness wait — phone steady",
+                                   payload: ["elapsed_s": String(format: "%.3f", elapsed),
+                                             "mag_rad_per_s": String(format: "%.3f", mag)])
+                        onSteady()
+                        return
+                    }
+                } else {
+                    steadyStreakStartedAt = nil
+                }
+                try? await Task.sleep(nanoseconds: 50_000_000)  // 50ms tick
+            }
+        }
     }
 
     /// B49 Slice 3.4 — kick off the BallRollAnimator. Transitions
@@ -2055,11 +2197,6 @@ final class ARPlacementScene {
     /// putt. Hidden when stroke begins (B48 hides via setIsActive
     /// on the underlying entities).
     private var addressMarkersAnchor: AnchorEntity?
-    /// B53 — local env probe dropped at the ball position for sharper
-    /// IBL. Retained so the next `placeBall` (or `clearBall`) can
-    /// remove the previous probe before adding a new one. Without
-    /// this, every placement leaks a probe to the ARSession.
-    private var ballLocalProbe: AREnvironmentProbeAnchor?
     /// B49 Slice 3.4 — anchor + retained list for the roll-trail
     /// markers. Kept as a flat list so we can FIFO-cap at ~200
     /// markers (one per 60Hz frame, ~3 s of roll without growth).
@@ -2114,19 +2251,19 @@ final class ARPlacementScene {
         // environmentTexturing = .automatic + AREnvironmentProbeAnchor
         // (both wired in makeUIView); without those the PBR shading is
         // flat and the dimples won't read.
-        // B53 — PBR polish per Gemini B51 6/10 read: stronger clearcoat
-        // sheen + lower roughness so the IBL probe's reflection is more
-        // visible. Dimple normal-map amplitude bumped to 0.32 (was 0.18)
-        // in makeDimpleNormalTexture() — on device the IBL contrast is
-        // weaker than the Three.js mockup so the dimples need more
-        // depth to read.
+        // B55 — softer clearcoat now that we no longer drop a local
+        // probe near the ball (the per-placement probe in B53 caused
+        // a 1.5s ARKit re-init freeze that Gemini scored as the #1
+        // catastrophic bug). Material polish replaces the local-probe
+        // intent — softer falloff + tighter specular still reads as
+        // glossy ball under the world-origin 4m³ probe alone.
         var material = PhysicallyBasedMaterial()
         material.baseColor = .init(tint: UIColor(red: 0.998, green: 0.998,
                                                   blue: 1.0, alpha: 1.0))
-        material.roughness = .init(floatLiteral: 0.18)
+        material.roughness = .init(floatLiteral: 0.22)
         material.metallic = .init(floatLiteral: 0.0)
-        material.clearcoat = .init(floatLiteral: 0.7)
-        material.clearcoatRoughness = .init(floatLiteral: 0.12)
+        material.clearcoat = .init(floatLiteral: 0.5)
+        material.clearcoatRoughness = .init(floatLiteral: 0.08)
         if let resource = Self.cachedDimpleNormalTexture {
             material.normal = .init(texture: .init(resource))
         }
@@ -2154,32 +2291,21 @@ final class ARPlacementScene {
         // on the ball gives sharper local reflections — the gold
         // floor/wall around it actually shows up in the clearcoat
         // sheen. Gemini B51 ball score 6/10 cited weak IBL.
-        // B53/B54-fix — drop the previous probe before adding a new
-        // one. Without this every placeBall accumulates a probe on
-        // the ARSession (caught in pre-ship audit 2026-06-03).
-        if let old = ballLocalProbe {
-            arView.session.remove(anchor: old)
-        }
-        var probeTransform = matrix_identity_float4x4
-        probeTransform.columns.3 = SIMD4<Float>(worldPosition.x,
-                                                  worldPosition.y + 0.1,
-                                                  worldPosition.z, 1)
-        let localProbe = AREnvironmentProbeAnchor(
-            transform: probeTransform,
-            extent: SIMD3<Float>(0.6, 0.6, 0.6)
-        )
-        arView.session.add(anchor: localProbe)
-        ballLocalProbe = localProbe
-
-        logger?.log(.materialApplied, "B53 ball material applied",
+        // B55 — local env probe REMOVED. The B53/B54 per-placement
+        // AREnvironmentProbeAnchor caused a 2-second ARKit
+        // re-initialization (trackingState→Limited) every time the
+        // ball was placed, which Gemini scored as the #1 catastrophic
+        // bug. We rely entirely on the world-origin 4m³ probe added
+        // in makeUIView(). Reflections are slightly softer locally
+        // but the ball still reads as a polished tour ball.
+        logger?.log(.materialApplied, "B55 ball material applied",
                     payload: ["entity": "ball",
-                              "design": "b53_dimpled_tour_ball_v2",
+                              "design": "b55_dimpled_tour_ball_no_local_probe",
                               "material": "PhysicallyBasedMaterial",
-                              "clearcoat": "0.7",
-                              "roughness": "0.18",
+                              "clearcoat": "0.5",
+                              "roughness": "0.22",
                               "metallic": "0.0",
                               "normal_map": "procedural_dimples_32x32_deep",
-                              "local_probe_extent_m": "0.6",
                               "radius_m": String(format: "%.4f", radius)])
     }
 
@@ -2373,33 +2499,38 @@ final class ARPlacementScene {
         bevelModel.position = SIMD3<Float>(0, 0.0010, 0)
         anchor.addChild(bevelModel)
 
-        // [4] CYLINDER WALL — lit white plastic. THIS is the
-        //     headline material change: PhysicallyBasedMaterial
-        //     receives ARKit's directional light, so the curved
-        //     inside surface is bright on the lit side and dark
-        //     on the shadow side — which Gemini called out as the
-        //     critical depth cue. White declared, but ARKit's
-        //     shading + the rim's own cast shadow create the
-        //     natural top-to-bottom darkening that mimics a real
-        //     plastic cup liner.
-        // B52 — render the cup wall with FRONT-face culling so only
-        // the INSIDE surfaces of the box are drawn. From above
-        // looking down at the cup, the user now sees the inside
-        // walls + the dark bottom, which reads as a real recessed
-        // cup. Without this, RealityKit's default back-face culling
-        // shows only the box's TOP face = a flat dark disc, which
-        // is what Gemini scored 1/10 in B51.
-        let wallMesh = MeshResource.generateBox(width: dia,
+        // [4] CYLINDER WALL — B55 rebuild as a manual hollow tube
+        //     mesh via MeshDescriptor. B52's `wallMaterial.faceCulling
+        //     = .front` had NO effect (Gemini B54 confirmed hole still
+        //     read as flat disc) because RealityKit's
+        //     PhysicallyBasedMaterial doesn't honour faceCulling —
+        //     only CustomMaterial does. The right fix is to build the
+        //     wall geometry so the INSIDE of the cup is what gets
+        //     rendered. We do this by constructing a tube of 32
+        //     segments with normals pointing INWARD; default
+        //     back-face culling then keeps the inside surface visible
+        //     (correct for a real cup viewed from above at an angle).
+        let wallMesh: MeshResource
+        if let tube = Self.makeHollowTubeMesh(radius: dia / 2, depth: depth,
+                                                segments: 32) {
+            wallMesh = tube
+        } else {
+            // Fallback: B52's broken box if mesh-build fails. Better
+            // than crashing.
+            wallMesh = MeshResource.generateBox(width: dia,
                                                  height: depth,
                                                  depth: dia,
                                                  cornerRadius: dia / 2)
+        }
         var wallMaterial = PhysicallyBasedMaterial()
         wallMaterial.baseColor = .init(tint: UIColor(white: 0.96, alpha: 1.0))
         wallMaterial.roughness = .init(floatLiteral: 0.85)
         wallMaterial.metallic = .init(floatLiteral: 0.0)
-        wallMaterial.faceCulling = .front
         let wallModel = ModelEntity(mesh: wallMesh, materials: [wallMaterial])
-        wallModel.position = SIMD3<Float>(0, -depth / 2, 0)
+        // Tube vertices are built with Y=0 at top, Y=-depth at
+        // bottom — so position the model at anchor origin (the
+        // worldPosition already sits ON the floor).
+        wallModel.position = SIMD3<Float>(0, 0, 0)
         anchor.addChild(wallModel)
 
         // [5] DARK BOTTOM — at -depth. Stays SimpleMaterial dark;
@@ -2502,6 +2633,60 @@ final class ARPlacementScene {
     /// Both faces are emitted so the ring is visible from above and
     /// below — useful for the contact shadow which the camera may
     /// see from a near-grazing angle.
+    /// B55 — build a hollow tube mesh (inside-out cylinder) used for
+    /// the cup wall. 32 segments in a ring × 2 layers (top + bottom);
+    /// triangles connect adjacent segments with normals pointing
+    /// INWARD toward the cylinder's central axis. Combined with
+    /// default back-face culling this renders only the INSIDE wall,
+    /// which is what's correct when the camera looks DOWN into the
+    /// cup from above. Returns nil if MeshResource generation fails.
+    ///
+    /// Geometry: top ring at Y=0 (floor level), bottom ring at Y=-depth.
+    /// Vertex winding order is CCW when viewed from INSIDE the tube
+    /// (i.e. looking from cylinder axis outward), which means the
+    /// computed front-face normals point inward — which we also write
+    /// explicitly via MeshDescriptor.normals for lighting consistency.
+    private static func makeHollowTubeMesh(radius: Float,
+                                            depth: Float,
+                                            segments: Int) -> MeshResource? {
+        var positions: [SIMD3<Float>] = []
+        var normals: [SIMD3<Float>] = []
+        positions.reserveCapacity(segments * 2)
+        normals.reserveCapacity(segments * 2)
+        for i in 0..<segments {
+            let angle = Float(i) / Float(segments) * 2 * .pi
+            let x = cos(angle) * radius
+            let z = sin(angle) * radius
+            let inward = SIMD3<Float>(-cos(angle), 0, -sin(angle))
+            positions.append(SIMD3<Float>(x, 0, z))         // top ring
+            normals.append(inward)
+            positions.append(SIMD3<Float>(x, -depth, z))    // bottom ring
+            normals.append(inward)
+        }
+        var indices: [UInt32] = []
+        indices.reserveCapacity(segments * 6)
+        for i in 0..<segments {
+            let topA = UInt32(i * 2)
+            let bottomA = UInt32(i * 2 + 1)
+            let topB = UInt32(((i + 1) % segments) * 2)
+            let bottomB = UInt32(((i + 1) % segments) * 2 + 1)
+            // Winding: CCW from inside the tube (looking outward).
+            // Triangle 1: topA → topB → bottomA
+            indices.append(topA)
+            indices.append(topB)
+            indices.append(bottomA)
+            // Triangle 2: topB → bottomB → bottomA
+            indices.append(topB)
+            indices.append(bottomB)
+            indices.append(bottomA)
+        }
+        var descriptor = MeshDescriptor(name: "cupHollowWall")
+        descriptor.positions = MeshBuffer(positions)
+        descriptor.normals = MeshBuffer(normals)
+        descriptor.primitives = .triangles(indices)
+        return try? MeshResource.generate(from: [descriptor])
+    }
+
     private static func makeAnnulusMesh(innerRadius: Float,
                                          outerRadius: Float,
                                          segments: Int = 96) -> MeshResource {
@@ -2686,11 +2871,6 @@ final class ARPlacementScene {
         holeAnchor = nil
         lineAnchor = nil
         ballWorldPosition = nil
-        // B53/B54-fix — remove local env probe on full reset
-        if let probe = ballLocalProbe {
-            arView?.session.remove(anchor: probe)
-            ballLocalProbe = nil
-        }
         clearAddressMarkers()
         clearRollTrail()
         rollTrailAnchor?.removeFromParent()
@@ -2734,22 +2914,22 @@ final class ARPlacementScene {
         // Perpendicular in the floor plane (rotate 90° about Y).
         let perp = SIMD3<Float>(-aim.z, 0, aim.x)
 
-        // Marker geometry — 24 cm long × 10 cm wide, 1 mm thick
-        // disc. Lift 1 mm above the floor to avoid z-fighting with
-        // the LiDAR mesh overlay.
+        // Marker geometry — 24 cm long × 10 cm wide. B55: raise the
+        // markers to 1 cm above the floor (was 1 mm) so the LiDAR
+        // mesh occlusion doesn't hide them. Switch to UnlitMaterial
+        // for the colour — Gemini B54 confirmed markers weren't
+        // visible, and the root cause was PBR alpha not blending
+        // correctly. UnlitMaterial honours transparency cleanly.
         let footLen: Float = 0.24
         let footWid: Float = 0.10
         let footMesh = MeshResource.generatePlane(width: footLen,
                                                    depth: footWid,
                                                    cornerRadius: 0.02)
 
-        var footMaterial = PhysicallyBasedMaterial()
-        footMaterial.baseColor = .init(tint: UIColor(red: 1.0,
-                                                       green: 0.92,
-                                                       blue: 0.20,
-                                                       alpha: 0.78))
-        footMaterial.roughness = .init(floatLiteral: 0.7)
-        footMaterial.metallic = .init(floatLiteral: 0.0)
+        var footMaterial = UnlitMaterial(color: UIColor(red: 1.0,
+                                                          green: 0.92,
+                                                          blue: 0.20,
+                                                          alpha: 0.78))
         footMaterial.blending = .transparent(opacity: .init(floatLiteral: 0.78))
 
         // Stance position: 60 cm behind the ball along -aim. Foot
@@ -2766,13 +2946,13 @@ final class ARPlacementScene {
 
         let leftFoot = ModelEntity(mesh: footMesh, materials: [footMaterial])
         leftFoot.position = stanceCenter - footOffset
-        leftFoot.position.y = 0.001
+        leftFoot.position.y = 0.01
         leftFoot.orientation = footRot
         anchor.addChild(leftFoot)
 
         let rightFoot = ModelEntity(mesh: footMesh, materials: [footMaterial])
         rightFoot.position = stanceCenter + footOffset
-        rightFoot.position.y = 0.001
+        rightFoot.position.y = 0.01
         rightFoot.orientation = footRot
         anchor.addChild(rightFoot)
 
@@ -2856,11 +3036,6 @@ final class ARPlacementScene {
         ballAnchor = nil
         lineAnchor = nil
         ballWorldPosition = nil
-        // B53/B54-fix — remove local env probe when ball is cleared
-        if let probe = ballLocalProbe {
-            arView?.session.remove(anchor: probe)
-            ballLocalProbe = nil
-        }
         clearAddressMarkers()
     }
 
