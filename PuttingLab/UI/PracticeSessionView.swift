@@ -18,6 +18,11 @@ struct PracticeSessionView: View {
     @State private var viewModel = PracticeSessionViewModel()
     @State private var showDebug = false
     @State private var showHistory = false
+    /// B71 — user-facing putt history. Distinct from `showHistory`, which
+    /// presents the engineer-debug `ReplayHistoryView` (full telemetry +
+    /// export). `showPuttHistory` opens `PuttHistoryView` (friendly list
+    /// grouped by day, Mario-Kart bucket chips, tap-for-detail).
+    @State private var showPuttHistory = false
     @State private var showRestartConfirm = false
     @State private var isPressing = false
     @Environment(\.scenePhase) private var scenePhase
@@ -62,6 +67,9 @@ struct PracticeSessionView: View {
         .sheet(isPresented: $showHistory) {
             ReplayHistoryView()
         }
+        .sheet(isPresented: $showPuttHistory) {
+            PuttHistoryView()
+        }
         .alert("Restart session?", isPresented: $showRestartConfirm) {
             Button("Restart", role: .destructive) { viewModel.restartSession() }
             Button("Cancel", role: .cancel) {}
@@ -91,7 +99,11 @@ struct PracticeSessionView: View {
         case .sessionComplete:
             CompleteView(
                 viewModel: viewModel,
-                onOpenHistory: { showHistory = true },
+                // B71 — route the post-session "View History" CTA to the
+                // user-facing PuttHistoryView (B71) rather than the
+                // engineer-debug ReplayHistoryView. The user wants to
+                // see their putts, not raw sensor telemetry.
+                onOpenHistory: { showPuttHistory = true },
                 onRestart: { showRestartConfirm = true }
             )
         }
@@ -107,11 +119,17 @@ struct PracticeSessionView: View {
 
     private var debugButton: some View {
         Menu {
+            // B71 — user-facing list ranked above the engineer-debug
+            // options. SF Symbol `figure.golf` (iOS 17+) is the
+            // recognisable putting-stance figure.
+            Button { showPuttHistory = true } label: {
+                Label("Putt history", systemImage: "figure.golf")
+            }
             Button { showDebug = true } label: {
-                Label("Sensor Debug", systemImage: "waveform.path.ecg")
+                Label("Sensor debug", systemImage: "waveform.path.ecg")
             }
             Button { showHistory = true } label: {
-                Label("Stroke history", systemImage: "list.bullet.rectangle")
+                Label("Stroke replay (debug)", systemImage: "list.bullet.rectangle")
             }
             Button(role: .destructive) {
                 showRestartConfirm = true
