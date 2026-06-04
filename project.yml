@@ -31,8 +31,8 @@ targets:
       path: PuttingLab/Info.plist
       properties:
         CFBundleDisplayName: PuttingLab
-        CFBundleShortVersionString: "0.7.1"
-        CFBundleVersion: "66"
+        CFBundleShortVersionString: "0.7.2"
+        CFBundleVersion: "67"
         LSRequiresIPhoneOS: true
         UILaunchScreen: {}
         UIRequiredDeviceCapabilities:

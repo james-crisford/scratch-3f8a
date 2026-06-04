@@ -534,6 +534,21 @@ struct ARPlacementView: View {
             startMotionStream()
             pressHaptic.prepare()
             impactHaptic.prepare()
+            // B67 — eagerly warm up the LiveImpactDetector after the IMU
+            // stream is running. The 5-sample below-disarm warm-up is
+            // there to suppress the touchDown wrist flick from firing a
+            // phantom haptic, but on AR7 stroke 1 the warm-up had not yet
+            // completed by the time the user pressed (live_haptic_fires=0
+            // while strokes 2-5 fired). Eagerly arming after 200 ms of
+            // quiescent IMU samples gets the very first putt covered too.
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 200_000_000)
+                liveImpactDetector.forceWarmUp()
+                logger.log(.note,
+                           "LiveImpactDetector warm-up forced after IMU stabilisation",
+                           payload: ["kind": "liveImpactWarmedUpEagerly",
+                                     "delay_ms": "200"])
+            }
             // B65 — surface the LiDAR / plane-only fallback to the user.
             // Workflow Round 4 flagged a silent failure mode on non-LiDAR
             // devices (iPhone 12 base, older iPads): app silently dropped
@@ -2361,6 +2376,30 @@ struct ARPlacementView: View {
             trailEmitter: { world in
                 scene.dropRollTrailMarker(at: world)
             },
+            // B67 — observe drop-into-cup animation lifecycle and route
+            // events into the session log. AR7 stroke 5 was the canonical
+            // example: outcome = .captured, but Gemini saw the ball
+            // disappear at the cup rim rather than visibly descend.
+            // Without these events we cannot tell from JSON alone whether
+            // the drop animation ran or not.
+            dropObserver: { event in
+                switch event {
+                case let .triggered(targetY, startY):
+                    logger.log(.note,
+                               "Ball drop into cup triggered",
+                               payload: [
+                                   "kind": "ballDropTriggered",
+                                   "start_y_m": String(format: "%.4f", startY),
+                                   "target_y_m": String(format: "%.4f", targetY),
+                                   "hole_world_y_m": String(format: "%.4f", hole.y),
+                                   "duration_s": "0.350"
+                               ])
+                case .completed:
+                    logger.log(.note,
+                               "Ball drop into cup completed",
+                               payload: ["kind": "ballDropCompleted"])
+                }
+            },
             onComplete: { outcome, duration in
                 handleRollComplete(ball: ball, hole: hole,
                                     pose: pose, impact: impact,
@@ -2821,17 +2860,26 @@ final class ARPlacementScene {
         bevelModel.position = SIMD3<Float>(0, 0.0010, 0)
         anchor.addChild(bevelModel)
 
-        // [4] CYLINDER WALL — B55 rebuild as a manual hollow tube
-        //     mesh via MeshDescriptor. B52's `wallMaterial.faceCulling
-        //     = .front` had NO effect (Gemini B54 confirmed hole still
-        //     read as flat disc) because RealityKit's
-        //     PhysicallyBasedMaterial doesn't honour faceCulling —
-        //     only CustomMaterial does. The right fix is to build the
-        //     wall geometry so the INSIDE of the cup is what gets
-        //     rendered. We do this by constructing a tube of 32
-        //     segments with normals pointing INWARD; default
-        //     back-face culling then keeps the inside surface visible
-        //     (correct for a real cup viewed from above at an angle).
+        // [4] CYLINDER WALL — B55 rebuild as a manual hollow tube via
+        //     MeshDescriptor; winding reversed in B59 so triangles are
+        //     CCW from inside the tube (front-facing under default
+        //     back-face culling). Explicit normals point INWARD.
+        //
+        //     B67 note on materials: Apple's PhysicallyBasedMaterial DOES
+        //     honour explicit `MeshDescriptor.normals` for lighting
+        //     calculations — winding only controls back-face culling.
+        //     (Pre-B67 the comment here claimed PBR ignored explicit
+        //     normals; Wave 7 / Apple docs research disproved that. The
+        //     B59 winding fix is the correct fix; switching to
+        //     CustomMaterial here would NOT change rendering.)
+        //
+        //     If the cup still reads as flat in TestFlight, the suspect
+        //     is the LIGHTING pipeline, not the mesh: the world-origin
+        //     4 m³ env probe (B45/B63) samples IBL at world origin,
+        //     which may not match the cup's local lighting when the cup
+        //     is placed several metres away. We deliberately do NOT add
+        //     a per-cup probe — that was the B53/B54 bug that caused a
+        //     2 s ARKit re-init every placement.
         let wallMesh: MeshResource
         if let tube = Self.makeHollowTubeMesh(radius: dia / 2, depth: depth,
                                                 segments: 32) {
@@ -3151,10 +3199,20 @@ final class ARPlacementScene {
         }
         model.transform.rotation = rotation
 
-        // Lift the ANCHOR by 2 mm (in world space), not the model. Local
-        // offsets get rotated; world offsets stay vertical regardless of
-        // the model's orientation.
-        let anchor = AnchorEntity(world: mid + SIMD3<Float>(0, 0.002, 0))
+        // B67 — flatten the anchor Y to floor + 2 mm. Pre-B67 we anchored
+        // at `mid` which is the average of `from` (ball world position,
+        // lifted by ball radius ≈ 0.021 m so the sphere centre sits on
+        // the floor) and `to` (hole world position, on the floor). The
+        // resulting mid.y was ≈ 0.011 m — i.e. the line ANCHORED at ~1 cm
+        // above the floor, not on it. AR7 Gemini analysis observed the
+        // aim line "floating 2-3 cm above the carpet"; that matches
+        // mid.y (≈1 cm) + camera-angle parallax. We use `to.y` (the hole's
+        // world Y, which is the actual floor level at the cup) plus a
+        // 2 mm lift to avoid LiDAR mesh z-fighting. Local offsets get
+        // rotated; world offsets stay vertical regardless of the model's
+        // orientation.
+        let anchorWorld = SIMD3<Float>(mid.x, to.y + 0.002, mid.z)
+        let anchor = AnchorEntity(world: anchorWorld)
         anchor.addChild(model)
         arView.scene.addAnchor(anchor)
         lineAnchor = anchor

@@ -64,6 +64,15 @@ final class LiveImpactDetector {
     private var lastFireTime: TimeInterval = -.infinity
     private var consecutiveBelowDisarm: Int = 0
     private var warmedUp: Bool = false
+    /// B67 — session-wide warm-up latch. Once `forceWarmUp()` is called
+    /// (or warm-up completes naturally once during a stroke), this stays
+    /// true for the lifetime of the detector. `reset()` keeps it set so
+    /// the per-stroke `warmedUp` re-arms immediately on the next sample,
+    /// instead of restarting the 5-sample below-disarm count from zero.
+    /// Without this, the per-stroke warm-up could miss the very first
+    /// stroke (and any stroke where the user presses + immediately
+    /// swings rather than holding the address pose for ≥ 50 ms).
+    private var sessionWarmedUp: Bool = false
     /// Maximum |ω| seen during the current armed window. Used to detect
     /// "we just passed the peak" by counting samples that descend from it.
     private var maxMagSinceArmed: Double = 0
@@ -111,14 +120,43 @@ final class LiveImpactDetector {
     }
 
     /// Reset state at the start of a new stroke (touchDown).
+    ///
+    /// B67 — does NOT clear `sessionWarmedUp`. Once the detector has
+    /// seen a quiescent baseline (either naturally during a previous
+    /// stroke or via `forceWarmUp()` from the AR view's onAppear), every
+    /// subsequent stroke arms immediately on the first sample. Without
+    /// this latch the very first stroke can miss its haptic when the
+    /// user presses + swings without holding (AR7 stroke 1
+    /// `live_haptic_fires = 0`); the wrist-flick gate is still enforced
+    /// by `minFireDelayFromTouchDownSeconds` (1.0 s post-touchDown), so
+    /// pre-baseline phantom fires remain suppressed.
     func reset() {
         armed = false
         lastFireTime = -.infinity
         consecutiveBelowDisarm = 0
-        warmedUp = false
+        warmedUp = sessionWarmedUp
         maxMagSinceArmed = 0
         consecutiveBelowMax = 0
         touchDownTimestamp = -.infinity
+    }
+
+    /// B67 — preempt warm-up so the very first stroke of an AR session
+    /// can fire a haptic. AR7 stroke 1 had `live_haptic_fires = 0`
+    /// because the 5-sample below-disarm warm-up requirement had not
+    /// completed by the time the user took their first putt: the motion
+    /// stream had been running long enough that the warm-up *could* have
+    /// succeeded, but `reset()` cleared it on touchDown and the stroke
+    /// began before 5 sub-disarm samples accumulated. Strokes 2-5 all
+    /// fired because the post-stroke quiescent window satisfied warm-up.
+    ///
+    /// Call this from ARPlacementView.onAppear ≥200 ms after starting
+    /// the motion stream — by then the IMU has produced enough samples
+    /// to confirm a quiescent baseline. The `sessionWarmedUp` latch
+    /// then survives every subsequent `reset()`.
+    func forceWarmUp() {
+        warmedUp = true
+        sessionWarmedUp = true
+        consecutiveBelowDisarm = warmUpSamplesBelowDisarm
     }
 
     /// Feed every motion sample during recording. Returns `true` exactly when
@@ -159,6 +197,10 @@ final class LiveImpactDetector {
                 consecutiveBelowDisarm += 1
                 if consecutiveBelowDisarm >= warmUpSamplesBelowDisarm {
                     warmedUp = true
+                    // B67 — latch the session-wide warm-up so every
+                    // subsequent stroke can fire immediately without
+                    // re-counting 5 sub-disarm samples per stroke.
+                    sessionWarmedUp = true
                 }
             } else {
                 consecutiveBelowDisarm = 0

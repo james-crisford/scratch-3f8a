@@ -3,6 +3,16 @@ import simd
 import RealityKit
 import QuartzCore
 
+/// B67 — events emitted while the .captured drop animation runs. Plumbed
+/// through BallRollAnimator.start so the AR view can route them into
+/// ARSessionLogger as JSON events (ballDropTriggered / ballDropCompleted).
+/// Without this, Wave 1 found, the pre-B67 logs had no signal for whether
+/// the drop ran — only the final outcome.
+enum BallDropEvent {
+    case triggered(targetY: Float, startY: Float)
+    case completed
+}
+
 /// Ball-roll animator for Stage 3 Slice 3.4 (B49).
 ///
 /// Drives the AR ball entity along a `BallPhysics.Result` path
@@ -44,6 +54,20 @@ final class BallRollAnimator {
     private var task: Task<Void, Never>?
     private var trailEmitter: ((SIMD3<Float>) -> Void)?
     private var onComplete: ((BallPhysics.Outcome, Double) -> Void)?
+    /// B67 — cache hole world-frame Y captured at start() so the drop
+    /// animation targets the actual cup's vertical position. Pre-B67
+    /// dropBallIntoCup hardcoded targetY = -cupDepth/2 in absolute world
+    /// Y, which only happens to land in the cup when ARKit's world frame
+    /// origin coincides with the floor. If the user re-localised or the
+    /// world Y drifted, the ball would "drop" to a Y that no longer sits
+    /// inside the cup geometry. AR7 stroke 5 (.captured outcome) showed
+    /// the ball reach the cup mouth and then "disappear" rather than
+    /// visibly drop — Wave 1+4 traced it to this mismatch.
+    private var holeWorldY: Float = 0
+    /// B67 — observer for drop-animation events (triggered/completed).
+    /// Plain closure so this stays free of higher-level types; the caller
+    /// (ARPlacementView) routes the call into ARSessionLogger.
+    private var dropObserver: ((BallDropEvent) -> Void)?
 
     init() {}
 
@@ -75,8 +99,13 @@ final class BallRollAnimator {
                 speedCalibration: Double = 1.0,
                 stimpFeet: Double = BallPhysics.defaultStimp,
                 trailEmitter: ((SIMD3<Float>) -> Void)? = nil,
+                dropObserver: ((BallDropEvent) -> Void)? = nil,
                 onComplete: @escaping (BallPhysics.Outcome, Double) -> Void) {
         cancel()
+        // B67 — store hole world Y so dropBallIntoCup lands inside the
+        // cup regardless of world-frame Y drift / re-localisation.
+        self.holeWorldY = holeWorld.y
+        self.dropObserver = dropObserver
 
         // Compute aim direction in the horizontal plane.
         let aimVec = SIMD3<Float>(holeWorld.x - ballWorld.x, 0,
@@ -133,6 +162,7 @@ final class BallRollAnimator {
         path.removeAll()
         trailEmitter = nil
         onComplete = nil
+        dropObserver = nil
     }
 
     private func runLoop() async {
@@ -156,9 +186,19 @@ final class BallRollAnimator {
                     // ball stayed at floor-level Y, so "drained" felt
                     // identical to "stopped right next to the cup".
                     if outcome == .captured {
+                        // B67 — emit a trigger event so ARSessionLogger
+                        // can confirm in JSON whether the drop animation
+                        // actually ran. Pre-B67 AR7 stroke 5 was tagged
+                        // .captured but Gemini saw the ball "disappear"
+                        // at the cup mouth — without observability we
+                        // couldn't tell whether dropBallIntoCup was even
+                        // invoked or only the math was wrong.
+                        dropObserver?(.triggered(targetY: holeWorldY - Self.cupDepth / 2,
+                                                  startY: world.y))
                         await dropBallIntoCup(ballEntity: ballEntity,
                                                 startY: world.y,
                                                 trailEmitter: trailEmitter)
+                        dropObserver?(.completed)
                     }
                 }
                 onComplete?(outcome, totalDuration)
@@ -201,7 +241,13 @@ final class BallRollAnimator {
                                   startY: Float,
                                   trailEmitter: ((SIMD3<Float>) -> Void)?) async {
         let dropDurationS: Double = 0.35
-        let targetY: Float = -Self.cupDepth / 2  // ~half-way into the cup
+        // B67 — target Y derived from the captured holeWorldY so the
+        // descent lands inside the cup geometry even when the world-Y
+        // origin does not coincide with floor=0 (LiDAR-relocalised
+        // sessions, multi-room scans). Pre-B67 this was hardcoded as
+        // `-cupDepth/2` (~-4 cm absolute world Y), correct only when
+        // floorY≈0. AR7 stroke 5 raised this on .captured outcomes.
+        let targetY: Float = holeWorldY - Self.cupDepth / 2
         let frames = Int(dropDurationS / Self.frameInterval)
         let startWall = CACurrentMediaTime()
         for _ in 0..<frames {
