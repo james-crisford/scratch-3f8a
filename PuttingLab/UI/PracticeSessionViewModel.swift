@@ -589,7 +589,11 @@ final class PracticeSessionViewModel {
 /// If the bundle is missing the file (e.g. SwiftUI Preview in isolated
 /// module mode) or AVFoundation init fails, `player` is nil and
 /// callers skip the play call — no crash, no audio.
-fileprivate enum ImpactSoundLoader {
+/// B66 — promoted to internal scope so ARPlacementView can also play
+/// the putter-click on impact. Workflow Round 5 flagged that AR mode
+/// had ZERO audio feedback while PracticeSessionView had the 5-10ms
+/// AVAudioPlayer setup.
+enum ImpactSoundLoader {
     // Swift 6 strict concurrency: AVAudioPlayer is not Sendable. The only
     // callers are inside @MainActor closures (the default onImpactSound),
     // so this static is effectively MainActor-bound — but the compiler

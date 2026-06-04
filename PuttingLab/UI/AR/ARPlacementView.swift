@@ -155,6 +155,10 @@ struct ARPlacementView: View {
     /// the user is at .readyToPlaceBall — confirms the scan is good
     /// enough to proceed without making the user guess.
     @State private var readyToPlaceSignaled: Bool = false
+    /// B66 — debounce for handleInterruptionStart so rapid double-fires
+    /// (banner + call sequence, background then foreground) don't queue
+    /// redundant "Stroke interrupted" toasts.
+    @State private var lastInterruptionAt: Date? = nil
     /// B55 — long-lived MotionManager + impactDetector + LiveImpactDetector.
     /// This is the v0.2.0 design that James confirmed worked end-to-end on
     /// 80 strokes. Replaces the broken B51 inline pose snapshot + the
@@ -989,6 +993,17 @@ struct ARPlacementView: View {
     /// cleared entity, pressActive flag stale across the freeze, and
     /// MotionManager silently consuming samples during the interruption.
     private func handleInterruptionStart() {
+        // B66 — idempotency guard against rapid double-fire. If ARSession
+        // fires sessionWasInterrupted twice within 500ms (e.g., backgrounded
+        // then quickly re-foregrounded, or banner + call sequence), the
+        // second call is a no-op so the user doesn't see two redundant
+        // "Stroke interrupted" toasts. Workflow Round 5 flagged this as a
+        // HIGH severity UX nit.
+        let now = Date()
+        if let last = lastInterruptionAt, now.timeIntervalSince(last) < 0.5 {
+            return
+        }
+        lastInterruptionAt = now
         logger.log(.note, "Interruption start — cleaning press flow + animator")
         // Cancel the press flow if active. Don't fire handlePressEnded
         // because there's no valid result to compute against a frozen
@@ -2251,6 +2266,15 @@ struct ARPlacementView: View {
         // LiveImpactDetector's mid-swing "thwack").
         impactHaptic.notificationOccurred(.success)
         impactHaptic.prepare()
+        // B66 — play the putter-click sound on impact. PracticeSessionView
+        // has used this since B16 (preloaded AVAudioPlayer for 5-10ms
+        // latency vs 50ms for AudioServicesPlaySystemSound). AR mode
+        // was silent until now — workflow Round 5 flagged this as a
+        // HIGH severity audio-layer gap.
+        if let player = ImpactSoundLoader.player {
+            player.currentTime = 0
+            player.play()
+        }
         // P0.3 — show "Look at the cup" hint, wait for phone to be
         // still for 300ms continuous (or 2.5s hard timeout), THEN
         // start the roll. User gets to see the ball move.
