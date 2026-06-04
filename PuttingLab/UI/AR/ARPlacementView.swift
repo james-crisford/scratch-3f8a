@@ -3166,7 +3166,27 @@ final class ARPlacementScene {
         bevelModel.position = SIMD3<Float>(0, 0.0010, 0)
         anchor.addChild(bevelModel)
 
-        // [4] CUP INTERIOR — B70 "Approach D" single dark box.
+        // [3.5] INNER-SHADOW ANNULUS — B71.1 depth-cue addition.
+        //       A soft dark ring just BELOW floor level, between the rim's
+        //       inner edge and the dark box's top face. From above the
+        //       brain reads this gradient as "the rim casts a shadow into
+        //       the hole" — a primary depth cue. Without it the rim looks
+        //       slightly raised above the dark surface rather than recessed.
+        //       UnlitMaterial so it stays the same dark gradient regardless
+        //       of room lighting.
+        let shadowMesh = Self.makeAnnulusMesh(
+            innerRadius: dia / 2 * 0.78,
+            outerRadius: dia / 2
+        )
+        var shadowMaterial = UnlitMaterial(
+            color: UIColor(red: 0.03, green: 0.03, blue: 0.04, alpha: 1.0)
+        )
+        shadowMaterial.blending = .transparent(opacity: .init(floatLiteral: 0.85))
+        let shadowModel = ModelEntity(mesh: shadowMesh, materials: [shadowMaterial])
+        shadowModel.position = SIMD3<Float>(0, -0.0015, 0)
+        anchor.addChild(shadowModel)
+
+        // [4] CUP INTERIOR — B71.1 — tuned variant of B70's "Approach D".
         //
         //     Why: across B40–B69 the cup wall was a manual MeshDescriptor
         //     hollow tube with PhysicallyBasedMaterial. The math was
@@ -3196,12 +3216,15 @@ final class ARPlacementScene {
                                                 height: depth,
                                                 depth: dia,
                                                 cornerRadius: dia / 2)
-        // Near-black with a hint of warmth so the camera-feed brightness
-        // around it doesn't make the box look like a flat sticker. The
-        // 0.05 floor in red+green vs pure black gives PIL/JPEG noise on
-        // the camera enough contrast to register as "hole".
+        // B71.1 — push the box near pure black. The 0.05 from B70 was a
+        // hedge for camera-feed noise contrast, but Gemini's "flat decal"
+        // diagnosis on B68 (the older PBR variant) suggests the user's
+        // depth perception needs MORE contrast vs the surrounding camera
+        // feed, not less. RGB (0.015, 0.015, 0.02) is closer to the
+        // camera-feed JPEG quantisation noise floor — the darkest
+        // believable surface.
         let cupMaterial = SimpleMaterial(
-            color: UIColor(red: 0.05, green: 0.05, blue: 0.07, alpha: 1.0),
+            color: UIColor(red: 0.015, green: 0.015, blue: 0.02, alpha: 1.0),
             roughness: 1.0,
             isMetallic: false
         )
@@ -3209,7 +3232,13 @@ final class ARPlacementScene {
         // Position so the TOP face of the box is at the floor (anchor
         // Y=0). The box geometry is centred on its origin, so half its
         // height sits above and half below. Translate down by depth/2.
-        cupModel.position = SIMD3<Float>(0, -depth / 2, 0)
+        // B71.1 — recess the box top 8 mm BELOW floor level. In B70 the
+        // top sat at Y=0 (floor), so the only visible depth cue was the
+        // 3 mm rim sitting above it — the brain reads that as "rim
+        // slightly raised", not "hole recessed". Lowering the top to
+        // Y=-0.008 creates an 11 mm visible step from rim down to dark
+        // interior, the primary depth cue for "hole in ground".
+        cupModel.position = SIMD3<Float>(0, -depth / 2 - 0.008, 0)
         anchor.addChild(cupModel)
 
         // [6] FLAGSTICK — matte black PhysicallyBasedMaterial.
