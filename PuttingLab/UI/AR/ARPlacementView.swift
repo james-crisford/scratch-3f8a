@@ -150,6 +150,11 @@ struct ARPlacementView: View {
     /// B45 — once-per-session flag so the "scan more of the floor"
     /// transient hint doesn't re-fire every 0.5 s tick.
     @State private var scanMoreHintShown: Bool = false
+    /// B65 — once-per-session flag for the affirmative "ready to place"
+    /// signal. Fires once when LiDAR mesh crosses 1.5 m² coverage and
+    /// the user is at .readyToPlaceBall — confirms the scan is good
+    /// enough to proceed without making the user guess.
+    @State private var readyToPlaceSignaled: Bool = false
     /// B55 — long-lived MotionManager + impactDetector + LiveImpactDetector.
     /// This is the v0.2.0 design that James confirmed worked end-to-end on
     /// 80 strokes. Replaces the broken B51 inline pose snapshot + the
@@ -276,7 +281,8 @@ struct ARPlacementView: View {
                 planeCount: $planeCount,
                 placementState: $placementState,
                 onTransientHint: { msg in showTransientHint(msg) },
-                onResetAfterInterruption: { resetAfterInterruption() }
+                onResetAfterInterruption: { resetAfterInterruption() },
+                onSessionInterruptionStart: { handleInterruptionStart() }
             )
             .ignoresSafeArea()
 
@@ -524,6 +530,17 @@ struct ARPlacementView: View {
             startMotionStream()
             pressHaptic.prepare()
             impactHaptic.prepare()
+            // B65 — surface the LiDAR / plane-only fallback to the user.
+            // Workflow Round 4 flagged a silent failure mode on non-LiDAR
+            // devices (iPhone 12 base, older iPads): app silently dropped
+            // to plane detection, user saw no green mesh, no explanation.
+            let hasLidar = ARWorldTrackingConfiguration.supportsSceneReconstruction(.mesh)
+            if !hasLidar {
+                logger.log(.note, "LiDAR unavailable — using plane detection only")
+                showTransientHint("Plane detection mode (LiDAR not available)")
+            } else {
+                logger.log(.note, "LiDAR available — mesh scan active")
+            }
             // B62 — reload calibration profile every time AR view appears.
             // SwiftUI @State initialisers run ONCE at view instantiation, so
             // if the user opened AR mode before running their 5-stroke
@@ -643,6 +660,18 @@ struct ARPlacementView: View {
                 showTransientHint("Slowly pan around — more floor → better tracking")
                 logger.log(.note,
                            "B45 scan-more hint shown",
+                           payload: ["floor_area_m2": String(format: "%.2f", scene.lidarFloorAreaM2())])
+            }
+            // B65 — affirmative "ready to place" signal once mesh
+            // coverage crosses the threshold. Fires once per session
+            // to avoid spam. Workflow Round 4 flagged the absence of
+            // any positive scan-good feedback.
+            if !readyToPlaceSignaled,
+               scene.lidarFloorAreaM2() >= 1.5,
+               case .readyToPlaceBall = placementState {
+                readyToPlaceSignaled = true
+                showTransientHint("Floor scanned — tap to place ball")
+                logger.log(.note, "B65 ready-to-place signal fired",
                            payload: ["floor_area_m2": String(format: "%.2f", scene.lidarFloorAreaM2())])
             }
         }
@@ -947,6 +976,50 @@ struct ARPlacementView: View {
     /// from an interruption (H5 fix). Without this, the cached ball /
     /// hole world coordinates may have shifted under the user and the
     /// distance readout becomes wrong-but-confident.
+    /// B65 — fires when ARSession.sessionWasInterrupted is called
+    /// (incoming phone call, app backgrounded, app switcher invoked).
+    /// Cancels any in-progress press flow + ball roll animator + stops
+    /// the recorder so they don't tick against the frozen ARKit session.
+    /// Does NOT clear placed entities — that happens in
+    /// `resetAfterInterruption` only when the session RESUMES, so a
+    /// brief interruption (banner notification) doesn't wipe state.
+    ///
+    /// Workflow Round 4 surfaced 3 separate critical findings on the
+    /// pre-B65 interruption flow: ballRollAnimator ticking against a
+    /// cleared entity, pressActive flag stale across the freeze, and
+    /// MotionManager silently consuming samples during the interruption.
+    private func handleInterruptionStart() {
+        logger.log(.note, "Interruption start — cleaning press flow + animator")
+        // Cancel the press flow if active. Don't fire handlePressEnded
+        // because there's no valid result to compute against a frozen
+        // ARKit world.
+        if pressActive {
+            pressActive = false
+            samplesDuringRecording.removeAll(keepingCapacity: false)
+            posesDuringRecording.removeAll(keepingCapacity: false)
+            recordingLock = nil
+            recordingArkitBaseline = nil
+            showTransientHint("Stroke interrupted — try again")
+        }
+        // Cancel the ball roll animator if it's currently animating.
+        ballRollAnimator?.cancel()
+        ballRollAnimator = nil
+        awaitingRollStart = false
+        // Stop screen recording so the MP4 finalises cleanly before
+        // the system tears down the AR view (workflow Round 4 flagged
+        // ARScreenRecorder doesn't auto-stop on interruption otherwise).
+        if isRecording {
+            recorder.stop { url in
+                Task { @MainActor in
+                    if let url {
+                        logger.log(.note, "Recording stopped on interruption: \(url.lastPathComponent)")
+                    }
+                    isRecording = false
+                }
+            }
+        }
+    }
+
     private func resetAfterInterruption() {
         let hadPlacedEntities: Bool
         switch placementState {
@@ -2068,6 +2141,18 @@ struct ARPlacementView: View {
         guard let firstSample = samplesDuringRecording.first,
               let lastSample = samplesDuringRecording.last else {
             logger.log(.failed, "Recording buffer unexpectedly empty after count check")
+            return
+        }
+        // B65 — clock-rollback guard. If system time was adjusted mid-press
+        // (NTP sync, manual time change), last.timestamp could be less than
+        // first.timestamp → negative window.duration → downstream impact math
+        // produces NaN/Inf or wraps in unexpected ways. Workflow Round 4
+        // flagged as a HIGH risk on the StrokeWindow construction path.
+        guard lastSample.timestamp >= firstSample.timestamp else {
+            logger.log(.failed, "Clock rollback detected — discarding stroke window",
+                       payload: ["first_ts": String(format: "%.4f", firstSample.timestamp),
+                                 "last_ts": String(format: "%.4f", lastSample.timestamp)])
+            showTransientHint("Sensor clock jumped — try again")
             return
         }
         let window = StrokeWindow(
@@ -3336,6 +3421,12 @@ private struct ARPlacementSceneRepresentable: UIViewRepresentable {
     /// `AnchorEntity(world:)` and may now point to stale coordinates
     /// after ARKit relocalisation (H5 fix).
     let onResetAfterInterruption: () -> Void
+    /// B65 — callback fired on sessionWasInterrupted (interruption
+    /// START). Lighter than resetAfterInterruption: does NOT clear
+    /// placed entities. Cancels the press flow + ballRollAnimator +
+    /// stops the recorder, so they don't tick against a frozen ARKit
+    /// session until resume.
+    let onSessionInterruptionStart: () -> Void
 
     func makeUIView(context: Context) -> ARView {
         // KNOWN-RISK FOR SLICE 2 (same as Slice 1, restored from earlier
@@ -3493,7 +3584,8 @@ private struct ARPlacementSceneRepresentable: UIViewRepresentable {
                     placementState: $placementState,
                     logger: logger,
                     onTransientHint: onTransientHint,
-                    onResetAfterInterruption: onResetAfterInterruption)
+                    onResetAfterInterruption: onResetAfterInterruption,
+                    onSessionInterruptionStart: onSessionInterruptionStart)
     }
 
     /// `@MainActor` on the class so its own state stays main-isolated,
@@ -3516,6 +3608,8 @@ private struct ARPlacementSceneRepresentable: UIViewRepresentable {
         let logger: ARSessionLogger
         let onTransientHint: (String) -> Void
         let onResetAfterInterruption: () -> Void
+        /// B65 — fires on sessionWasInterrupted (lighter than reset).
+        let onSessionInterruptionStart: () -> Void
 
         private var detectedPlanes: Set<UUID> = []
         private var lastHUDUpdate: Date = .distantPast
@@ -3601,13 +3695,15 @@ private struct ARPlacementSceneRepresentable: UIViewRepresentable {
              placementState: Binding<ARPlacementView.PlacementState>,
              logger: ARSessionLogger,
              onTransientHint: @escaping (String) -> Void,
-             onResetAfterInterruption: @escaping () -> Void) {
+             onResetAfterInterruption: @escaping () -> Void,
+             onSessionInterruptionStart: @escaping () -> Void = {}) {
             _trackingState = trackingState
             _planeCount = planeCount
             _placementState = placementState
             self.logger = logger
             self.onTransientHint = onTransientHint
             self.onResetAfterInterruption = onResetAfterInterruption
+            self.onSessionInterruptionStart = onSessionInterruptionStart
         }
 
         // MARK: ARSessionDelegate
@@ -4007,6 +4103,16 @@ private struct ARPlacementSceneRepresentable: UIViewRepresentable {
                 // freeze isn't a bug.
                 logger.log(.interruption, "session interrupted")
                 _trackingState.wrappedValue = "Interrupted"
+                // B65 — call the lightweight interruption-start handler
+                // immediately. Pre-B65 only sessionInterruptionEnded
+                // fired the heavy resetAfterInterruption — meaning if
+                // the user was mid-press or mid-roll, the press flow
+                // + ball animator continued ticking against a frozen
+                // ARKit session until resume. Workflow Round 4 flagged
+                // this as 3 separate CRITICAL findings (ballRollAnimator
+                // ref mutation post-clear, pressActive stale flag,
+                // motion stream silent).
+                onSessionInterruptionStart()
             }
         }
 
