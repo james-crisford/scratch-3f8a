@@ -80,8 +80,11 @@ final class ARVisualFlowTests: XCTestCase {
                        "ar.recordButtonAlwaysVisible must be reachable.")
         XCTAssertTrue(app.buttons["ar.saveButtonAlwaysVisible"].exists,
                        "ar.saveButtonAlwaysVisible must be reachable.")
-        XCTAssertTrue(app.buttons["ar.sendThisButtonAlwaysVisible"].exists,
-                       "ar.sendThisButtonAlwaysVisible must be reachable.")
+        // B68 — "Send this" renamed to "Bundle" with single-tap ZIP
+        // export. The old preflight-then-share-multiple-files flow is
+        // gone; one tap stages JSON + MP4 + manifest + zips it.
+        XCTAssertTrue(app.buttons["ar.bundleThisButton"].exists,
+                       "ar.bundleThisButton must be reachable.")
         XCTAssertTrue(app.buttons["ar.sendAllButtonAlwaysVisible"].exists,
                        "ar.sendAllButtonAlwaysVisible must be reachable.")
 

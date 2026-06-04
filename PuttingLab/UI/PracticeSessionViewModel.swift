@@ -544,10 +544,76 @@ final class PracticeSessionViewModel {
             // diagnosing why bias correction does or doesn't apply
             // downstream. Workflow audit flagged absence of this event.
             print("[B58/cal] CalibrationProfile saved: bias=\(profile.faceAngleBiasRad)rad, factor=\(profile.speedToDistanceFactor), n=\(pendingCalibrationInputs.count)")
+            // B68 — also mirror the freshly-saved profile to disk under
+            // Documents/ so it appears in the AR bundle ZIP, in Files
+            // app, and via Send-all. This closes the diagnostic gap:
+            // pre-B68 the only signal that the save succeeded was a
+            // `print` line, which is invisible once the device is
+            // unplugged from Xcode. On 2026-06-04 an audit workflow
+            // couldn't tell from on-disk data whether James's iPhone
+            // had a saved profile, because UserDefaults lives in a
+            // sandboxed plist the dev host can't see. The mirror JSON
+            // is the dev-visible answer.
+            Self.writeCalibrationDiagnosticMirror(profile: profile,
+                                                   sampleCount: pendingCalibrationInputs.count)
         } catch {
             lastError = "Couldn't save calibration profile: \(error.localizedDescription)"
+            // B68 — write a failure marker too so the absence of the
+            // success mirror isn't ambiguous with "load succeeded but
+            // mirror write failed".
+            Self.writeCalibrationDiagnosticMirror(profile: nil,
+                                                   sampleCount: pendingCalibrationInputs.count,
+                                                   error: error.localizedDescription)
         }
         pendingCalibrationInputs.removeAll(keepingCapacity: false)
+    }
+
+    /// B68 — write `Documents/calibrationProfile.json`: a tiny mirror of
+    /// the currently-saved profile plus a `savedAt` timestamp and
+    /// sample count. This file is:
+    ///   * Picked up by `ARLogExport.stageBundleSnapshot` (B68 added it
+    ///     to the Documents-root scan) so it travels in every AR bundle.
+    ///   * Visible in iOS Files app under `On My iPhone → PuttingLab`
+    ///     so James can confirm the calibration ran without re-opening
+    ///     PracticeSession.
+    ///   * Greppable from any downstream JSON tool so we can sweep
+    ///     historical bundles for the per-session bias trajectory.
+    ///
+    /// Pass `profile: nil` + non-nil `error` to record a save failure.
+    /// Idempotent — the file is overwritten in place.
+    private nonisolated static func writeCalibrationDiagnosticMirror(
+        profile: CalibrationProfile?,
+        sampleCount: Int,
+        error: String? = nil
+    ) {
+        guard let docs = FileManager.default.urls(for: .documentDirectory,
+                                                    in: .userDomainMask).first else {
+            return
+        }
+        struct Mirror: Encodable {
+            let savedAt: String
+            let success: Bool
+            let sampleCount: Int
+            let faceAngleBiasRad: Double?
+            let faceAngleBiasDeg: Double?
+            let speedToDistanceFactor: Double?
+            let error: String?
+        }
+        let mirror = Mirror(
+            savedAt: ISO8601DateFormatter().string(from: Date()),
+            success: profile != nil,
+            sampleCount: sampleCount,
+            faceAngleBiasRad: profile.map { Double($0.faceAngleBiasRad) },
+            faceAngleBiasDeg: profile.map { Double($0.faceAngleBiasRad) * 180.0 / .pi },
+            speedToDistanceFactor: profile.map { Double($0.speedToDistanceFactor) },
+            error: error
+        )
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let url = docs.appendingPathComponent("calibrationProfile.json")
+        if let data = try? encoder.encode(mirror) {
+            try? data.write(to: url, options: .atomic)
+        }
     }
 
     /// User tapped "CONTINUE TO BATCH X" on the batch-transition card.

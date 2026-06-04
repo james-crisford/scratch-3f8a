@@ -124,6 +124,14 @@ struct ARPlacementView: View {
     /// user can see count + total size + per-session breakdown.
     @State private var showSendPreflight: Bool = false
     @State private var sendPreflight: SendPreflight = SendPreflight(scope: .thisOnly, items: [], totalBytes: 0)
+    /// B68 — single-tap unified bundle path. Replaces the multi-tap
+    /// Send-this flow that James reported as "buggy / hard to send".
+    /// The Bundle button stages JSON + MP4 + manifest into a temp dir,
+    /// zips via NSFileCoordinator(.forUploading), and presents ONE URL
+    /// to the system share sheet.
+    @State private var isPreparingBundle: Bool = false
+    @State private var bundleShareURL: URL? = nil
+    @State private var bundleError: String? = nil
     /// Free-form note input modal for ground-truth tagging (e.g. "phone
     /// slipped here", "plane overlay landed on table not floor").
     @State private var showNoteInput: Bool = false
@@ -569,12 +577,28 @@ struct ARPlacementView: View {
             // b62-comprehensive-diagnostic flagged this as the #1 reason
             // the calibration loop appeared to silently no-op.
             calibrationProfile = try? ProfileStore().load()
-            if calibrationProfile != nil {
-                logger.log(.note, "Calibration profile loaded at onAppear",
-                           payload: ["bias_rad": String(format: "%.4f", calibrationProfile?.faceAngleBiasRad ?? 0),
-                                     "speed_factor": String(format: "%.3f", calibrationProfile?.speedToDistanceFactor ?? 0)])
+            if let profile = calibrationProfile {
+                // B68 — `kind` payload so the JSON is greppable from
+                // shell/python without a regex over the human message.
+                // Also surface bias in degrees because the human-readable
+                // verdict on 2026-06-04 was in degrees; radians alone
+                // require a mental conversion every time.
+                let biasDeg = Double(profile.faceAngleBiasRad) * 180.0 / .pi
+                logger.log(.note,
+                           "Calibration profile loaded at onAppear",
+                           payload: [
+                               "kind": "calibrationProfileLoaded",
+                               "bias_rad": String(format: "%.4f", profile.faceAngleBiasRad),
+                               "bias_deg": String(format: "%.3f", biasDeg),
+                               "speed_factor": String(format: "%.3f", profile.speedToDistanceFactor),
+                           ])
             } else {
-                logger.log(.note, "No calibration profile saved yet — using defaults")
+                // B68 — explicit marker so "no profile" is unambiguous
+                // in the JSON. Pre-B68 a missing event was easy to
+                // mistake for "the load just hadn't been logged yet".
+                logger.log(.note,
+                           "No calibration profile saved yet — using defaults",
+                           payload: ["kind": "calibrationProfileMissing"])
             }
             // CI / XCUITest hook: simulator never detects a plane, so
             // the Place buttons would otherwise be unreachable. The
@@ -699,6 +723,27 @@ struct ARPlacementView: View {
         }
         .sheet(isPresented: $showSendPreflight) {
             preflightSheet
+        }
+        // B68 — single-ZIP bundle share. When prepareBundle finishes
+        // it sets bundleShareURL, which presents this sheet over the
+        // single zip URL. Dismissing the sheet clears the URL so the
+        // user can prepare a fresh bundle next time.
+        .sheet(isPresented: Binding(
+            get: { bundleShareURL != nil },
+            set: { if !$0 { bundleShareURL = nil } }
+        )) {
+            if let url = bundleShareURL {
+                ARLogShareSheet(urls: [url])
+            }
+        }
+        .alert("Bundle failed",
+               isPresented: Binding(
+                get: { bundleError != nil },
+                set: { if !$0 { bundleError = nil } }
+               )) {
+            Button("OK", role: .cancel) { bundleError = nil }
+        } message: {
+            Text(bundleError ?? "")
         }
         .alert("Add a ground-truth note", isPresented: $showNoteInput) {
             TextField("e.g. plane landed on table not floor", text: $noteText)
@@ -916,6 +961,121 @@ struct ARPlacementView: View {
         // no need for the snapshot bundle. See ARLogShareSheet.swift
         // for the reasoning.
         return urls
+    }
+
+    /// B68 — stage + zip + share an AR session bundle as ONE artefact.
+    /// Replaces the multi-tap Send-this + preflight + multi-file flow.
+    ///
+    /// Flow:
+    ///   1. Stop the recorder so the MP4 is fully flushed.
+    ///   2. Save the in-memory event log snapshot to disk.
+    ///   3. Read the on-disk CalibrationProfile so the manifest can
+    ///      record what the AR view was actually using.
+    ///   4. Build the manifest + stage files via
+    ///      `ARLogExport.stageBundleSnapshot` + zip via
+    ///      `ARLogExport.zipStagedBundle`.
+    ///   5. Set `bundleShareURL`, which triggers the share-sheet sheet
+    ///      bound to that property.
+    ///
+    /// Failures surface via `bundleError` (alert). The button is
+    /// disabled while `isPreparingBundle == true` to prevent re-entry.
+    private func prepareBundle(scope: SendPreflight.Scope) async {
+        guard !isPreparingBundle else { return }
+        isPreparingBundle = true
+        defer { isPreparingBundle = false }
+
+        if isRecording { await stopRecordingAsync() }
+        await logger.saveSnapshotAndWait()
+
+        // Capture metadata for the manifest. Reading the
+        // CalibrationProfile here (after onAppear's reload) gives the
+        // bundle a stable "this is what the user was running with"
+        // record — and answers the "did calibration actually persist?"
+        // question without a separate UI inspection step.
+        let profile = try? ProfileStore().load()
+        let appVersion = SessionCoordinator.appVersionString()
+        let deviceModel = SessionCoordinator.deviceModelString()
+        let osVersion = UIDevice.current.systemVersion
+
+        let exportScope: ARLogExport.BundleScope
+        let sessionIds: [String]
+        switch scope {
+        case .thisOnly:
+            exportScope = .session(id: logger.sessionId)
+            sessionIds = [logger.sessionId]
+        case .all:
+            exportScope = .all
+            sessionIds = ["<all>"]
+        }
+
+        do {
+            // First pass: stage files, then re-inventory the staged dir
+            // to populate the manifest's `files[]`. Two-pass because we
+            // need the on-disk sizes after copy.
+            let stagingTmp = try ARLogExport.stageBundleSnapshot(
+                scope: exportScope,
+                manifest: ARLogExport.BundleManifest(
+                    bundleVersion: 1,
+                    createdAt: ISO8601DateFormatter().string(from: Date()),
+                    scope: scope == .all ? "all" : "session",
+                    appVersion: appVersion,
+                    deviceModel: deviceModel,
+                    osVersion: osVersion,
+                    sessionIds: sessionIds,
+                    files: [],     // re-populated in pass 2
+                    calibrationProfileLoaded: profile != nil,
+                    calibrationFaceAngleBiasDeg: profile.map { Double($0.faceAngleBiasRad) * 180.0 / .pi },
+                    calibrationSpeedToDistanceFactor: profile.map { Double($0.speedToDistanceFactor) },
+                    strokeReplaysIncluded: 0
+                )
+            )
+            // Pass 2: re-write the manifest with accurate file inventory.
+            let files = ARLogExport.inventoryStagedFiles(stagingURL: stagingTmp)
+            let manifest = ARLogExport.BundleManifest(
+                bundleVersion: 1,
+                createdAt: ISO8601DateFormatter().string(from: Date()),
+                scope: scope == .all ? "all" : "session",
+                appVersion: appVersion,
+                deviceModel: deviceModel,
+                osVersion: osVersion,
+                sessionIds: sessionIds,
+                files: files,
+                calibrationProfileLoaded: profile != nil,
+                calibrationFaceAngleBiasDeg: profile.map { Double($0.faceAngleBiasRad) * 180.0 / .pi },
+                calibrationSpeedToDistanceFactor: profile.map { Double($0.speedToDistanceFactor) },
+                strokeReplaysIncluded: 0
+            )
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            try encoder.encode(manifest)
+                .write(to: stagingTmp.appendingPathComponent("manifest.json"))
+
+            let suffix: String = {
+                switch exportScope {
+                case .session(let id): return String(id.suffix(6))
+                case .all: return "all"
+                }
+            }()
+            let zipName = "PuttingLab-ar-\(suffix)-\(ARLogExport.bundleTimestamp()).zip"
+            let zipURL = try ARLogExport.zipStagedBundle(stagingURL: stagingTmp,
+                                                          bundleFilename: zipName)
+            try? FileManager.default.removeItem(at: stagingTmp)
+
+            bundleShareURL = zipURL
+            logger.log(.note,
+                       "Bundle ZIP ready for share",
+                       payload: [
+                           "kind": "bundleReady",
+                           "filename": zipName,
+                           "file_count": String(files.count),
+                           "total_bytes": String(files.reduce(Int64(0)) { $0 + $1.bytes }),
+                           "calibrated": profile != nil ? "true" : "false",
+                       ])
+        } catch {
+            bundleError = "Couldn't build bundle: \(error.localizedDescription)"
+            logger.log(.failed, "Bundle build failed: \(error.localizedDescription)",
+                       payload: ["kind": "bundleBuildFailed"])
+        }
     }
 
     /// Stop the recorder and await the MP4 write so the file exists
@@ -1164,27 +1324,41 @@ struct ARPlacementView: View {
                     .background(.green.opacity(0.7), in: Capsule())
             }
             .accessibilityIdentifier("ar.saveButtonAlwaysVisible")
+            // B68 — "Bundle" replaces the old "Send this" + preflight
+            // path with a single tap: stop recording, save snapshot,
+            // stage JSON + MP4 + manifest into a temp dir, zip via
+            // NSFileCoordinator(.forUploading), then hand ONE URL to the
+            // share sheet. James reported the multi-file Send flow as
+            // "buggy / hard to send"; the unified ZIP mirrors the
+            // stroke-test export pattern (StrokeReplayStore +
+            // ReplayHistoryView) that already works well.
             Button {
-                logger.log(.note, "Send-this-only requested (export row)")
-                Task {
-                    if isRecording { await stopRecordingAsync() }
-                    await logger.saveSnapshotAndWait()
-                    let urls = collectCurrentSessionURLs()
-                    sendPreflight = buildPreflight(scope: .thisOnly, urls: urls)
-                    shareSheetURLs = urls
-                    showSendPreflight = true
-                }
+                logger.log(.note, "Bundle-this requested (B68 single-zip path)",
+                           payload: ["kind": "bundleThisRequested"])
+                Task { await prepareBundle(scope: .thisOnly) }
             } label: {
-                Text("Send this")
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(.blue.opacity(0.9), in: Capsule())
+                if isPreparingBundle {
+                    ProgressView()
+                        .progressViewStyle(.circular)
+                        .controlSize(.mini)
+                        .tint(.white)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(.blue.opacity(0.9), in: Capsule())
+                } else {
+                    Text("Bundle")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(.blue.opacity(0.9), in: Capsule())
+                }
             }
-            .accessibilityIdentifier("ar.sendThisButtonAlwaysVisible")
+            .accessibilityIdentifier("ar.bundleThisButton")
+            .disabled(isPreparingBundle)
             Button {
-                logger.log(.note, "Send-all requested (export row)")
+                logger.log(.note, "Send-all requested (preflight path retained)",
+                           payload: ["kind": "sendAllRequested"])
                 Task {
                     if isRecording { await stopRecordingAsync() }
                     await logger.saveSnapshotAndWait()
@@ -1349,28 +1523,36 @@ struct ARPlacementView: View {
                 }
                 .accessibilityIdentifier("ar.saveButton")
                 Button {
-                    // SEND THIS ONLY: just the current sessionId's
-                    // JSON + MP4 pair. Now goes through the preflight
-                    // confirmation sheet first so James can see exactly
-                    // what's about to land in the Share Sheet.
-                    logger.log(.note, "Send-this-only requested")
-                    Task {
-                        if isRecording { await stopRecordingAsync() }
-                        await logger.saveSnapshotAndWait()
-                        let urls = collectCurrentSessionURLs()
-                        sendPreflight = buildPreflight(scope: .thisOnly, urls: urls)
-                        shareSheetURLs = urls
-                        showSendPreflight = true
-                    }
+                    // B68 — Bundle: single-tap stage+zip+share for the
+                    // current session. Replaces the multi-tap Send-this
+                    // + preflight + multi-file Share-Sheet flow that
+                    // James reported as buggy/hard to send. The unified
+                    // ZIP includes JSON + MP4 + manifest.json with
+                    // calibration-profile metadata; AirDrop/Drive/Mail
+                    // see ONE artefact.
+                    logger.log(.note, "Bundle-this requested (B68 compact-HUD path)",
+                               payload: ["kind": "bundleThisRequested"])
+                    Task { await prepareBundle(scope: .thisOnly) }
                 } label: {
-                    Text("Send this")
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 2)
-                        .background(.blue.opacity(0.85), in: Capsule())
+                    if isPreparingBundle {
+                        ProgressView()
+                            .progressViewStyle(.circular)
+                            .controlSize(.mini)
+                            .tint(.white)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 2)
+                            .background(.blue.opacity(0.85), in: Capsule())
+                    } else {
+                        Text("Bundle")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 2)
+                            .background(.blue.opacity(0.85), in: Capsule())
+                    }
                 }
-                .accessibilityIdentifier("ar.sendThisButton")
+                .accessibilityIdentifier("ar.bundleThisButtonCompact")
+                .disabled(isPreparingBundle)
                 Button {
                     // SEND ALL: every JSON + MP4 in Documents/. James
                     // explicitly asked for clarity here — the previous
