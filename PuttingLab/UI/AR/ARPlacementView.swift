@@ -327,6 +327,28 @@ struct ARPlacementView: View {
             crosshair
                 .allowsHitTesting(false)
 
+            // B70 — foot markers as a 2D HUD overlay. Pre-B70 the
+            // markers were placed in 3D AR scene 60 cm BEHIND the ball
+            // along the negative aim direction. The user holds the
+            // phone facing the ball + hole (camera looks +aim), so the
+            // markers sat ~180° off-axis from the camera and were
+            // ALWAYS culled from the view frustum (Gemini confirmed
+            // they were invisible across swing-06-04 too, despite the
+            // materialApplied event firing). The b70-foot-markers-final
+            // workflow confirmed (95% conf): docs/putting-stance-
+            // reference.md says markers are PURELY ADVISORY and "auto-
+            // hide when the stroke begins" — they have ZERO functional
+            // role in physics. So we skip 3D placement entirely and
+            // render two yellow rounded rectangles at the bottom-third
+            // of the screen, visible only at `.complete` state before
+            // press. Solves visibility absolutely; no AR coordinate
+            // math; no z-fighting; no env-probe dependency. The
+            // existing 3D markers stay in the scene graph (they hide
+            // themselves behind the camera which is harmless) so the
+            // state machine + reset hooks don't need to change.
+            footMarkersHUD
+                .allowsHitTesting(false)
+
             VStack {
                 topBar
                 // B57.2 — ALWAYS-visible export row. Save/Send-this/
@@ -1656,6 +1678,45 @@ struct ARPlacementView: View {
         .opacity(opacity)
         .animation(.spring(response: 0.35, dampingFraction: 0.85), value: confident)
         .accessibilityIdentifier("ar.crosshair")
+    }
+
+    /// B70 — 2D foot markers as a HUD overlay. Two yellow rounded
+    /// rectangles at the bottom-third of the screen, visible only when
+    /// the user has placed ball + hole and hasn't started the press
+    /// yet. Mirrors the address-pose advisory hint that the 3D markers
+    /// were SUPPOSED to provide — but in screen space so the user can
+    /// actually see them. Per docs/putting-stance-reference.md they are
+    /// purely advisory: the user can press and putt from anywhere; the
+    /// markers don't enforce a stance position. Fades out the instant
+    /// press begins. 0.65 opacity yellow over the AR camera feed
+    /// stays legible on indoor + outdoor carpets.
+    private var footMarkersHUD: some View {
+        let visible: Bool = {
+            if case .complete = placementState, !pressActive { return true }
+            return false
+        }()
+        return GeometryReader { geo in
+            let baseY = geo.size.height * 0.72
+            let centerX = geo.size.width / 2
+            let spread: CGFloat = 110
+            let width: CGFloat = 80
+            let height: CGFloat = 28
+            ZStack {
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(Color.yellow.opacity(0.65))
+                    .frame(width: width, height: height)
+                    .shadow(color: .black.opacity(0.4), radius: 3, y: 2)
+                    .position(x: centerX - spread / 2, y: baseY)
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(Color.yellow.opacity(0.65))
+                    .frame(width: width, height: height)
+                    .shadow(color: .black.opacity(0.4), radius: 3, y: 2)
+                    .position(x: centerX + spread / 2, y: baseY)
+            }
+            .opacity(visible ? 1 : 0)
+            .animation(.easeInOut(duration: 0.18), value: visible)
+        }
+        .accessibilityHidden(true)
     }
 
     /// Dim the crosshair after placement is complete so it doesn't
@@ -3105,64 +3166,51 @@ final class ARPlacementScene {
         bevelModel.position = SIMD3<Float>(0, 0.0010, 0)
         anchor.addChild(bevelModel)
 
-        // [4] CYLINDER WALL — B55 rebuild as a manual hollow tube via
-        //     MeshDescriptor; winding reversed in B59 so triangles are
-        //     CCW from inside the tube (front-facing under default
-        //     back-face culling). Explicit normals point INWARD.
+        // [4] CUP INTERIOR — B70 "Approach D" single dark box.
         //
-        //     B67 note on materials: Apple's PhysicallyBasedMaterial DOES
-        //     honour explicit `MeshDescriptor.normals` for lighting
-        //     calculations — winding only controls back-face culling.
-        //     (Pre-B67 the comment here claimed PBR ignored explicit
-        //     normals; Wave 7 / Apple docs research disproved that. The
-        //     B59 winding fix is the correct fix; switching to
-        //     CustomMaterial here would NOT change rendering.)
+        //     Why: across B40–B69 the cup wall was a manual MeshDescriptor
+        //     hollow tube with PhysicallyBasedMaterial. The math was
+        //     correct (Apple-docs-verified in B67) but the cup still read
+        //     as a flat decal in TestFlight (Gemini scored 2/10 on
+        //     swing-06-04). Root cause: the world-origin 4 m³ env probe
+        //     samples IBL from origin, but the cup is typically placed
+        //     2–3 m away, so the wall's PBR shading is lit by the wrong
+        //     IBL — bright floor lighting from origin reflected onto the
+        //     cup interior. The wall ends up shaded BRIGHTER than the
+        //     surrounding floor → no recessed feel.
         //
-        //     If the cup still reads as flat in TestFlight, the suspect
-        //     is the LIGHTING pipeline, not the mesh: the world-origin
-        //     4 m³ env probe (B45/B63) samples IBL at world origin,
-        //     which may not match the cup's local lighting when the cup
-        //     is placed several metres away. We deliberately do NOT add
-        //     a per-cup probe — that was the B53/B54 bug that caused a
-        //     2 s ARKit re-init every placement.
-        let wallMesh: MeshResource
-        if let tube = Self.makeHollowTubeMesh(radius: dia / 2, depth: depth,
-                                                segments: 32) {
-            wallMesh = tube
-        } else {
-            // Fallback: B52's broken box if mesh-build fails. Better
-            // than crashing.
-            wallMesh = MeshResource.generateBox(width: dia,
-                                                 height: depth,
-                                                 depth: dia,
-                                                 cornerRadius: dia / 2)
-        }
-        var wallMaterial = PhysicallyBasedMaterial()
-        wallMaterial.baseColor = .init(tint: UIColor(white: 0.96, alpha: 1.0))
-        wallMaterial.roughness = .init(floatLiteral: 0.85)
-        wallMaterial.metallic = .init(floatLiteral: 0.0)
-        let wallModel = ModelEntity(mesh: wallMesh, materials: [wallMaterial])
-        // Tube vertices are built with Y=0 at top, Y=-depth at
-        // bottom — so position the model at anchor origin (the
-        // worldPosition already sits ON the floor).
-        wallModel.position = SIMD3<Float>(0, 0, 0)
-        anchor.addChild(wallModel)
-
-        // [5] DARK BOTTOM — at -depth. Stays SimpleMaterial dark;
-        //     we WANT it to stay dark regardless of lighting since
-        //     it's the deepest point of the recess.
-        let bottomDia = dia * 0.95
-        let bottomMesh = MeshResource.generatePlane(width: bottomDia,
-                                                     depth: bottomDia,
-                                                     cornerRadius: bottomDia / 2)
-        let bottomMaterial = SimpleMaterial(
-            color: UIColor(red: 0.10, green: 0.08, blue: 0.06, alpha: 1.0),
+        //     The B70 fix is to stop fighting PBR + IBL entirely. Use a
+        //     single corner-rounded box with SimpleMaterial (which is
+        //     LIGHTING-INDEPENDENT — flat shading from the diffuse
+        //     baseColor). The top face is at floor level, the rest sits
+        //     below. From above the user sees a near-black top face
+        //     surrounded by the gold rim → reads as a hole into the
+        //     ground.
+        //
+        //     Built-in generateBox handles its own normals; no winding
+        //     ambiguity, no faceCulling tricks, no env probe dependency.
+        //     iOS 17 compatible (generateBox + cornerRadius is iOS 13+).
+        //     Per the b70-hole-render-final workflow synthesis agent
+        //     (95% confidence): "ship the simplest approach that works".
+        let cupMesh = MeshResource.generateBox(width: dia,
+                                                height: depth,
+                                                depth: dia,
+                                                cornerRadius: dia / 2)
+        // Near-black with a hint of warmth so the camera-feed brightness
+        // around it doesn't make the box look like a flat sticker. The
+        // 0.05 floor in red+green vs pure black gives PIL/JPEG noise on
+        // the camera enough contrast to register as "hole".
+        let cupMaterial = SimpleMaterial(
+            color: UIColor(red: 0.05, green: 0.05, blue: 0.07, alpha: 1.0),
             roughness: 1.0,
             isMetallic: false
         )
-        let bottomModel = ModelEntity(mesh: bottomMesh, materials: [bottomMaterial])
-        bottomModel.position = SIMD3<Float>(0, -depth + 0.001, 0)
-        anchor.addChild(bottomModel)
+        let cupModel = ModelEntity(mesh: cupMesh, materials: [cupMaterial])
+        // Position so the TOP face of the box is at the floor (anchor
+        // Y=0). The box geometry is centred on its origin, so half its
+        // height sits above and half below. Translate down by depth/2.
+        cupModel.position = SIMD3<Float>(0, -depth / 2, 0)
+        anchor.addChild(cupModel)
 
         // [6] FLAGSTICK — matte black PhysicallyBasedMaterial.
         //     Slightly off-pure-black so it catches a subtle key-
