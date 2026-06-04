@@ -2908,7 +2908,11 @@ final class ARPlacementScene {
     /// `placeBall` call. Was previously regenerated each placement,
     /// causing a visible 80-120 ms hitch when the user replaced the
     /// ball or the "Putt again" handler reset it.
-    private static let cachedDimpleNormalTexture: TextureResource? = {
+    /// B69 — `static` (not `private`) so ARPlacementView.onAppear can
+    /// force its lazy initialiser to run during the calm AR session
+    /// startup, instead of paying the texture-upload cost at first
+    /// placeBall when it competes with ARKit feature extraction.
+    static let cachedDimpleNormalTexture: TextureResource? = {
         guard let cg = makeDimpleNormalTexture() else { return nil }
         return try? TextureResource.generate(from: cg,
                                               options: .init(semantic: .normal))
