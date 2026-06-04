@@ -557,6 +557,17 @@ struct ARPlacementView: View {
                            payload: ["kind": "liveImpactWarmedUpEagerly",
                                      "delay_ms": "200"])
             }
+            // B69 — pre-warm the cached dimple normal texture before the
+            // user ever taps to place the ball. Touching the static let
+            // forces the lazy initializer (CGImage → TextureResource.generate)
+            // to run NOW, during the calm onAppear window, instead of on
+            // the first placeBall call where it competes with ARKit's
+            // feature-extraction pipeline. The defer-one-frame addAnchor
+            // fix covers the shader-compile half; this covers the
+            // texture-upload half.
+            Task.detached(priority: .utility) {
+                _ = ARPlacementScene.cachedDimpleNormalTexture
+            }
             // B65 — surface the LiDAR / plane-only fallback to the user.
             // Workflow Round 4 flagged a silent failure mode on non-LiDAR
             // devices (iPhone 12 base, older iPads): app silently dropped
@@ -2423,8 +2434,39 @@ struct ARPlacementView: View {
         // confirmed: zero callers outside the unit test). This caused
         // James's measured -9° stroke bias to flow uncorrected into
         // JSON, BallPhysics, and the result chip.
+        //
+        // B69 — over-correction guard. The swing-06-04 bundle (4 putts,
+        // cal-batch bias +2.37°) showed every AR stroke land at -2 to -4°
+        // CORRECTED face angle even though the raw face angles were all
+        // within ±1.7°. Gemini Pro confirmed visually: every putt pulled
+        // left, consistent with the corrected (not raw) value being
+        // passed to BallPhysics. The +2.37° bias measured during the
+        // PracticeSession cal batch did not generalise to the AR session
+        // (different posture, different ARKit baseline yaw at session
+        // start, or natural cal-batch variance mis-read as bias). When
+        // the bias magnitude exceeds the raw magnitude by a factor of
+        // ~2x AND the raw is already near zero, applying the bias makes
+        // the result WORSE, not better. Skip the correction in that
+        // case and log it so we can sweep historical bundles for the
+        // over-correction rate.
         let impact: ImpactResult = {
             guard let profile = calibrationProfile else { return rawImpact }
+            let biasDeg = profile.faceAngleBiasRad * 180.0 / .pi
+            let rawDeg = rawImpact.faceAngleDegrees
+            let biasMag = abs(biasDeg)
+            let rawMag = abs(rawDeg)
+            // Skip correction when the bias would amplify a near-zero
+            // raw signal. Thresholds tuned from swing-06-04 data: bias
+            // 2.37° + raw 0.27-1.71° = always over-corrected.
+            if biasMag > 1.5 && rawMag < 2.0 {
+                logger.log(.note,
+                           "B69 calibration bias suppressed (over-correction)",
+                           payload: ["kind": "calibrationBiasSuppressed",
+                                     "bias_deg": String(format: "%.3f", biasDeg),
+                                     "raw_deg": String(format: "%.3f", rawDeg),
+                                     "reason": "raw_near_zero_bias_large"])
+                return rawImpact
+            }
             let correctedAngle = CalibrationModel.applyBias(
                 rawImpact.faceAngleRaw, profile: profile)
             return ImpactResult(
@@ -2823,33 +2865,42 @@ final class ARPlacementScene {
 
         let anchor = AnchorEntity(world: worldPosition)
         anchor.addChild(model)
-        arView.scene.addAnchor(anchor)
+        // B69 — defer arView.scene.addAnchor by one frame so the synchronous
+        // RealityKit PBR shader compile + GPU texture upload happens AFTER
+        // the current ARKit feature-extraction iteration completes. Pre-B69
+        // the JSON timeline showed a ~1000 ms freeze at every placement:
+        // 7 LiDAR meshes purged + 2 planes removed + trackingState dropping
+        // to Limited within one second of the materialApplied event. ARKit
+        // detects the main-thread starvation and resets its scene
+        // reconstruction as a robustness failsafe. Yielding once before
+        // touching the scene graph lets ARKit's next frame land cleanly,
+        // then the shader compile happens during that frame's idle window.
+        //
+        // Pre-warming the cached dimple normal texture in onAppear (see
+        // forceWarmUp_dimpleTexture below) covers the texture-upload half;
+        // the shader compile half is what this defer is for.
+        let logger = self.logger
         ballAnchor = anchor
         ballWorldPosition = worldPosition
-
-        // B53 — drop a small local environment probe at the ball
-        // position. The world-origin 4m³ probe (added in makeUIView)
-        // provides scene-wide IBL but its sampling at the ball's
-        // actual position can be muted. A tight 0.6m³ probe centred
-        // on the ball gives sharper local reflections — the gold
-        // floor/wall around it actually shows up in the clearcoat
-        // sheen. Gemini B51 ball score 6/10 cited weak IBL.
-        // B55 — local env probe REMOVED. The B53/B54 per-placement
-        // AREnvironmentProbeAnchor caused a 2-second ARKit
-        // re-initialization (trackingState→Limited) every time the
-        // ball was placed, which Gemini scored as the #1 catastrophic
-        // bug. We rely entirely on the world-origin 4m³ probe added
-        // in makeUIView(). Reflections are slightly softer locally
-        // but the ball still reads as a polished tour ball.
-        logger?.log(.materialApplied, "B55 ball material applied",
-                    payload: ["entity": "ball",
-                              "design": "b55_dimpled_tour_ball_no_local_probe",
-                              "material": "PhysicallyBasedMaterial",
-                              "clearcoat": "0.5",
-                              "roughness": "0.22",
-                              "metallic": "0.0",
-                              "normal_map": "procedural_dimples_32x32_deep",
-                              "radius_m": String(format: "%.4f", radius)])
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 16_000_000) // ~1 frame at 60 Hz
+            guard let arView = self.arView else { return }
+            let t0 = CACurrentMediaTime()
+            arView.scene.addAnchor(anchor)
+            let dtMs = (CACurrentMediaTime() - t0) * 1000.0
+            logger?.log(.materialApplied,
+                        "B69 ball anchor added (deferred 1 frame)",
+                        payload: ["entity": "ball",
+                                  "design": "b55_dimpled_tour_ball_no_local_probe",
+                                  "material": "PhysicallyBasedMaterial",
+                                  "clearcoat": "0.5",
+                                  "roughness": "0.22",
+                                  "metallic": "0.0",
+                                  "normal_map": "procedural_dimples_32x32_deep",
+                                  "radius_m": String(format: "%.4f", radius),
+                                  "kind": "ballAnchorDeferredAdd",
+                                  "addAnchor_ms": String(format: "%.1f", dtMs)])
+        }
     }
 
     /// B51 — lazy-built TextureResource of the dimple normal map.
@@ -3153,9 +3204,27 @@ final class ARPlacementScene {
                                             0)
         anchor.addChild(flagModel)
 
-        arView.scene.addAnchor(anchor)
+        // B69 — same defer-one-frame protection as placeBall. The hole
+        // anchor carries 6 PhysicallyBasedMaterial entities (rim, bevel,
+        // wall, bottom, pole, ferrule) so the shader-compile + GPU upload
+        // cost is even heavier than the ball's single PBR material. Pre-B69
+        // the placement freeze hit hardest here.
+        let holeLogger = self.logger
         holeAnchor = anchor
-
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 16_000_000) // ~1 frame at 60 Hz
+            guard let arView = self.arView else { return }
+            let t0 = CACurrentMediaTime()
+            arView.scene.addAnchor(anchor)
+            let dtMs = (CACurrentMediaTime() - t0) * 1000.0
+            holeLogger?.log(.materialApplied, "B69 hole anchor added (deferred 1 frame)",
+                            payload: ["entity": "hole",
+                                      "design": "b44_gold_rim_lit_white_wall",
+                                      "rim": "PBR.gold.metallic95",
+                                      "kind": "holeAnchorDeferredAdd",
+                                      "addAnchor_ms": String(format: "%.1f", dtMs)])
+        }
+        // Keep the original detail log for material design provenance.
         logger?.log(.materialApplied, "B44 hole materials applied",
                     payload: ["entity": "hole",
                               "design": "b44_gold_rim_lit_white_wall",
