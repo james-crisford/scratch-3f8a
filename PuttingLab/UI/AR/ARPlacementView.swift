@@ -3139,10 +3139,20 @@ final class ARPlacementScene {
         //     environment probe properly. Built as a corner-rounded
         //     box matching rimOuter, with the cup-mouth carved out
         //     by the wall geometry below.
-        let rimMesh = MeshResource.generateBox(width: rimOuter,
-                                                height: 0.006,
-                                                depth: rimOuter,
-                                                cornerRadius: rimOuter / 2)
+        // B73.1 — rim was previously generateBox(rimOuter, 0.006, rimOuter,
+        // cornerRadius: rimOuter / 2). Same cornerRadius-clamp bug as the
+        // cup interior: min(0.129, 0.006, 0.129) / 2 = 0.003 m, so the
+        // 0.0645 m we passed silently clamped to 3 mm. Result: a rounded
+        // SQUARE rim, not a circle. Gemini's swing-06-04 "perfect circle"
+        // read was probably a viewing-distance artefact — once the B73 cup
+        // interior renders as a real circle, the rim's squareness will be
+        // visible by contrast. Replace with the makeAnnulusMesh helper
+        // (always a real circle) for the visible top face. We accept the
+        // loss of the 6 mm side-wall extrusion that the box provided —
+        // the side walls were never a load-bearing visual cue.
+        let rimInner = (dia / 2) * 1.04
+        let rimMesh = Self.makeAnnulusMesh(innerRadius: rimInner,
+                                            outerRadius: rimOuter / 2)
         var rimMaterial = PhysicallyBasedMaterial()
         rimMaterial.baseColor = .init(tint: UIColor(red: 0.83, green: 0.66,
                                                      blue: 0.28, alpha: 1.0))
@@ -3216,8 +3226,13 @@ final class ARPlacementScene {
         //     tunnel illusion the box approach was reaching for via
         //     depth alone. UnlitMaterial throughout so the IBL still
         //     does not enter the picture.
+        // B73.1 — disc 1 moved from Y=-0.0020 to Y=-0.0040 so the gap
+        // from the inner-shadow annulus at Y=-0.0015 grows from 0.5 mm
+        // to 2.5 mm. At 0.5 mm separation, two coplanar entities with
+        // overlapping radii flicker (z-fight) at oblique camera angles
+        // because depth-buffer precision drops below the gap at distance.
         let discs: [(y: Float, ratio: Float, brightness: CGFloat)] = [
-            (-0.0020, 1.00, 0.05),   // top, near the floor — slightly grey
+            (-0.0040, 1.00, 0.05),   // top, just below inner-shadow ring
             (-0.0180, 0.82, 0.025),  // middle ring of the tunnel
             (-0.0400, 0.60, 0.010),  // deep ring
             (-0.0750, 0.42, 0.004),  // bottom — near pure black
@@ -3258,15 +3273,18 @@ final class ARPlacementScene {
         poleModel.position = SIMD3<Float>(0, poleHeight / 2, 0)
         anchor.addChild(poleModel)
 
-        // [7] GOLD FERRULE — small metal ring wrapping the pole
-        //     base where it emerges from the cup floor. Real
-        //     flagsticks have this bracket. PhysicallyBasedMaterial
-        //     matching the rim's gold.
+        // [7] GOLD FERRULE — small metal ring wrapping the pole base.
+        //     B73.1: same cornerRadius-clamp fix as the rim.
+        //     ferruleSide is 0.0248 m. min(0.0248, 0.022, 0.0248) / 2 =
+        //     0.011 m, so the 0.0124 m we passed clamped to 0.011 (about
+        //     5 % loss of curvature → slight rounded-square look from
+        //     above). Use makeAnnulusMesh so the ferrule is a real ring
+        //     around the pole. Inner radius is just outside the pole's
+        //     half-width; outer is the original ferruleSide / 2.
         let ferruleSide: Float = poleSide * 1.65
-        let ferruleMesh = MeshResource.generateBox(width: ferruleSide,
-                                                    height: 0.022,
-                                                    depth: ferruleSide,
-                                                    cornerRadius: ferruleSide / 2)
+        let ferruleInner = poleSide / 2 + 0.001
+        let ferruleMesh = Self.makeAnnulusMesh(innerRadius: ferruleInner,
+                                                outerRadius: ferruleSide / 2)
         var ferruleMaterial = PhysicallyBasedMaterial()
         ferruleMaterial.baseColor = .init(tint: UIColor(red: 0.83, green: 0.66,
                                                          blue: 0.28, alpha: 1.0))
