@@ -559,15 +559,13 @@ struct ARPlacementView: View {
             }
             // B69 — pre-warm the cached dimple normal texture before the
             // user ever taps to place the ball. Touching the static let
-            // forces the lazy initializer (CGImage → TextureResource.generate)
-            // to run NOW, during the calm onAppear window, instead of on
-            // the first placeBall call where it competes with ARKit's
-            // feature-extraction pipeline. The defer-one-frame addAnchor
-            // fix covers the shader-compile half; this covers the
-            // texture-upload half.
-            Task.detached(priority: .utility) {
-                _ = ARPlacementScene.cachedDimpleNormalTexture
-            }
+            // through prewarmCachedTextures() forces the lazy initializer
+            // (CGImage → TextureResource.generate) to run NOW, during the
+            // calm onAppear window, instead of on the first placeBall
+            // call where it competes with ARKit's feature-extraction
+            // pipeline. The defer-one-frame addAnchor fix covers the
+            // shader-compile half; this covers the texture-upload half.
+            scene.prewarmCachedTextures()
             // B65 — surface the LiDAR / plane-only fallback to the user.
             // Workflow Round 4 flagged a silent failure mode on non-LiDAR
             // devices (iPhone 12 base, older iPads): app silently dropped
@@ -2801,6 +2799,16 @@ final class ARPlacementScene {
     /// This init sets nothing isolated, so `nonisolated` is sound.
     nonisolated init() {}
 
+    /// B69 — touch the cached dimple normal texture so its lazy initialiser
+    /// runs NOW (during the calm AR view onAppear) instead of on the first
+    /// placeBall call, where it'd compete with ARKit's feature-extraction
+    /// pipeline. The CGImage→TextureResource.generate path takes 80-120 ms;
+    /// moving it out of the placement window removes that fraction of the
+    /// pre-B69 ~1 s placement freeze.
+    func prewarmCachedTextures() {
+        _ = Self.cachedDimpleNormalTexture
+    }
+
     /// Real golf-ball diameter: 4.27 cm regulation minimum (USGA).
     static let ballDiameter: Float = 0.0427
     /// Real golf-hole diameter: 4.25 in = 10.795 cm (R&A / USGA rules).
@@ -2908,14 +2916,11 @@ final class ARPlacementScene {
     /// `placeBall` call. Was previously regenerated each placement,
     /// causing a visible 80-120 ms hitch when the user replaced the
     /// ball or the "Putt again" handler reset it.
-    /// B69 — `static nonisolated` (not `private @MainActor`) so the
-    /// onAppear pre-warm Task.detached can force its lazy initialiser
-    /// to run during the calm AR session startup, instead of paying
-    /// the texture-upload cost at first placeBall when it competes
-    /// with ARKit feature extraction. The CGImage→TextureResource
-    /// generation is pure data work; no need for MainActor isolation
-    /// even though the surrounding class is @MainActor.
-    nonisolated(unsafe) static let cachedDimpleNormalTexture: TextureResource? = {
+    /// B69 — public `prewarmCachedTextures()` on this @MainActor class
+    /// is what ARPlacementView.onAppear calls. Keeps this static private
+    /// (Swift 6 strict concurrency rejects `nonisolated(unsafe) static`
+    /// when the lazy initializer captures @MainActor context).
+    private static let cachedDimpleNormalTexture: TextureResource? = {
         guard let cg = makeDimpleNormalTexture() else { return nil }
         return try? TextureResource.generate(from: cg,
                                               options: .init(semantic: .normal))
