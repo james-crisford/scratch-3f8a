@@ -3186,60 +3186,58 @@ final class ARPlacementScene {
         shadowModel.position = SIMD3<Float>(0, -0.0015, 0)
         anchor.addChild(shadowModel)
 
-        // [4] CUP INTERIOR — B71.1 — tuned variant of B70's "Approach D".
+        // [4] CUP INTERIOR — B73 layered circular discs.
         //
-        //     Why: across B40–B69 the cup wall was a manual MeshDescriptor
-        //     hollow tube with PhysicallyBasedMaterial. The math was
-        //     correct (Apple-docs-verified in B67) but the cup still read
-        //     as a flat decal in TestFlight (Gemini scored 2/10 on
-        //     swing-06-04). Root cause: the world-origin 4 m³ env probe
-        //     samples IBL from origin, but the cup is typically placed
-        //     2–3 m away, so the wall's PBR shading is lit by the wrong
-        //     IBL — bright floor lighting from origin reflected onto the
-        //     cup interior. The wall ends up shaded BRIGHTER than the
-        //     surrounding floor → no recessed feel.
+        //     Bug history of this block:
+        //       B40-B58 hollow-tube MeshDescriptor + PBR. Read as flat.
+        //       B59 winding-reversal fix (math correct per Apple docs).
+        //       B70 switched to generateBox(dia, depth, dia,
+        //         cornerRadius: dia/2) + SimpleMaterial, to stop fighting
+        //         the env probe IBL mismatch on PBR.
+        //       B72 recessed the box top 8 mm + darker color + inner-
+        //         shadow annulus.
+        //       James 2026-06-04 visual: "biggest problem is the SQUARE
+        //         over the hole". Root cause: generateBox(width:height:
+        //         depth:cornerRadius:) silently CLAMPS cornerRadius to
+        //         min(width, height, depth) / 2. For the cup that's
+        //         min(0.108, 0.08, 0.108) / 2 = 0.04 m. We were passing
+        //         0.054 m, which clamped to 0.04 m — leaving 0.8 cm of
+        //         straight edge between each rounded corner. The cup
+        //         interior was rendering as a rounded square inside the
+        //         circular rim. That mismatch is the "square over the
+        //         hole" perception.
         //
-        //     The B70 fix is to stop fighting PBR + IBL entirely. Use a
-        //     single corner-rounded box with SimpleMaterial (which is
-        //     LIGHTING-INDEPENDENT — flat shading from the diffuse
-        //     baseColor). The top face is at floor level, the rest sits
-        //     below. From above the user sees a near-black top face
-        //     surrounded by the gold rim → reads as a hole into the
-        //     ground.
-        //
-        //     Built-in generateBox handles its own normals; no winding
-        //     ambiguity, no faceCulling tricks, no env probe dependency.
-        //     iOS 17 compatible (generateBox + cornerRadius is iOS 13+).
-        //     Per the b70-hole-render-final workflow synthesis agent
-        //     (95% confidence): "ship the simplest approach that works".
-        let cupMesh = MeshResource.generateBox(width: dia,
-                                                height: depth,
-                                                depth: dia,
-                                                cornerRadius: dia / 2)
-        // B71.1 — push the box near pure black. The 0.05 from B70 was a
-        // hedge for camera-feed noise contrast, but Gemini's "flat decal"
-        // diagnosis on B68 (the older PBR variant) suggests the user's
-        // depth perception needs MORE contrast vs the surrounding camera
-        // feed, not less. RGB (0.015, 0.015, 0.02) is closer to the
-        // camera-feed JPEG quantisation noise floor — the darkest
-        // believable surface.
-        let cupMaterial = SimpleMaterial(
-            color: UIColor(red: 0.015, green: 0.015, blue: 0.02, alpha: 1.0),
-            roughness: 1.0,
-            isMetallic: false
-        )
-        let cupModel = ModelEntity(mesh: cupMesh, materials: [cupMaterial])
-        // Position so the TOP face of the box is at the floor (anchor
-        // Y=0). The box geometry is centred on its origin, so half its
-        // height sits above and half below. Translate down by depth/2.
-        // B71.1 — recess the box top 8 mm BELOW floor level. In B70 the
-        // top sat at Y=0 (floor), so the only visible depth cue was the
-        // 3 mm rim sitting above it — the brain reads that as "rim
-        // slightly raised", not "hole recessed". Lowering the top to
-        // Y=-0.008 creates an 11 mm visible step from rim down to dark
-        // interior, the primary depth cue for "hole in ground".
-        cupModel.position = SIMD3<Float>(0, -depth / 2 - 0.008, 0)
-        anchor.addChild(cupModel)
+        //     Fix: drop the box entirely. Stack three CIRCULAR discs
+        //     (each via generatePlane(width:depth:cornerRadius:) with
+        //     cornerRadius = width/2). `generatePlane` is 2D so its
+        //     cornerRadius is NOT constrained by a height dimension and
+        //     a perfect circle is guaranteed. Each successive disc is
+        //     smaller, deeper, and darker — building the converging-
+        //     tunnel illusion the box approach was reaching for via
+        //     depth alone. UnlitMaterial throughout so the IBL still
+        //     does not enter the picture.
+        let discs: [(y: Float, ratio: Float, brightness: CGFloat)] = [
+            (-0.0020, 1.00, 0.05),   // top, near the floor — slightly grey
+            (-0.0180, 0.82, 0.025),  // middle ring of the tunnel
+            (-0.0400, 0.60, 0.010),  // deep ring
+            (-0.0750, 0.42, 0.004),  // bottom — near pure black
+        ]
+        for (idx, disc) in discs.enumerated() {
+            let w = dia * disc.ratio
+            let mesh = MeshResource.generatePlane(width: w,
+                                                    depth: w,
+                                                    cornerRadius: w / 2)
+            let material = UnlitMaterial(
+                color: UIColor(red: disc.brightness,
+                                green: disc.brightness,
+                                blue: disc.brightness * 1.15,
+                                alpha: 1.0)
+            )
+            let model = ModelEntity(mesh: mesh, materials: [material])
+            model.position = SIMD3<Float>(0, disc.y, 0)
+            anchor.addChild(model)
+            _ = idx  // silence unused-warning if we add per-disc logging later
+        }
 
         // [6] FLAGSTICK — matte black PhysicallyBasedMaterial.
         //     Slightly off-pure-black so it catches a subtle key-
