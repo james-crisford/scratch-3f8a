@@ -2954,6 +2954,21 @@ final class ARPlacementScene {
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: 16_000_000) // ~1 frame at 60 Hz
             guard let arView = self.arView else { return }
+            // B74.1 — race-condition guard. If the user tapped Reset (or
+            // an interruption fired clearPlacedEntities) within the 16 ms
+            // defer window, ballAnchor has been nilled, but the deferred
+            // Task closure still holds a strong ref to the local `anchor`.
+            // Without this guard the now-orphaned anchor would be added
+            // to the scene graph anyway, leaving a ghost ball that no
+            // reset path can reach (the @State binding lost its handle).
+            // Verify identity instead of nil: if a NEW ball was placed in
+            // the same window, ballAnchor is non-nil but points elsewhere.
+            guard ballAnchor === anchor else {
+                logger?.log(.note,
+                            "B74.1 ball anchor deferred-add discarded (cleared during defer)",
+                            payload: ["kind": "ballAnchorDeferredDiscarded"])
+                return
+            }
             let t0 = CACurrentMediaTime()
             arView.scene.addAnchor(anchor)
             let dtMs = (CACurrentMediaTime() - t0) * 1000.0
@@ -3319,6 +3334,15 @@ final class ARPlacementScene {
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: 16_000_000) // ~1 frame at 60 Hz
             guard let arView = self.arView else { return }
+            // B74.1 — race-condition guard (see placeBall for full
+            // rationale). Identity check prevents a Reset-during-defer
+            // from leaking an orphaned hole anchor into the scene graph.
+            guard holeAnchor === anchor else {
+                holeLogger?.log(.note,
+                                "B74.1 hole anchor deferred-add discarded (cleared during defer)",
+                                payload: ["kind": "holeAnchorDeferredDiscarded"])
+                return
+            }
             let t0 = CACurrentMediaTime()
             arView.scene.addAnchor(anchor)
             let dtMs = (CACurrentMediaTime() - t0) * 1000.0
@@ -3608,7 +3632,19 @@ final class ARPlacementScene {
                 continue
             }
             let t = result.worldTransform
-            return SIMD3<Float>(t.columns.3.x, t.columns.3.y, t.columns.3.z)
+            let world = SIMD3<Float>(t.columns.3.x, t.columns.3.y, t.columns.3.z)
+            // B74.1 — NaN guard. ARKit can rarely return non-finite
+            // worldTransform components during tracking-Limited / lost-
+            // relocalisation transitions. Propagating NaN into the
+            // scene graph silently corrupts every subsequent placement
+            // calculation (distances become NaN, MarioKart bucket
+            // assignment collapses, BallPhysics.simulatePutt outputs
+            // NaN). Treat a non-finite raycast as a miss and fall
+            // through to the next priority target.
+            guard world.x.isFinite, world.y.isFinite, world.z.isFinite else {
+                continue
+            }
+            return world
         }
         return nil
     }
