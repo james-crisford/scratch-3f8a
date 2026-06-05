@@ -177,8 +177,9 @@ final class BallRollAnimator {
             if t >= totalDuration {
                 // Snap to final sample and end.
                 if let last = path.last {
+                    let local = localPos(from: last.position)
                     let world = worldPos(from: last.position)
-                    ballEntity.position = world
+                    ballEntity.position = local
                     trailEmitter?(world)
                     // B63 — when the ball is CAPTURED, animate it
                     // descending into the cup over ~350ms. Workflow
@@ -193,10 +194,15 @@ final class BallRollAnimator {
                         // at the cup mouth — without observability we
                         // couldn't tell whether dropBallIntoCup was even
                         // invoked or only the math was wrong.
-                        dropObserver?(.triggered(targetY: holeWorldY - Self.cupDepth / 2,
-                                                  startY: world.y))
+                        // B76 — startY is now the LOCAL ball-entity Y
+                        // (`local.y`), matching the frame `ballEntity.position`
+                        // lives in. The drop animation mutates that
+                        // local Y down toward `targetY` (also local).
+                        let dropTargetLocal = (holeWorldY - ballStart.y) - Self.cupDepth / 2
+                        dropObserver?(.triggered(targetY: dropTargetLocal,
+                                                  startY: local.y))
                         await dropBallIntoCup(ballEntity: ballEntity,
-                                                startY: world.y,
+                                                startY: local.y,
                                                 trailEmitter: trailEmitter)
                         dropObserver?(.completed)
                     }
@@ -214,9 +220,8 @@ final class BallRollAnimator {
             let span = pHi.time - pLo.time
             let alpha = span > 1e-9 ? (t - pLo.time) / span : 0
             let interp = pLo.position + (pHi.position - pLo.position) * alpha
-            let world = worldPos(from: interp)
-            ballEntity.position = world
-            trailEmitter?(world)
+            ballEntity.position = localPos(from: interp)
+            trailEmitter?(worldPos(from: interp))
 
             try? await Task.sleep(nanoseconds: UInt64(Self.frameInterval * 1_000_000_000))
         }
@@ -278,12 +283,42 @@ final class BallRollAnimator {
     /// In the green frame: x = along target line (toward cup),
     /// y = perpendicular (left). World mapping uses the cached
     /// `aimUnit` + `perpUnit` orthonormal pair.
-    private func worldPos(from p: SIMD2<Double>) -> SIMD3<Float> {
+    /// Roll position in the BALL ANCHOR'S LOCAL FRAME.
+    ///
+    /// B76 fix — `ballEntity` is `ballAnchor.children.first`; its
+    /// `.position` is local to the anchor, not world. The pre-B76 code
+    /// computed `ballStart + along + across` (a WORLD-frame coordinate)
+    /// and assigned it to the local `.position`, which RealityKit then
+    /// added to the anchor's already-world position. Net: X and Z were
+    /// doubled (ball "rolled" 2x its real distance), and Y was pinned to
+    /// `Self.ballYLift` absolute regardless of where the anchor sat
+    /// (this is the "ball into the ground" James saw on AR8 — ballStart.y
+    /// was non-zero, but `world.y = ballYLift` forced the ball to drop
+    /// to that absolute height the instant the roll started).
+    ///
+    /// Returns just `along + across` plus the local Y lift. The anchor
+    /// already sits at the placement point — we only need to express
+    /// movement RELATIVE TO IT.
+    private func localPos(from p: SIMD2<Double>) -> SIMD3<Float> {
         let along = aimUnit * Float(p.x)
         let across = perpUnit * Float(p.y)
-        var world = ballStart + along + across
-        world.y = Self.ballYLift
-        return world
+        var local = along + across
+        local.y = Self.ballYLift
+        return local
+    }
+
+    /// The same point in WORLD coordinates — used for the trail emitter
+    /// + the captured-drop animation, both of which place entities in
+    /// scene space (not anchor space). `ballStart` is the anchor's
+    /// world position, captured at `start()`.
+    private func worldPos(from p: SIMD2<Double>) -> SIMD3<Float> {
+        var w = ballStart + localPos(from: p)
+        // ballStart.y is the raycast hit (i.e., the actual AR plane Y),
+        // and `localPos` returned just `ballYLift` on Y. So the world Y
+        // here is `ballStart.y + ballYLift` — the ball's centre sits one
+        // radius above the detected floor, anywhere the anchor was placed.
+        w.y = ballStart.y + Self.ballYLift
+        return w
     }
 
     /// Binary search for two adjacent path samples that bracket

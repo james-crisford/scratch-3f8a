@@ -2508,26 +2508,36 @@ struct ARPlacementView: View {
         // the result WORSE, not better. Skip the correction in that
         // case and log it so we can sweep historical bundles for the
         // over-correction rate.
+        //
+        // B76 — replace the asymmetric B69 (|bias|>1.5 AND |raw|<2)
+        // guard with a hard MAGNITUDE CAP. Reason: the asymmetric
+        // version produced alternating-treatment on consecutive strokes
+        // (AR8: same-session strokes with raw=+2.59° got the full
+        // -8.90° bias applied → displayed +11.49° push, while raw=+0.04°
+        // got the bias SUPPRESSED → displayed +0.04° square. That's how
+        // James saw "one minute push, one minute pull" on physically-
+        // identical strokes). The hard cap of ±3° gives EVERY stroke
+        // the same treatment: capped bias is applied regardless of raw.
+        // Bias above ±3° is almost certainly a cal-batch reference-frame
+        // artefact (see [[project_puttinglab_yaw_fusion_break]]) rather
+        // than a real user tendency.
         let impact: ImpactResult = {
             guard let profile = calibrationProfile else { return rawImpact }
             let biasDeg = profile.faceAngleBiasRad * 180.0 / .pi
             let rawDeg = rawImpact.faceAngleDegrees
-            let biasMag = abs(biasDeg)
-            let rawMag = abs(rawDeg)
-            // Skip correction when the bias would amplify a near-zero
-            // raw signal. Thresholds tuned from swing-06-04 data: bias
-            // 2.37° + raw 0.27-1.71° = always over-corrected.
-            if biasMag > 1.5 && rawMag < 2.0 {
+            let cappedBiasDeg = max(-3.0, min(3.0, biasDeg))
+            let biasWasCapped = abs(biasDeg - cappedBiasDeg) > 0.0001
+            if biasWasCapped {
                 logger.log(.note,
-                           "B69 calibration bias suppressed (over-correction)",
-                           payload: ["kind": "calibrationBiasSuppressed",
-                                     "bias_deg": String(format: "%.3f", biasDeg),
-                                     "raw_deg": String(format: "%.3f", rawDeg),
-                                     "reason": "raw_near_zero_bias_large"])
-                return rawImpact
+                           "B76 calibration bias magnitude-capped",
+                           payload: ["kind": "calibrationBiasCapped",
+                                     "bias_raw_deg": String(format: "%.3f", biasDeg),
+                                     "bias_applied_deg": String(format: "%.3f", cappedBiasDeg),
+                                     "raw_deg": String(format: "%.3f", rawDeg)])
             }
-            let correctedAngle = CalibrationModel.applyBias(
-                rawImpact.faceAngleRaw, profile: profile)
+            let cappedBiasRad = cappedBiasDeg * .pi / 180.0
+            let correctedAngle = ImpactDetector.wrapAngle(
+                rawImpact.faceAngleRaw - cappedBiasRad)
             return ImpactResult(
                 timestamp: rawImpact.timestamp,
                 peakVelocity: rawImpact.peakVelocity,
@@ -3241,16 +3251,25 @@ final class ARPlacementScene {
         //     tunnel illusion the box approach was reaching for via
         //     depth alone. UnlitMaterial throughout so the IBL still
         //     does not enter the picture.
-        // B73.1 — disc 1 moved from Y=-0.0020 to Y=-0.0040 so the gap
+        // B73.1/B76 — disc 1 moved from Y=-0.0020 to Y=-0.0040 so the gap
         // from the inner-shadow annulus at Y=-0.0015 grows from 0.5 mm
         // to 2.5 mm. At 0.5 mm separation, two coplanar entities with
         // overlapping radii flicker (z-fight) at oblique camera angles
         // because depth-buffer precision drops below the gap at distance.
+        // B76 — extended the tunnel from 4 discs over 7.5 cm to 5 discs
+        // over 10 cm. James on B75: "looks a lot better still do 3d so
+        // you can see into the cup" -> wants more depth perception.
+        // Top disc starts BRIGHTER (0.08 grey) and bottom ends DARKER
+        // (0.001 near-pitch), widening the brightness gradient from
+        // 12:1 to 80:1. Bottom moved from -7.5 cm to -10 cm to deepen
+        // the visible tunnel. Tighter spacing in the middle for a
+        // smoother gradient.
         let discs: [(y: Float, ratio: Float, brightness: CGFloat)] = [
-            (-0.0040, 1.00, 0.05),   // top, just below inner-shadow ring
-            (-0.0180, 0.82, 0.025),  // middle ring of the tunnel
-            (-0.0400, 0.60, 0.010),  // deep ring
-            (-0.0750, 0.42, 0.004),  // bottom — near pure black
+            (-0.0040, 1.00, 0.08),   // top — brighter entry for stronger contrast
+            (-0.0140, 0.82, 0.035),  // upper tunnel
+            (-0.0320, 0.65, 0.015),  // mid tunnel
+            (-0.0620, 0.48, 0.005),  // lower tunnel
+            (-0.1000, 0.35, 0.001),  // bottom — near pitch black, 10 cm deep
         ]
         for (idx, disc) in discs.enumerated() {
             let w = dia * disc.ratio
