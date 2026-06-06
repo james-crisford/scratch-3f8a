@@ -327,27 +327,16 @@ struct ARPlacementView: View {
             crosshair
                 .allowsHitTesting(false)
 
-            // B70 — foot markers as a 2D HUD overlay. Pre-B70 the
-            // markers were placed in 3D AR scene 60 cm BEHIND the ball
-            // along the negative aim direction. The user holds the
-            // phone facing the ball + hole (camera looks +aim), so the
-            // markers sat ~180° off-axis from the camera and were
-            // ALWAYS culled from the view frustum (Gemini confirmed
-            // they were invisible across swing-06-04 too, despite the
-            // materialApplied event firing). The b70-foot-markers-final
-            // workflow confirmed (95% conf): docs/putting-stance-
-            // reference.md says markers are PURELY ADVISORY and "auto-
-            // hide when the stroke begins" — they have ZERO functional
-            // role in physics. So we skip 3D placement entirely and
-            // render two yellow rounded rectangles at the bottom-third
-            // of the screen, visible only at `.complete` state before
-            // press. Solves visibility absolutely; no AR coordinate
-            // math; no z-fighting; no env-probe dependency. The
-            // existing 3D markers stay in the scene graph (they hide
-            // themselves behind the camera which is harmless) so the
-            // state machine + reset hooks don't need to change.
-            footMarkersHUD
-                .allowsHitTesting(false)
+            // B77 — 2D HUD foot markers REMOVED. They were a B70 workaround
+            // for the 3D markers being placed 60 cm BEHIND the ball, which
+            // put them behind the camera in the user's stance pose. James
+            // on B76: "feet placement still not correct should the feet
+            // placement be placed where the ball is, as it will always be
+            // linked to the ball." B77 places the 3D markers ALONGSIDE the
+            // ball (perp * 0.18, no -aim offset) so they flank the ball in
+            // the camera's view. The HUD overlay would now compete with
+            // those 3D markers for the user's attention without adding
+            // information.
 
             VStack {
                 topBar
@@ -3271,7 +3260,7 @@ final class ARPlacementScene {
             (-0.0620, 0.48, 0.005),  // lower tunnel
             (-0.1000, 0.35, 0.001),  // bottom — near pitch black, 10 cm deep
         ]
-        for (idx, disc) in discs.enumerated() {
+        for disc in discs {
             let w = dia * disc.ratio
             let mesh = MeshResource.generatePlane(width: w,
                                                     depth: w,
@@ -3285,8 +3274,38 @@ final class ARPlacementScene {
             let model = ModelEntity(mesh: mesh, materials: [material])
             model.position = SIMD3<Float>(0, disc.y, 0)
             anchor.addChild(model)
-            _ = idx  // silence unused-warning if we add per-disc logging later
         }
+
+        // [5b] CUP FLOOR — B77 visible solid bottom at the ball-drop target.
+        //
+        // James on B76: "when it does go into the cup it looks like the hole
+        // has no bottom as the ball goes in and fall all the way down".
+        // The B76 tunnel discs end at Y=-0.10 (10 cm) with brightness 0.001
+        // (near-pitch). The captured-ball drop lands at Y = -cupDepth/2 =
+        // -0.04 m. So the ball animates to -4 cm while the visual tunnel
+        // continues to -10 cm — the ball appears to land mid-air with
+        // darkness still visible below it. Add a slightly-brighter solid
+        // disc at the drop-target Y so the ball lands on something the
+        // brain reads as "the floor of the cup".
+        let cupFloorRatio: Float = 0.92  // a hair smaller than the rim's inner edge
+        let cupFloorWidth = dia * cupFloorRatio
+        let cupFloorMesh = MeshResource.generatePlane(width: cupFloorWidth,
+                                                        depth: cupFloorWidth,
+                                                        cornerRadius: cupFloorWidth / 2)
+        let cupFloorMaterial = UnlitMaterial(
+            color: UIColor(red: 0.020, green: 0.020, blue: 0.025, alpha: 1.0)
+        )
+        let cupFloorModel = ModelEntity(mesh: cupFloorMesh,
+                                         materials: [cupFloorMaterial])
+        // Match BallRollAnimator.dropBallIntoCup's target:
+        //   targetY = (holeWorldY - ballStart.y) - cupDepth/2
+        // For a flat-floor placement both Y values are the floor, so the
+        // local cup-floor Y is just -cupDepth/2. Lift 1 mm above that so
+        // the dropped ball sits ON the floor instead of clipping through.
+        cupFloorModel.position = SIMD3<Float>(0,
+                                                -Self.holeDepth / 2 + 0.001,
+                                                0)
+        anchor.addChild(cupFloorModel)
 
         // [6] FLAGSTICK — matte black PhysicallyBasedMaterial.
         //     Slightly off-pure-black so it catches a subtle key-
@@ -3741,8 +3760,20 @@ final class ARPlacementScene {
 
         // Stance position: 60 cm behind the ball along -aim. Foot
         // markers spread 26 cm apart sideways via ±perp.
-        let stanceCenter = ball - aim * 0.60
-        let footOffset = perp * 0.13   // ±13 cm = 26 cm spread
+        // B77 — place markers ALONGSIDE the ball, not 60 cm behind it.
+        // James on B76: "feet placement still not correct should the
+        // feet placement be placed where the ball is, as it will always
+        // be linked to the ball". Pre-B77 stanceCenter was ball - aim*0.60
+        // (60 cm in -aim, BEHIND the camera in stance pose → always
+        // culled from the view frustum, which is why we'd added the
+        // 2D HUD overlay in B70 as a workaround). The proper fix: put
+        // them at the ball, with a wider perp spread so they flank
+        // the ball on left + right as visible peripheral marks. The
+        // user looking down at the ball in stance now SEES both yellow
+        // rectangles to either side of the ball — matching how golf
+        // stance actually relates to ball position.
+        let stanceCenter = ball
+        let footOffset = perp * 0.18   // ±18 cm = 36 cm flanking spread
 
         // Yaw the foot rectangle so its long axis aligns with the
         // aim direction (foot points TOWARD the ball).
