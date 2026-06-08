@@ -760,7 +760,23 @@ struct ARPlacementView: View {
                     logger.log(.note, "User profile saved",
                                payload: ["height_cm": String(format: "%.1f", updated.heightCm),
                                          "handedness": updated.handedness.rawValue])
-                    if case let .complete(ball, hole) = placementState {
+                    // B79 — pre-fix this re-rendered ONLY during
+                    // .complete. The .rolling and .rolled cases still
+                    // carry ball+hole and keep the yellow markers in
+                    // the scene graph; without refreshing, James could
+                    // change his height between strokes and see stale
+                    // shoulder-width feet until the next placement.
+                    let ballHole: (SIMD3<Float>, SIMD3<Float>)? = {
+                        switch placementState {
+                        case let .complete(ball, hole),
+                             let .rolling(ball, hole, _, _),
+                             let .rolled(ball, hole, _, _, _, _):
+                            return (ball, hole)
+                        default:
+                            return nil
+                        }
+                    }()
+                    if let (ball, hole) = ballHole {
                         scene.placeAddressMarkers(
                             ball: ball, hole: hole,
                             stance: StanceGeometry.compute(profile: updated))
@@ -3750,13 +3766,19 @@ final class ARPlacementScene {
                               hole: SIMD3<Float>,
                               stance: StanceGeometry = .compute(profile: .default)) {
         guard let arView else { return }
-        clearAddressMarkers()
-
-        // Aim direction in the XZ plane (horizontal). If ball and
-        // hole are co-located, skip — no meaningful aim direction.
+        // B79 — compute aim direction BEFORE wiping last-good markers.
+        // Pre-B79 we cleared first; if ball and hole arrived co-located
+        // (e.g. mid-replace transient) the guard below silently returned
+        // and the user lost their markers with no redraw.
         let aimVec = SIMD3<Float>(hole.x - ball.x, 0, hole.z - ball.z)
         let aimLen = simd_length(aimVec)
-        guard aimLen > 0.01 else { return }
+        guard aimLen > 0.01 else {
+            logger?.log(.note,
+                        "placeAddressMarkers skipped — ball/hole co-located",
+                        payload: ["aim_len_m": String(format: "%.4f", aimLen)])
+            return
+        }
+        clearAddressMarkers()
         let aim = aimVec / aimLen
         // Perpendicular in the floor plane (rotate 90° about Y).
         let perp = SIMD3<Float>(-aim.z, 0, aim.x)
@@ -3772,8 +3794,14 @@ final class ARPlacementScene {
         // with the camera-feed grey carpet.
         let footLen: Float = 0.24
         let footWid: Float = 0.10
-        let footMesh = MeshResource.generatePlane(width: footLen,
-                                                   depth: footWid,
+        // B79 — `generatePlane` lays `width` on local +X and `depth` on
+        // local +Z. The footRot below yaws about world +Y so local +Z
+        // ends up pointing along the aim direction (toward the ball).
+        // Pre-B79 we set width=footLen / depth=footWid, which put the
+        // long axis ACROSS the stance — yellow tally marks instead of
+        // foot rectangles. Swap so depth carries the long axis.
+        let footMesh = MeshResource.generatePlane(width: footWid,
+                                                   depth: footLen,
                                                    cornerRadius: 0.02)
 
         let footMaterial = UnlitMaterial(color: UIColor(red: 1.0,

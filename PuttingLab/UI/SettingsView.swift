@@ -58,6 +58,13 @@ struct SettingsView: View {
                     .accessibilityIdentifier("settings.handednessPicker")
                 } header: {
                     Text("Putting hand")
+                } footer: {
+                    // B79 — be honest: the picker saves the value but
+                    // foot-marker placement and face-angle sign convention
+                    // are still right-handed only. Disclosure prevents a
+                    // left-hander from thinking the app is wrong about
+                    // their stroke when it's actually wrong about them.
+                    Text("Saved for a future update. v1 foot markers are symmetric and face-angle sign is right-hand-mirrored.")
                 }
 
                 Section {
