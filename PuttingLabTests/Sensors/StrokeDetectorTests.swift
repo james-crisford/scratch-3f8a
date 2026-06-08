@@ -315,7 +315,7 @@ struct StrokeDetectorRobustnessTests {
 // MARK: - Fixture helpers
 
 fileprivate func testLock() -> StillnessLock {
-    StillnessLock(yawTargetCompass: 0.5, gravity: SIMD3(0, -1, 0), lockedAt: 0)
+    StillnessLock(yawTargetCompass: 0.5, attitudeAtPress: simd_quatd(ix: 0, iy: 0, iz: 0, r: 1), gravity: SIMD3(0, -1, 0), lockedAt: 0)
 }
 
 fileprivate func spinSample(t: TimeInterval, rate: Double) -> MotionSample {

@@ -6,6 +6,7 @@ enum ProfileStoreError: Error, Equatable {
 
 final class ProfileStore: @unchecked Sendable {
     static let defaultKey = "CalibrationProfile_v1"
+    static let userProfileKey = "UserProfile_v1"
 
     let defaults: UserDefaults
     let key: String
@@ -41,5 +42,32 @@ final class ProfileStore: @unchecked Sendable {
 
     func clear() {
         defaults.removeObject(forKey: key)
+    }
+
+    // MARK: - B78 — UserProfile (height + handedness)
+    //
+    // Stored under a separate key so a recalibration (clear()) doesn't wipe
+    // the user's height/handedness. Decode failures fall back to the default
+    // profile for the same reason CalibrationProfile decode failures return
+    // nil — never crash the launcher on a schema drift.
+
+    func saveUserProfile(_ profile: UserProfile) throws {
+        let data = try JSONEncoder().encode(profile)
+        defaults.set(data, forKey: Self.userProfileKey)
+    }
+
+    func loadUserProfile() -> UserProfile {
+        guard let data = defaults.data(forKey: Self.userProfileKey) else {
+            return .default
+        }
+        do {
+            return try JSONDecoder().decode(UserProfile.self, from: data)
+        } catch {
+            return .default
+        }
+    }
+
+    func clearUserProfile() {
+        defaults.removeObject(forKey: Self.userProfileKey)
     }
 }

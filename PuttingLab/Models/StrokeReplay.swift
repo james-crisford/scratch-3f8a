@@ -5,8 +5,13 @@ import simd
 /// Used to save real iPhone strokes from TestFlight to disk so we can replay them
 /// through the algorithm offline and debug. JSON-friendly.
 ///
-/// **Schema version 1** (2026-05-29). Future fields MUST be added via `decodeIfPresent`
-/// in `init(from:)` so v1 tester JSONs continue to deserialize forever.
+/// **Schema version 2** (2026-06-08 — B78). v2 adds `attitudeAtPress` to the
+/// serialized lock and a `faceAngleRawMeaning` tag on the result, both for the
+/// press-attitude-delta face-angle pipeline. v1 replays still load — missing
+/// `attitudeAtPress` falls back to the first sample's attitude, which is
+/// approximately what would have been captured at press in the legacy
+/// pipeline. New fields MUST keep using `decodeIfPresent` so old tester JSONs
+/// continue to deserialize forever.
 struct StrokeReplay: Sendable, Codable {
     let schemaVersion: Int
     let capturedAt: Date
@@ -42,6 +47,8 @@ struct StrokeReplay: Sendable, Codable {
 
     struct SerializedLock: Codable, Sendable {
         let yawTargetCompass: Double
+        /// B78 (schemaVersion 2) — `[ix, iy, iz, r]`. nil in v1 replays.
+        let attitudeAtPress: [Double]?
         let gravity: [Double]
         let lockedAt: TimeInterval
     }
@@ -53,6 +60,12 @@ struct StrokeReplay: Sendable, Codable {
         let confidence: Double
         let snappedToSquare: Bool
         let snapReason: String?
+        /// B78 (schemaVersion 2). One of:
+        ///   * `"v2_press_attitude_delta"` — yaw(impact) − yaw(press), no bias.
+        ///   * `"v1_arkit_compass_fused_with_bias"` — legacy pipeline.
+        /// Lets offline analysers reason about cross-build mixes without
+        /// re-deriving from schemaVersion + appVersion.
+        let faceAngleRawMeaning: String?
     }
 
     enum CodingKeys: String, CodingKey {
@@ -91,7 +104,7 @@ extension StrokeReplay {
 
 extension StrokeReplay.SerializedLock {
     enum LockKeys: String, CodingKey {
-        case yawTargetCompass, gravity, lockedAt
+        case yawTargetCompass, attitudeAtPress, gravity, lockedAt
     }
 
     /// Bounds-checked decoder. A truncated `gravity` array used to decode
@@ -110,6 +123,17 @@ extension StrokeReplay.SerializedLock {
             )
         }
         self.gravity = grv
+        if let q = try c.decodeIfPresent([Double].self, forKey: .attitudeAtPress) {
+            guard q.count == 4 else {
+                throw DecodingError.dataCorruptedError(
+                    forKey: .attitudeAtPress, in: c,
+                    debugDescription: "attitudeAtPress quaternion must have 4 elements, got \(q.count)"
+                )
+            }
+            self.attitudeAtPress = q
+        } else {
+            self.attitudeAtPress = nil
+        }
     }
 }
 
@@ -172,7 +196,7 @@ extension StrokeReplay {
         batchStrokeType: String? = nil,
         now: Date = Date()
     ) {
-        self.schemaVersion = 1
+        self.schemaVersion = 2
         self.capturedAt = now
         self.deviceModel = deviceModel
         self.appVersion = appVersion
@@ -190,8 +214,10 @@ extension StrokeReplay {
                 attitude: [s.attitude.imag.x, s.attitude.imag.y, s.attitude.imag.z, s.attitude.real]
             )
         }
+        let q = window.lock.attitudeAtPress
         self.lock = SerializedLock(
             yawTargetCompass: window.lock.yawTargetCompass,
+            attitudeAtPress: [q.imag.x, q.imag.y, q.imag.z, q.real],
             gravity: [window.lock.gravity.x, window.lock.gravity.y, window.lock.gravity.z],
             lockedAt: window.lock.lockedAt
         )
@@ -204,7 +230,8 @@ extension StrokeReplay {
                 faceAngleRaw: r.faceAngleRaw,
                 confidence: r.confidence,
                 snappedToSquare: r.snappedToSquare,
-                snapReason: r.snapReason.map { String(describing: $0) }
+                snapReason: r.snapReason.map { String(describing: $0) },
+                faceAngleRawMeaning: "v2_press_attitude_delta"
             )
         } else {
             self.result = nil
@@ -226,8 +253,23 @@ extension StrokeReplay {
                 )
             )
         }
+        // B78 — v2 replays carry `attitudeAtPress` directly. v1 replays
+        // predate the field; fall back to the first window sample's attitude,
+        // which is the closest thing the legacy capture pipeline stored to a
+        // press-moment quaternion. The legacy face-angle would have been
+        // computed differently anyway, so replays of v1 strokes are for
+        // window/impact inspection — not for re-deriving face angles.
+        let pressAttitude: simd_quatd
+        if let q = lock.attitudeAtPress {
+            pressAttitude = simd_quatd(ix: q[0], iy: q[1], iz: q[2], r: q[3])
+        } else if let firstSample = motionSamples.first {
+            pressAttitude = firstSample.attitude
+        } else {
+            pressAttitude = simd_quatd(ix: 0, iy: 0, iz: 0, r: 1)
+        }
         let stillnessLock = StillnessLock(
             yawTargetCompass: lock.yawTargetCompass,
+            attitudeAtPress: pressAttitude,
             gravity: SIMD3(lock.gravity[0], lock.gravity[1], lock.gravity[2]),
             lockedAt: lock.lockedAt
         )
@@ -356,23 +398,28 @@ final class StrokeReplayStore: @unchecked Sendable {
     }
 
     private static func assertJSONNestingDepthOK(data: Data, max: Int) throws {
-        var run = 0
-        var maxRun = 0
+        // Cheap heuristic — track actual nesting depth (open brackets
+        // increment, close brackets decrement), not the longest
+        // consecutive run of opens. The old "longest run" formulation
+        // missed nesting that included sibling close-brackets between
+        // open-brackets (`[[[]]],[[[]]]` looked depth-3 even when chained
+        // into deeper structures). Brackets inside string literals still
+        // count, but a real StrokeReplay never has 100 of those — a false
+        // reject on a malicious file beats a stack overflow on a real one.
+        var depth = 0
         for b in data {
             if b == UInt8(ascii: "[") || b == UInt8(ascii: "{") {
-                run += 1
-                if run > maxRun { maxRun = run }
-                if run > max {
+                depth += 1
+                if depth > max {
                     throw NSError(
                         domain: "StrokeReplayStore", code: 2,
                         userInfo: [NSLocalizedDescriptionKey: "JSON nesting depth > \(max) — rejected (potential decoder stack overflow)"]
                     )
                 }
             } else if b == UInt8(ascii: "]") || b == UInt8(ascii: "}") {
-                run = 0
+                if depth > 0 { depth -= 1 }
             }
         }
-        _ = maxRun
     }
 
     private static func assertAllSamplesFinite(_ samples: [StrokeReplay.SerializedSample]) throws {
@@ -411,6 +458,12 @@ final class StrokeReplayStore: @unchecked Sendable {
             throw NSError(
                 domain: "StrokeReplayStore", code: 6,
                 userInfo: [NSLocalizedDescriptionKey: "Non-finite StillnessLock field"]
+            )
+        }
+        if let q = l.attitudeAtPress, !q.allSatisfy({ $0.isFinite }) {
+            throw NSError(
+                domain: "StrokeReplayStore", code: 6,
+                userInfo: [NSLocalizedDescriptionKey: "Non-finite attitudeAtPress quaternion"]
             )
         }
     }

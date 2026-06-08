@@ -47,6 +47,7 @@ enum StrokeFixtures {
 
         let lock = StillnessLock(
             yawTargetCompass: lockYawCompass,
+            attitudeAtPress: simd_quatd(ix: 0, iy: 0, iz: 0, r: 1),
             gravity: SIMD3(0, -1, 0),
             lockedAt: startTime - 0.001
         )
@@ -111,7 +112,7 @@ enum StrokeFixtures {
                 attitude: simd_quatd(ix: 0, iy: 0, iz: 0, r: 1)
             ))
         }
-        let lock = StillnessLock(yawTargetCompass: 0, gravity: SIMD3(0, -1, 0), lockedAt: startTime - 0.001)
+        let lock = StillnessLock(yawTargetCompass: 0, attitudeAtPress: simd_quatd(ix: 0, iy: 0, iz: 0, r: 1), gravity: SIMD3(0, -1, 0), lockedAt: startTime - 0.001)
         let window = StrokeWindow(
             start: startTime,
             end: startTime + TimeInterval(n - 1) * dt,

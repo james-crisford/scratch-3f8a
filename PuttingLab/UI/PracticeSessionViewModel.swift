@@ -329,8 +329,11 @@ final class PracticeSessionViewModel {
             return
         }
         lastError = nil
+        // B78 — capture IMU attitude at press for the new press-attitude
+        // face angle pipeline. See FaceAngleComputer for rationale.
         let lock = StillnessLock(
             yawTargetCompass: latest.compassYaw,
+            attitudeAtPress: latest.attitude,
             gravity: latest.gravity,
             lockedAt: latest.timestamp
         )
@@ -382,27 +385,15 @@ final class PracticeSessionViewModel {
                 arkitPoses: posesDuringRecording,
                 arkitBaselineYaw: recordingArkitBaseline
             )
-            // B57.1 — apply calibration bias at source. CalibrationModel.applyBias()
-            // existed since the early builds but was never called in production
-            // (workflow audit confirmed: zero callers outside the unit test).
-            // Result: every persisted StrokeReplay JSON + downstream consumer
-            // carried James's raw measured -9° bias. The display-time arithmetic
-            // in ResultPhaseView was a band-aid; correction at source fixes every
-            // path (JSON export, batch stats, history charts) at once.
-            let result: ImpactResult = {
-                guard let profile = try? ProfileStore().load() else { return rawResult }
-                let corrected = CalibrationModel.applyBias(
-                    rawResult.faceAngleRaw, profile: profile)
-                return ImpactResult(
-                    timestamp: rawResult.timestamp,
-                    peakVelocity: rawResult.peakVelocity,
-                    faceAngleRaw: corrected,
-                    attitudeAtImpact: rawResult.attitudeAtImpact,
-                    confidence: rawResult.confidence,
-                    snappedToSquare: rawResult.snappedToSquare,
-                    snapReason: rawResult.snapReason
-                )
-            }()
+            // B78 — bias correction REMOVED. The press-attitude pipeline
+            // (see FaceAngleComputer.swift) makes the cal-batch bias
+            // structurally unnecessary: face angle is now measured as the
+            // yaw delta of the IMU attitude quaternion between press-begin
+            // and impact, so "square" is whatever the user declared by
+            // pressing. Subtracting a stale cal-batch mean would inject a
+            // fixed per-session systematic error. ARPlacementView made the
+            // same change for its AR strokes.
+            let result = rawResult
             lastImpactResult = result
             // Hold the window + result so tapDone can persist with the user's
             // impact judgment. Saving on touchUp + then again on tapDone

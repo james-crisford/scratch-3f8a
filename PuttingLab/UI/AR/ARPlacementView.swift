@@ -256,6 +256,12 @@ struct ARPlacementView: View {
         return try? ProfileStore().load()
     }()
 
+    /// B78 — user-declared height + handedness. Drives stance geometry
+    /// (foot-marker placement). Loaded on appear; updates whenever the
+    /// user saves a new height from Settings.
+    @State private var userProfile: UserProfile = ProfileStore().loadUserProfile()
+    @State private var showingSettings: Bool = false
+
     /// B51 — press-and-unpress gesture state. True from the
     /// instant the user presses on the AR view at `.complete`
     /// until they release. Used by the gesture overlay to avoid
@@ -294,7 +300,8 @@ struct ARPlacementView: View {
                 placementState: $placementState,
                 onTransientHint: { msg in showTransientHint(msg) },
                 onResetAfterInterruption: { resetAfterInterruption() },
-                onSessionInterruptionStart: { handleInterruptionStart() }
+                onSessionInterruptionStart: { handleInterruptionStart() },
+                getUserProfile: { userProfile }
             )
             .ignoresSafeArea()
 
@@ -740,6 +747,26 @@ struct ARPlacementView: View {
         }
         .sheet(isPresented: $showShareSheet) {
             ARLogShareSheet(urls: shareSheetURLs)
+        }
+        // B78 — height + handedness sheet. Persisted to ProfileStore
+        // (UserDefaults). On dismiss we re-place the address markers
+        // so the new shoulder width is reflected immediately.
+        .sheet(isPresented: $showingSettings) {
+            SettingsView(
+                profile: userProfile,
+                onSave: { updated in
+                    userProfile = updated
+                    try? ProfileStore().saveUserProfile(updated)
+                    logger.log(.note, "User profile saved",
+                               payload: ["height_cm": String(format: "%.1f", updated.heightCm),
+                                         "handedness": updated.handedness.rawValue])
+                    if case let .complete(ball, hole) = placementState {
+                        scene.placeAddressMarkers(
+                            ball: ball, hole: hole,
+                            stance: StanceGeometry.compute(profile: updated))
+                    }
+                }
+            )
         }
         .sheet(isPresented: $showSendPreflight) {
             preflightSheet
@@ -1297,6 +1324,20 @@ struct ARPlacementView: View {
                     .background(.black.opacity(0.55), in: Circle())
             }
             .accessibilityIdentifier("ar.hudCompactToggle")
+            // B78 — Settings (height + handedness) so foot markers
+            // can be sized to the user. Small gear glyph fits the
+            // existing 38pt capsule row.
+            Button {
+                showingSettings = true
+                logger.log(.note, "Settings opened")
+            } label: {
+                Image(systemName: "gearshape")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 38, height: 38)
+                    .background(.black.opacity(0.55), in: Circle())
+            }
+            .accessibilityIdentifier("ar.settingsButton")
             // B42: title badge — quieter caption2 weight, version stamp
             // visible at a glance so any future Gemini frame can be
             // tied back to the exact build that produced it.
@@ -1846,7 +1887,10 @@ struct ARPlacementView: View {
             // B46 Slice 3.1: drop foot markers at the address
             // position behind the ball — shows the user where to
             // stand for the putt.
-            scene.placeAddressMarkers(ball: ballWorld, hole: world)
+            // B78 — stance spread scaled by the user's height profile.
+            scene.placeAddressMarkers(
+                ball: ballWorld, hole: world,
+                stance: StanceGeometry.compute(profile: userProfile))
         // B42: Move-ball UX — preserved hole stays, new ball drops.
         case .replacingBall(let preservedHole):
             scene.placeBall(at: world)
@@ -1867,7 +1911,9 @@ struct ARPlacementView: View {
             // approach caused.
             scene.refreshAimLine(from: world, to: preservedHole)
             placementState = .complete(ball: world, hole: preservedHole)
-            scene.placeAddressMarkers(ball: world, hole: preservedHole)
+            scene.placeAddressMarkers(
+                ball: world, hole: preservedHole,
+                stance: StanceGeometry.compute(profile: userProfile))
         // B42: Move-hole UX — preserved ball stays, new hole drops.
         case .replacingHole(let preservedBall):
             scene.placeHole(at: world)
@@ -1882,7 +1928,9 @@ struct ARPlacementView: View {
                                  "ball_y": String(format: "%.4f", preservedBall.y),
                                  "ball_z": String(format: "%.4f", preservedBall.z)])
             placementState = .complete(ball: preservedBall, hole: world)
-            scene.placeAddressMarkers(ball: preservedBall, hole: world)
+            scene.placeAddressMarkers(
+                ball: preservedBall, hole: world,
+                stance: StanceGeometry.compute(profile: userProfile))
         case .complete, .rolling, .rolled:
             // No placement action during the post-placement flows.
             break
@@ -2323,8 +2371,14 @@ struct ARPlacementView: View {
             return
         }
         _ = hole
+        // B78 — capture the IMU attitude quaternion at press-begin. This
+        // is the user's gestural declaration of "face = square = 0°".
+        // The FaceAngleComputer subtracts the yaw at this moment from
+        // the yaw at impact to get the press-relative face angle. See
+        // FaceAngleComputer.compute() for the full rationale.
         let lock = StillnessLock(
             yawTargetCompass: latest.compassYaw,
+            attitudeAtPress: latest.attitude,
             gravity: latest.gravity,
             lockedAt: latest.timestamp
         )
@@ -2476,76 +2530,38 @@ struct ARPlacementView: View {
                                          pose: AddressPose,
                                          impact rawImpact: ImpactResult,
                                          window: StrokeWindow) {
-        // B57.1 — apply per-user calibration bias to the face angle at
-        // source. CalibrationModel.applyBias() existed since the early
-        // builds but was never called in production (workflow audit
-        // confirmed: zero callers outside the unit test). This caused
-        // James's measured -9° stroke bias to flow uncorrected into
-        // JSON, BallPhysics, and the result chip.
+        // B78 — bias correction REMOVED. Pre-B78 we subtracted the cal-batch
+        // mean face-angle from every stroke (B57.1 enabled it; B69/B76
+        // layered ±3° guards on top after the cal-batch bias was found to
+        // drift -6.58° → +2.37° → -8.90° → +5.64° across sessions with no
+        // technique change — see [[project_puttinglab_yaw_fusion_break]]).
         //
-        // B69 — over-correction guard. The swing-06-04 bundle (4 putts,
-        // cal-batch bias +2.37°) showed every AR stroke land at -2 to -4°
-        // CORRECTED face angle even though the raw face angles were all
-        // within ±1.7°. Gemini Pro confirmed visually: every putt pulled
-        // left, consistent with the corrected (not raw) value being
-        // passed to BallPhysics. The +2.37° bias measured during the
-        // PracticeSession cal batch did not generalise to the AR session
-        // (different posture, different ARKit baseline yaw at session
-        // start, or natural cal-batch variance mis-read as bias). When
-        // the bias magnitude exceeds the raw magnitude by a factor of
-        // ~2x AND the raw is already near zero, applying the bias makes
-        // the result WORSE, not better. Skip the correction in that
-        // case and log it so we can sweep historical bundles for the
-        // over-correction rate.
-        //
-        // B76 — replace the asymmetric B69 (|bias|>1.5 AND |raw|<2)
-        // guard with a hard MAGNITUDE CAP. Reason: the asymmetric
-        // version produced alternating-treatment on consecutive strokes
-        // (AR8: same-session strokes with raw=+2.59° got the full
-        // -8.90° bias applied → displayed +11.49° push, while raw=+0.04°
-        // got the bias SUPPRESSED → displayed +0.04° square. That's how
-        // James saw "one minute push, one minute pull" on physically-
-        // identical strokes). The hard cap of ±3° gives EVERY stroke
-        // the same treatment: capped bias is applied regardless of raw.
-        // Bias above ±3° is almost certainly a cal-batch reference-frame
-        // artefact (see [[project_puttinglab_yaw_fusion_break]]) rather
-        // than a real user tendency.
-        let impact: ImpactResult = {
-            guard let profile = calibrationProfile else { return rawImpact }
-            let biasDeg = profile.faceAngleBiasRad * 180.0 / .pi
-            let rawDeg = rawImpact.faceAngleDegrees
-            let cappedBiasDeg = max(-3.0, min(3.0, biasDeg))
-            let biasWasCapped = abs(biasDeg - cappedBiasDeg) > 0.0001
-            if biasWasCapped {
-                logger.log(.note,
-                           "B76 calibration bias magnitude-capped",
-                           payload: ["kind": "calibrationBiasCapped",
-                                     "bias_raw_deg": String(format: "%.3f", biasDeg),
-                                     "bias_applied_deg": String(format: "%.3f", cappedBiasDeg),
-                                     "raw_deg": String(format: "%.3f", rawDeg)])
-            }
-            let cappedBiasRad = cappedBiasDeg * .pi / 180.0
-            let correctedAngle = ImpactDetector.wrapAngle(
-                rawImpact.faceAngleRaw - cappedBiasRad)
-            return ImpactResult(
-                timestamp: rawImpact.timestamp,
-                peakVelocity: rawImpact.peakVelocity,
-                faceAngleRaw: correctedAngle,
-                attitudeAtImpact: rawImpact.attitudeAtImpact,
-                confidence: rawImpact.confidence,
-                snappedToSquare: rawImpact.snappedToSquare,
-                snapReason: rawImpact.snapReason
-            )
-        }()
-        let biasAppliedDeg = (impact.faceAngleRaw - rawImpact.faceAngleRaw)
-            * 180.0 / .pi
+        // The new press-attitude pipeline ([[FaceAngleComputer]]) makes the
+        // bias structurally unnecessary: face angle is now the yaw delta of
+        // the IMU attitude quaternion between press-begin and impact, so the
+        // user declares "square = 0°" by pressing when they feel set. There
+        // is no world-frame reference to drift against, so there is nothing
+        // to subtract. Applying the OLD bias to the NEW signal would inject
+        // a fixed per-session systematic error (e.g. +2.37° from one of
+        // James's older sessions would silently push every stroke 2.37°
+        // toward "pull"). So we don't.
+        let impact = rawImpact
+        let yawAtPressRad = ImpactDetector.yawFromQuaternion(window.lock.attitudeAtPress)
+        let yawAtImpactRad = ImpactDetector.yawFromQuaternion(rawImpact.attitudeAtImpact)
+        let pressToImpactDeltaRad = ImpactDetector.wrapAngle(yawAtImpactRad - yawAtPressRad)
+        let yawAtPressDeg = yawAtPressRad * 180.0 / .pi
+        let yawAtImpactDeg = yawAtImpactRad * 180.0 / .pi
+        let pressToImpactDeltaDeg = pressToImpactDeltaRad * 180.0 / .pi
         logger.log(.peakImpact, "Peak impact computed",
                    payload: [
                        "timestamp": String(format: "%.4f", impact.timestamp),
                        "velocity_mps": String(format: "%.4f", impact.peakVelocity),
                        "face_angle_deg": String(format: "%.2f", impact.faceAngleDegrees),
                        "face_angle_raw_deg": String(format: "%.2f", rawImpact.faceAngleDegrees),
-                       "bias_applied_deg": String(format: "%.2f", biasAppliedDeg),
+                       "face_angle_pipeline": "v2_press_attitude_delta",
+                       "attitude_at_press_yaw_deg": String(format: "%.2f", yawAtPressDeg),
+                       "attitude_at_impact_yaw_deg": String(format: "%.2f", yawAtImpactDeg),
+                       "press_to_impact_delta_yaw_deg": String(format: "%.2f", pressToImpactDeltaDeg),
                        "calibrated": calibrationProfile == nil ? "false" : "true",
                        "confidence": String(format: "%.3f", impact.confidence),
                        "snapped_to_square": impact.snappedToSquare ? "true" : "false",
@@ -3725,7 +3741,14 @@ final class ARPlacementScene {
     ///
     /// Hidden — but the entities stay in the scene graph for the
     /// future stroke-detection path (B48) to flip via `isEnabled`.
-    func placeAddressMarkers(ball: SIMD3<Float>, hole: SIMD3<Float>) {
+    /// B78 — accepts an explicit `StanceGeometry` so the foot half-spread
+    /// scales with the user's declared height instead of the hard-coded
+    /// 18 cm we shipped in B77. Defaults to the 170 cm UK adult median
+    /// profile so older call sites that haven't been migrated still get
+    /// reasonable placement.
+    func placeAddressMarkers(ball: SIMD3<Float>,
+                              hole: SIMD3<Float>,
+                              stance: StanceGeometry = .compute(profile: .default)) {
         guard let arView else { return }
         clearAddressMarkers()
 
@@ -3772,8 +3795,11 @@ final class ARPlacementScene {
         // user looking down at the ball in stance now SEES both yellow
         // rectangles to either side of the ball — matching how golf
         // stance actually relates to ball position.
+        // B78 — feet flank the ball at the user's actual shoulder half-
+        // width (bideltoid ≈ 0.245 × height). Pre-B78 was a hard-coded
+        // ±18 cm spread regardless of who was using the app.
         let stanceCenter = ball
-        let footOffset = perp * 0.18   // ±18 cm = 36 cm flanking spread
+        let footOffset = perp * Float(stance.footHalfSpreadMetres)
 
         // Yaw the foot rectangle so its long axis aligns with the
         // aim direction (foot points TOWARD the ball).
@@ -3806,7 +3832,8 @@ final class ARPlacementScene {
                               "stance_y": String(format: "%.4f", stanceCenter.y),
                               "stance_z": String(format: "%.4f", stanceCenter.z),
                               "aim_yaw_deg": String(format: "%.2f", yaw * 180 / .pi),
-                              "foot_offset_m": "0.13"])
+                              "foot_half_spread_m": String(format: "%.4f", stance.footHalfSpreadMetres),
+                              "shoulder_width_m": String(format: "%.4f", stance.shoulderWidthMetres)])
     }
 
     /// B46 — toggle address-marker visibility. Called by the
@@ -3951,6 +3978,14 @@ private struct ARPlacementSceneRepresentable: UIViewRepresentable {
     /// stops the recorder, so they don't tick against a frozen ARKit
     /// session until resume.
     let onSessionInterruptionStart: () -> Void
+    /// B78 — closure that returns the current `UserProfile`. The nested
+    /// `Coordinator.handleTap` runs in a sibling class and cannot see
+    /// the outer view's @State directly. Passing a closure (not a
+    /// snapshot value) means the latest profile saved from Settings is
+    /// visible to the next tap without needing the Coordinator to be
+    /// rebuilt — @State updates re-render the Representable, which
+    /// rebinds this closure each time.
+    let getUserProfile: () -> UserProfile
 
     func makeUIView(context: Context) -> ARView {
         // KNOWN-RISK FOR SLICE 2 (same as Slice 1, restored from earlier
@@ -4109,7 +4144,8 @@ private struct ARPlacementSceneRepresentable: UIViewRepresentable {
                     logger: logger,
                     onTransientHint: onTransientHint,
                     onResetAfterInterruption: onResetAfterInterruption,
-                    onSessionInterruptionStart: onSessionInterruptionStart)
+                    onSessionInterruptionStart: onSessionInterruptionStart,
+                    getUserProfile: getUserProfile)
     }
 
     /// `@MainActor` on the class so its own state stays main-isolated,
@@ -4134,6 +4170,11 @@ private struct ARPlacementSceneRepresentable: UIViewRepresentable {
         let onResetAfterInterruption: () -> Void
         /// B65 — fires on sessionWasInterrupted (lighter than reset).
         let onSessionInterruptionStart: () -> Void
+        /// B78 — closure-snapshot accessor for the latest `UserProfile`.
+        /// Used by `handleTap` so the tap-to-place markers scale to the
+        /// current Settings-saved height even when Settings is saved
+        /// AFTER the Coordinator was first built.
+        let getUserProfile: () -> UserProfile
 
         private var detectedPlanes: Set<UUID> = []
         private var lastHUDUpdate: Date = .distantPast
@@ -4220,7 +4261,8 @@ private struct ARPlacementSceneRepresentable: UIViewRepresentable {
              logger: ARSessionLogger,
              onTransientHint: @escaping (String) -> Void,
              onResetAfterInterruption: @escaping () -> Void,
-             onSessionInterruptionStart: @escaping () -> Void = {}) {
+             onSessionInterruptionStart: @escaping () -> Void = {},
+             getUserProfile: @escaping () -> UserProfile = { .default }) {
             _trackingState = trackingState
             _planeCount = planeCount
             _placementState = placementState
@@ -4228,6 +4270,7 @@ private struct ARPlacementSceneRepresentable: UIViewRepresentable {
             self.onTransientHint = onTransientHint
             self.onResetAfterInterruption = onResetAfterInterruption
             self.onSessionInterruptionStart = onSessionInterruptionStart
+            self.getUserProfile = getUserProfile
         }
 
         // MARK: ARSessionDelegate
@@ -4735,7 +4778,10 @@ private struct ARPlacementSceneRepresentable: UIViewRepresentable {
                                          "distance_m": String(format: "%.4f", dist)])
                     _placementState.wrappedValue = .complete(ball: ballWorld, hole: world)
                     // B46 Slice 3.1: drop foot markers behind the ball.
-                    scene.placeAddressMarkers(ball: ballWorld, hole: world)
+                    // B78 — stance spread scaled by user height profile.
+                    scene.placeAddressMarkers(
+                        ball: ballWorld, hole: world,
+                        stance: StanceGeometry.compute(profile: self.getUserProfile()))
                     lastPlacementAt = Date()
                 // B42: tap-to-place mirrors the crosshair Move-ball /
                 // Move-hole flow when the user is in a replacing state.
@@ -4753,7 +4799,9 @@ private struct ARPlacementSceneRepresentable: UIViewRepresentable {
                     // materialApplied event).
                     scene.refreshAimLine(from: world, to: preservedHole)
                     _placementState.wrappedValue = .complete(ball: world, hole: preservedHole)
-                    scene.placeAddressMarkers(ball: world, hole: preservedHole)
+                    scene.placeAddressMarkers(
+                        ball: world, hole: preservedHole,
+                        stance: StanceGeometry.compute(profile: self.getUserProfile()))
                     lastPlacementAt = Date()
                 case .replacingHole(let preservedBall):
                     scene.placeHole(at: world)
@@ -4765,7 +4813,9 @@ private struct ARPlacementSceneRepresentable: UIViewRepresentable {
                                          "z": String(format: "%.4f", world.z),
                                          "distance_m": String(format: "%.4f", dist)])
                     _placementState.wrappedValue = .complete(ball: preservedBall, hole: world)
-                    scene.placeAddressMarkers(ball: preservedBall, hole: world)
+                    scene.placeAddressMarkers(
+                        ball: preservedBall, hole: world,
+                        stance: StanceGeometry.compute(profile: self.getUserProfile()))
                     lastPlacementAt = Date()
                 case .complete, .rolling, .rolled:
                     // B47/B48/B49: tap is ignored in the

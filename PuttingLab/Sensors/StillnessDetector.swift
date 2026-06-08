@@ -48,6 +48,7 @@ final class StillnessDetector: @unchecked Sendable {
         emitted = true
         return StillnessLock(
             yawTargetCompass: sample.compassYaw,
+            attitudeAtPress: sample.attitude,
             gravity: sample.gravity,
             lockedAt: sample.timestamp
         )

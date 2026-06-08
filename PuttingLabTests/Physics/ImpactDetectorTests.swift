@@ -109,7 +109,7 @@ struct ImpactDetectorRejectionTests {
 
     @Test("throws insufficientSamples on 2-sample window")
     func insufficientSamples() {
-        let lock = StillnessLock(yawTargetCompass: 0, gravity: SIMD3(0, -1, 0), lockedAt: 0)
+        let lock = StillnessLock(yawTargetCompass: 0, attitudeAtPress: simd_quatd(ix: 0, iy: 0, iz: 0, r: 1), gravity: SIMD3(0, -1, 0), lockedAt: 0)
         let s1 = MotionSample(
             timestamp: 1.0,
             rotationRate: .zero,
@@ -405,7 +405,7 @@ struct ImpactDetectorRobustnessTests {
         // Build a stroke where backswing has slightly more peak accel than forward,
         // but forward direction is clearly the second half. This should still
         // correctly find the forward peak.
-        let lock = StillnessLock(yawTargetCompass: 0, gravity: SIMD3(0, -1, 0), lockedAt: 0)
+        let lock = StillnessLock(yawTargetCompass: 0, attitudeAtPress: simd_quatd(ix: 0, iy: 0, iz: 0, r: 1), gravity: SIMD3(0, -1, 0), lockedAt: 0)
         let n = 60
         let dt = 0.01
         var samples: [MotionSample] = []

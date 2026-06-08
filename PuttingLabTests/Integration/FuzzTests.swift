@@ -72,7 +72,7 @@ struct PathologicalInputTests {
 
     @Test("empty stroke window throws insufficientSamples")
     func emptyWindow() {
-        let lock = StillnessLock(yawTargetCompass: 0, gravity: SIMD3(0, -1, 0), lockedAt: 0)
+        let lock = StillnessLock(yawTargetCompass: 0, attitudeAtPress: simd_quatd(ix: 0, iy: 0, iz: 0, r: 1), gravity: SIMD3(0, -1, 0), lockedAt: 0)
         let window = StrokeWindow(start: 0, end: 0, samples: [], lock: lock)
         #expect(throws: ImpactDetectorError.self) {
             _ = try ImpactDetector().detect(in: window)
@@ -81,7 +81,7 @@ struct PathologicalInputTests {
 
     @Test("all-NaN acceleration stream → snapped to square (noClearPeak)")
     func nanAccelerationStream() throws {
-        let lock = StillnessLock(yawTargetCompass: 0, gravity: SIMD3(0, -1, 0), lockedAt: 0)
+        let lock = StillnessLock(yawTargetCompass: 0, attitudeAtPress: simd_quatd(ix: 0, iy: 0, iz: 0, r: 1), gravity: SIMD3(0, -1, 0), lockedAt: 0)
         var samples: [MotionSample] = []
         for i in 0..<60 {
             samples.append(MotionSample(
