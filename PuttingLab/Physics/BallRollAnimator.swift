@@ -116,7 +116,11 @@ final class BallRollAnimator {
             return
         }
         let aim = aimVec / aimLen
-        let perp = SIMD3<Float>(-aim.z, 0, aim.x)
+        // B80 — TRUE left of the aim line via the shared GreenFrame helper.
+        // The pre-B80 hand-rolled (-aim.z, 0, aim.x) was aim × up = RIGHT of
+        // aim in ARKit's +Y-up frame, mirroring every roll across the target
+        // line (b79 video: 3/3 putts rendered right while labelled "pull").
+        let perp = GreenFrame.leftPerp(of: aim)
 
         // Run the simulator. Target line distance = aimLen.
         // Cup at (aimLen, 0) in the 2D frame; ball starts at origin.

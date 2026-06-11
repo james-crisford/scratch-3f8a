@@ -1,316 +1,191 @@
-﻿import Testing
+import Testing
 import Foundation
 import simd
 @testable import PuttingLab
 
-@Suite("FaceAngleComputer — press-attitude pipeline")
+/// B80 — rewritten against PRODUCTION `FaceAngleComputer.compute()`.
+///
+/// The B78 version of this suite exercised a test-local
+/// `computeWithPress` extension that reimplemented the formula — so it
+/// kept passing regardless of what production code did, and it pinned
+/// the OLD (inverted) sign convention. These tests build a real
+/// `StrokeWindow` whose lock carries the press attitude, exactly like
+/// the production capture path.
+///
+/// Sign convention under test (v3, golf convention, B80):
+///   raw = wrapAngle(yaw(press) − yaw(impact))
+///   CCW rotation about world-up (positive CoreMotion yaw) = CLOSING the
+///   face for a right-handed golfer ⇒ NEGATIVE faceAngle = pull/left.
+///   CW rotation = opening ⇒ POSITIVE faceAngle = push/right.
+@Suite("FaceAngleComputer — press-attitude pipeline (v3 golf sign)")
 struct FaceAngleComputerPressAttitudeTests {
+
+    /// Production-shaped window: the fixture's samples with the lock's
+    /// press attitude replaced, mirroring handlePressBegan's capture.
+    private func windowWithPress(_ press: simd_quatd) -> (window: StrokeWindow, impactTime: TimeInterval) {
+        let fixture = StrokeFixtures.cleanStraight8ft()
+        let w = fixture.window
+        let lock = StillnessLock(
+            yawTargetCompass: w.lock.yawTargetCompass,
+            attitudeAtPress: press,
+            gravity: w.lock.gravity,
+            lockedAt: w.lock.lockedAt
+        )
+        let window = StrokeWindow(start: w.start, end: w.end, samples: w.samples, lock: lock)
+        return (window, fixture.expectedImpactTime)
+    }
+
+    private func compute(press: simd_quatd, impact: simd_quatd) -> FaceAngleSource {
+        let (window, impactTime) = windowWithPress(press)
+        return FaceAngleComputer().compute(
+            window: window,
+            attitudeAtImpact: impact,
+            impactTime: impactTime
+        )
+    }
+
+    private let identity = simd_quatd(ix: 0, iy: 0, iz: 0, r: 1)
 
     // MARK: - Test 1: Identity case
     @Test("identity: attitudeAtPress == attitudeAtImpact → faceAngle == 0")
     func identityNoChange() {
-        let fixture = StrokeFixtures.cleanStraight8ft()
-        let computer = FaceAngleComputer()
-        let identity = simd_quatd(ix: 0, iy: 0, iz: 0, r: 1)
-        let result = computer.computeWithPress(
-            window: fixture.window,
-            attitudeAtPress: identity,
-            attitudeAtImpact: identity,
-            impactTime: fixture.expectedImpactTime
-        )
+        let result = compute(press: identity, impact: identity)
         #expect(abs(result.degrees) < 0.001)
+        #expect(result.origin == .pressAttitude)
     }
 
-    // MARK: - Test 2: +5° yaw rotation
-    @Test("+5° yaw: press at identity, impact at +5° yaw → faceAngle == +5° (within 0.1°)")
-    func plusFiveDegrees() {
-        let fixture = StrokeFixtures.cleanStraight8ft()
-        let computer = FaceAngleComputer()
-        let identity = simd_quatd(ix: 0, iy: 0, iz: 0, r: 1)
+    // MARK: - Test 2: CCW (+5°) physical rotation = closing → NEGATIVE (pull)
+    @Test("+5° CCW yaw: closing rotation → faceAngle == -5° (PULL)")
+    func ccwFiveDegreesIsPull() {
         let yaw5Deg = simd_quatd(angle: 5.0 * .pi / 180.0, axis: SIMD3(0, 0, 1))
-        let result = computer.computeWithPress(
-            window: fixture.window,
-            attitudeAtPress: identity,
-            attitudeAtImpact: yaw5Deg,
-            impactTime: fixture.expectedImpactTime
-        )
-        #expect(abs(result.degrees - 5.0) < 0.1)
-        #expect(result.degrees > 0, "positive yaw rotation should give positive faceAngle (PUSH)")
+        let result = compute(press: identity, impact: yaw5Deg)
+        #expect(abs(result.degrees - (-5.0)) < 0.1)
+        #expect(result.degrees < 0,
+                "CCW rotation closes the face for an RH golfer → negative (PULL); got \(result.degrees)°")
     }
 
-    // MARK: - Test 3: -10° yaw rotation
-    @Test("-10° yaw: press at identity, impact at -10° yaw → faceAngle == -10°")
-    func minusTenDegrees() {
-        let fixture = StrokeFixtures.cleanStraight8ft()
-        let computer = FaceAngleComputer()
-        let identity = simd_quatd(ix: 0, iy: 0, iz: 0, r: 1)
+    // MARK: - Test 3: CW (-10°) physical rotation = opening → POSITIVE (push)
+    @Test("-10° CW yaw: opening rotation → faceAngle == +10° (PUSH)")
+    func cwTenDegreesIsPush() {
         let yaw10NegDeg = simd_quatd(angle: -10.0 * .pi / 180.0, axis: SIMD3(0, 0, 1))
-        let result = computer.computeWithPress(
-            window: fixture.window,
-            attitudeAtPress: identity,
-            attitudeAtImpact: yaw10NegDeg,
-            impactTime: fixture.expectedImpactTime
-        )
-        #expect(abs(result.degrees - (-10.0)) < 0.1)
-        #expect(result.degrees < 0, "negative yaw rotation should give negative faceAngle (PULL)")
+        let result = compute(press: identity, impact: yaw10NegDeg)
+        #expect(abs(result.degrees - 10.0) < 0.1)
+        #expect(result.degrees > 0,
+                "CW rotation opens the face for an RH golfer → positive (PUSH); got \(result.degrees)°")
     }
 
     // MARK: - Test 4: Wrap edge case (+175° to -175°)
-    @Test("wrap edge: press at +175°, impact at -175° → faceAngle near zero (wrapped)")
+    @Test("wrap edge: press at +175°, impact at -175° → wrapped to -10°")
     func wrapEdgeCrossing() {
-        let fixture = StrokeFixtures.cleanStraight8ft()
-        let computer = FaceAngleComputer()
-        // Press at +175°
         let yaw175Pos = simd_quatd(angle: 175.0 * .pi / 180.0, axis: SIMD3(0, 0, 1))
-        // Impact at -175° (equivalent to +185°, but normalized to [-π, π])
         let yaw175Neg = simd_quatd(angle: -175.0 * .pi / 180.0, axis: SIMD3(0, 0, 1))
-        let result = computer.computeWithPress(
-            window: fixture.window,
-            attitudeAtPress: yaw175Pos,
-            attitudeAtImpact: yaw175Neg,
-            impactTime: fixture.expectedImpactTime
-        )
-        // Delta should wrap: (-175°) - (+175°) = -350° → normalized to +10°
-        #expect(abs(result.degrees - 10.0) < 0.2,
-                "wrap-around: -175° - 175° = -350° → +10° after wrapAngle, got \(result.degrees)°")
+        let result = compute(press: yaw175Pos, impact: yaw175Neg)
+        // press − impact = 175° − (−175°) = +350° → wrapAngle → −10°.
+        // Physically the phone rotated +10° CCW (closing) → pull. ✓
+        #expect(abs(result.degrees - (-10.0)) < 0.2,
+                "wrap-around: 175° − (−175°) = +350° → −10° after wrapAngle, got \(result.degrees)°")
     }
 
     // MARK: - Test 5: Pure pitch change (no yaw)
     @Test("pitch only: attitudeAtImpact has pitch but no yaw → faceAngle near zero")
     func purePitchThirtyDegrees() {
-        let fixture = StrokeFixtures.cleanStraight8ft()
-        let computer = FaceAngleComputer()
-        let identity = simd_quatd(ix: 0, iy: 0, iz: 0, r: 1)
-        // Pitch 30° (rotation about phone X-axis) — yaw should remain zero
         let pitch30 = simd_quatd(angle: 30.0 * .pi / 180.0, axis: SIMD3(1, 0, 0))
-        let result = computer.computeWithPress(
-            window: fixture.window,
-            attitudeAtPress: identity,
-            attitudeAtImpact: pitch30,
-            impactTime: fixture.expectedImpactTime
-        )
-        // Pitch does not affect yaw; should be near zero.
+        let result = compute(press: identity, impact: pitch30)
         #expect(abs(result.degrees) < 0.1,
                 "pure pitch rotation should not affect yaw-based face angle, got \(result.degrees)°")
     }
 
     // MARK: - Test 6: Gimbal lock case (pitch ≈ 90°)
-    @Test("gimbal lock: phone vertical (pitch ≈ 90°) → yaw extraction is unstable; document behavior")
+    @Test("gimbal lock: phone vertical (pitch ≈ 90°) → finite result, no crash")
     func gimbalLockPitch90() {
-        let fixture = StrokeFixtures.cleanStraight8ft()
-        let computer = FaceAngleComputer()
-        let identity = simd_quatd(ix: 0, iy: 0, iz: 0, r: 1)
-        // Pitch 90° (vertical phone, X-axis rotation)
         let pitch90 = simd_quatd(angle: 90.0 * .pi / 180.0, axis: SIMD3(1, 0, 0))
-        let result = computer.computeWithPress(
-            window: fixture.window,
-            attitudeAtPress: identity,
-            attitudeAtImpact: pitch90,
-            impactTime: fixture.expectedImpactTime
-        )
-        // At gimbal lock, the yaw axis is undefined, but yawFromQuaternion should not crash.
-        // We document that the result is undefined but finite; tests here verify non-crash.
+        let result = compute(press: identity, impact: pitch90)
         #expect(result.radians.isFinite,
                 "gimbal lock should produce finite result, not NaN or Inf; got \(result.radians)")
     }
 
-    // MARK: - Test 7: Real-world fixture (AR9 compass baseline +3.17°)
-    @Test("real-world AR9: compass-based result +3.17° → re-run with press-attitude; document delta")
-    func ar9CompassBaseline() {
-        let fixture = StrokeFixtures.cleanStraight8ft()
-        let computer = FaceAngleComputer()
-        
-        // Simulate a small yaw rotation consistent with +3.17° compass reading
-        let compassYaw = 3.17 * .pi / 180.0
-        let attitudeAtImpact = simd_quatd(angle: compassYaw, axis: SIMD3(0, 0, 1))
-        
-        // Press attitude at identity (or nearly so, simulating a clean address)
-        let attitudeAtPress = simd_quatd(ix: 0, iy: 0, iz: 0, r: 1)
-        
-        let result = computer.computeWithPress(
-            window: fixture.window,
-            attitudeAtPress: attitudeAtPress,
-            attitudeAtImpact: attitudeAtImpact,
-            impactTime: fixture.expectedImpactTime
-        )
-        
-        // If press = identity and impact yaw ≈ +3.17°, then delta ≈ +3.17°
-        // (assuming compass and attitude yaw approximately agree).
-        #expect(abs(result.degrees - 3.17) < 0.2,
-                "AR9 compass baseline +3.17° should mostly agree with press-attitude delta; got \(result.degrees)°")
+    // MARK: - Test 7: b79 session stroke S1 regression (real device numbers)
+    @Test("b79 S1 regression: press yaw 73.57°, impact yaw 55.67° → +17.90° (PUSH)")
+    func b79SessionStrokeOneReadsPush() {
+        // The 2026-06-10 device session: three intended-square strokes read
+        // -17.9/-10.9/-12.3 under the v2 (inverted) convention and were
+        // labelled "pull — ball goes left" while the screen recording showed
+        // every roll missing RIGHT. Under v3 the same stroke must read
+        // +17.90° = open/push, matching the video.
+        let press = simd_quatd(angle: 73.57 * .pi / 180.0, axis: SIMD3(0, 0, 1))
+        let impact = simd_quatd(angle: 55.67 * .pi / 180.0, axis: SIMD3(0, 0, 1))
+        let result = compute(press: press, impact: impact)
+        #expect(abs(result.degrees - 17.90) < 0.1,
+                "b79 S1 must read +17.90° (open/push) under v3; got \(result.degrees)°")
     }
 
     // MARK: - Test 8: Roll-only rotation (90° about phone Y-axis)
     @Test("roll only: press and impact differ ONLY in 90° roll → faceAngle ≈ 0")
     func rollOnly90Degrees() {
-        let fixture = StrokeFixtures.cleanStraight8ft()
-        let computer = FaceAngleComputer()
-        let identity = simd_quatd(ix: 0, iy: 0, iz: 0, r: 1)
-        // Roll 90° (rotation about phone Y-axis) — should not affect yaw
         let roll90 = simd_quatd(angle: 90.0 * .pi / 180.0, axis: SIMD3(0, 1, 0))
-        let result = computer.computeWithPress(
-            window: fixture.window,
-            attitudeAtPress: identity,
-            attitudeAtImpact: roll90,
-            impactTime: fixture.expectedImpactTime
-        )
-        // Roll does not affect yaw; should be near zero.
+        let result = compute(press: identity, impact: roll90)
         #expect(abs(result.degrees) < 0.1,
                 "pure roll rotation should not affect yaw-based face angle, got \(result.degrees)°")
     }
 
-    // MARK: - Test 9: Sign convention (positive = PUSH/open face)
-    @Test("sign convention: positive faceAngle → PUSH (face open to right of target)")
-    func signConventionPush() {
-        let fixture = StrokeFixtures.cleanStraight8ft()
-        let computer = FaceAngleComputer()
-        
-        // Phone Y = shaft, Phone X = face normal (pointing right).
-        // Positive yaw = counterclockwise rotation about Z (phone up).
-        // This opens the face to the right of the swing direction → PUSH.
-        let identity = simd_quatd(ix: 0, iy: 0, iz: 0, r: 1)
-        let pushYaw = simd_quatd(angle: 8.0 * .pi / 180.0, axis: SIMD3(0, 0, 1))
-        
-        let result = computer.computeWithPress(
-            window: fixture.window,
-            attitudeAtPress: identity,
-            attitudeAtImpact: pushYaw,
-            impactTime: fixture.expectedImpactTime
-        )
-        
-        #expect(result.degrees > 0, "positive yaw should give positive faceAngle (PUSH)")
-        #expect(abs(result.degrees - 8.0) < 0.1)
+    // MARK: - Test 9: Sign convention — CCW = closed = PULL
+    @Test("sign convention: CCW physical rotation → NEGATIVE faceAngle (closed/PULL)")
+    func signConventionCcwIsPull() {
+        // For a right-handed golfer (target on his left), closing the
+        // putter face rotates the face normal CCW viewed from above —
+        // positive CoreMotion yaw. Golf convention says closed = pull =
+        // negative, hence the producer emits press − impact.
+        let ccw8 = simd_quatd(angle: 8.0 * .pi / 180.0, axis: SIMD3(0, 0, 1))
+        let result = compute(press: identity, impact: ccw8)
+        #expect(result.degrees < 0, "CCW (closing) rotation must read negative (PULL)")
+        #expect(abs(result.degrees - (-8.0)) < 0.1)
     }
 
     // MARK: - Test 10: Multi-axis rotation (yaw + pitch + roll)
-    @Test("complex rotation: yaw + pitch + roll combined → only yaw contributes to faceAngle")
+    @Test("complex rotation: yaw + pitch + roll combined → only yaw contributes")
     func multiAxisRotation() {
-        let fixture = StrokeFixtures.cleanStraight8ft()
-        let computer = FaceAngleComputer()
-        let identity = simd_quatd(ix: 0, iy: 0, iz: 0, r: 1)
-        
-        // Build a quaternion with yaw=7°, pitch=25°, roll=15° in
-        // canonical Z-Y-X (Rz * Ry * Rx) order. yawFromQuaternion uses
-        // the ZYX Tait-Bryan formula atan2(2(wz+xy), 1-2(y²+z²)) which
-        // recovers the constructor yaw exactly under that order.
-        // Caveat: `yaw * pitch * roll` here would be Rz * Rx * Ry (Z-X-Y),
-        // a physically DIFFERENT orientation whose ZYX-extracted yaw is
-        // ~13.46° — not a bug in the extractor, just a different basis.
+        // Canonical Z-Y-X (Rz * Ry * Rx) composition; yawFromQuaternion's
+        // ZYX Tait-Bryan formula recovers the constructor yaw exactly
+        // under that order (see B78 Test-10 composition-order note).
         let yaw = simd_quatd(angle: 7.0 * .pi / 180.0, axis: SIMD3(0, 0, 1))
         let pitch = simd_quatd(angle: 25.0 * .pi / 180.0, axis: SIMD3(1, 0, 0))
         let roll = simd_quatd(angle: 15.0 * .pi / 180.0, axis: SIMD3(0, 1, 0))
         let combined = yaw * roll * pitch
-        
-        let result = computer.computeWithPress(
-            window: fixture.window,
-            attitudeAtPress: identity,
-            attitudeAtImpact: combined,
-            impactTime: fixture.expectedImpactTime
-        )
-        
-        // yawFromQuaternion extracts only the yaw component, so the result
-        // should be approximately +7° (within extraction error).
-        #expect(abs(result.degrees - 7.0) < 0.3,
-                "multi-axis rotation should extract yaw ≈ 7°; got \(result.degrees)°")
+        let result = compute(press: identity, impact: combined)
+        // Physical +7° CCW yaw component → v3 reads −7° (closed/pull).
+        #expect(abs(result.degrees - (-7.0)) < 0.3,
+                "multi-axis rotation should extract yaw ≈ 7° CCW → −7° under v3; got \(result.degrees)°")
     }
 
     // MARK: - Test 11: Both press and impact rotated (delta matters)
-    @Test("both rotated: press at +12°, impact at +18° yaw → faceAngle == +6°")
+    @Test("both rotated: press at +12°, impact at +18° yaw → faceAngle == -6°")
     func bothRotated() {
-        let fixture = StrokeFixtures.cleanStraight8ft()
-        let computer = FaceAngleComputer()
         let yaw12 = simd_quatd(angle: 12.0 * .pi / 180.0, axis: SIMD3(0, 0, 1))
         let yaw18 = simd_quatd(angle: 18.0 * .pi / 180.0, axis: SIMD3(0, 0, 1))
-        
-        let result = computer.computeWithPress(
-            window: fixture.window,
-            attitudeAtPress: yaw12,
-            attitudeAtImpact: yaw18,
-            impactTime: fixture.expectedImpactTime
-        )
-        
-        // Delta = 18° - 12° = 6°
-        #expect(abs(result.degrees - 6.0) < 0.1,
-                "delta of +18° (impact) minus +12° (press) should be +6°; got \(result.degrees)°")
+        let result = compute(press: yaw12, impact: yaw18)
+        // press − impact = 12° − 18° = −6° (closed 6° CCW from press).
+        #expect(abs(result.degrees - (-6.0)) < 0.1,
+                "12° (press) − 18° (impact) should be −6°; got \(result.degrees)°")
     }
 
-    // MARK: - Test 12: Large negative delta with wrap
-    @Test("large negative delta: press at -10°, impact at -165° → wrapped delta ≈ -155°")
-    func largeNegativeDeltaWrap() {
-        let fixture = StrokeFixtures.cleanStraight8ft()
-        let computer = FaceAngleComputer()
+    // MARK: - Test 12: Large delta with wrap
+    @Test("large delta: press at -10°, impact at -165° → +155° (opened)")
+    func largeDeltaWrap() {
         let yaw10Neg = simd_quatd(angle: -10.0 * .pi / 180.0, axis: SIMD3(0, 0, 1))
         let yaw165Neg = simd_quatd(angle: -165.0 * .pi / 180.0, axis: SIMD3(0, 0, 1))
-        
-        let result = computer.computeWithPress(
-            window: fixture.window,
-            attitudeAtPress: yaw10Neg,
-            attitudeAtImpact: yaw165Neg,
-            impactTime: fixture.expectedImpactTime
-        )
-        
-        // Delta = -165° - (-10°) = -155°
-        #expect(abs(result.degrees - (-155.0)) < 0.2,
-                "delta of -165° (impact) minus -10° (press) = -155°; got \(result.degrees)°")
+        let result = compute(press: yaw10Neg, impact: yaw165Neg)
+        // press − impact = −10° − (−165°) = +155° (CW sweep = opened).
+        #expect(abs(result.degrees - 155.0) < 0.2,
+                "−10° (press) − (−165°) (impact) = +155°; got \(result.degrees)°")
     }
 
     // MARK: - Test 13: Determinism with press-attitude pipeline
     @Test("determinism: same press/impact attitudes → same face angle")
     func pressAttitudeDeterminism() {
-        let fixture = StrokeFixtures.cleanStraight8ft()
-        let computer = FaceAngleComputer()
         let press = simd_quatd(angle: 3.0 * .pi / 180.0, axis: SIMD3(0, 0, 1))
         let impact = simd_quatd(angle: 11.0 * .pi / 180.0, axis: SIMD3(0, 0, 1))
-        
-        let r1 = computer.computeWithPress(
-            window: fixture.window,
-            attitudeAtPress: press,
-            attitudeAtImpact: impact,
-            impactTime: fixture.expectedImpactTime
-        )
-        let r2 = computer.computeWithPress(
-            window: fixture.window,
-            attitudeAtPress: press,
-            attitudeAtImpact: impact,
-            impactTime: fixture.expectedImpactTime
-        )
-        
+        let r1 = compute(press: press, impact: impact)
+        let r2 = compute(press: press, impact: impact)
         #expect(r1 == r2)
     }
 }
-
-// MARK: - Extension to FaceAngleComputer
-
-extension FaceAngleComputer {
-    func computeWithPress(
-        window: StrokeWindow,
-        attitudeAtPress: simd_quatd,
-        attitudeAtImpact: simd_quatd,
-        impactTime: TimeInterval,
-        arkitPoses: [ARPose] = [],
-        arkitBaselineYaw: Double? = nil
-    ) -> FaceAngleSource {
-        // New press-attitude pipeline:
-        // faceAngle = wrapAngle(yaw(attitudeAtImpact) - yaw(attitudeAtPress))
-        
-        let pressYaw = ImpactDetector.yawFromQuaternion(attitudeAtPress)
-        let impactYaw = ImpactDetector.yawFromQuaternion(attitudeAtImpact)
-        let deltaYaw = ImpactDetector.wrapAngle(impactYaw - pressYaw)
-        
-        return FaceAngleSource(radians: deltaYaw, origin: .pressAttitude)
-    }
-}
-
-// MARK: - Implementation Notes
-//
-// New enum case required in FaceAngleSource.Origin:
-//     case pressAttitude
-//
-// Update FaceAngleSource.Origin enum definition in FaceAngleComputer.swift to include:
-//     enum Origin: Sendable, Equatable {
-//         case arkit
-//         case compass
-//         case fallbackArkitLost
-//         case fallbackNoBaseline
-//         case pressAttitude      // <-- ADD THIS
-//     }

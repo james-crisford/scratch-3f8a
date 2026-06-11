@@ -327,8 +327,14 @@ struct ImpactDetectorRobustnessTests {
         #expect(r.peakVelocity > 0.85 && r.peakVelocity < 1.15)
     }
 
-    @Test("non-zero lock yaw: face angle measured relative to lock")
-    func lockYawSubtraction() throws {
+    @Test("compass lock yaw is IGNORED: face angle is press-attitude relative only")
+    func lockYawIgnoredByPressAttitudePipeline() throws {
+        // v1 subtracted the compass lock yaw (this test once expected
+        // 20° − 15° = +5°). B78 replaced the pipeline with the press-
+        // attitude delta, which never consults the compass; B80 fixed the
+        // sign convention. A 20° CCW physical rotation from an identity
+        // press therefore reads −20° (closed/pull), regardless of any
+        // compass value carried in the lock.
         let fixture = StrokeFixtures.synthesise(
             name: "rel",
             faceAngleDeg: 20,
@@ -336,7 +342,7 @@ struct ImpactDetectorRobustnessTests {
         )
         let r = try ImpactDetector().detect(in: fixture.window)
         let deg = r.faceAngleRaw * 180.0 / .pi
-        #expect(abs(deg - 5.0) < 2.0)
+        #expect(abs(deg - (-20.0)) < 2.0)
     }
 
     @Test("ImpactResult is Equatable")

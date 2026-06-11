@@ -276,7 +276,8 @@ struct ReplayHistoryView: View {
         var faceLabel: String {
             guard let r = replay.result else { return "—" }
             if r.snappedToSquare { return "Square" }
-            let deg = r.faceAngleRaw * 180.0 / .pi
+            // B80 — sign-normalized so pre-fix replays read consistently.
+            let deg = r.faceAngleRawCurrentConvention * 180.0 / .pi
             return String(format: "%+.2f°", deg)
         }
         var peakLabel: String {

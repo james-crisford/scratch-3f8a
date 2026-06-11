@@ -12,11 +12,14 @@ import simd
 ///   +y = left of the target line (CCW positive)
 ///   Angles measured CCW from +x, in radians.
 ///
-/// Sign convention (synthesis §3.3):
-///   `faceAngleRaw < 0` = closed face = pull left for a right-handed user.
-///   We invert internally: `ψ_0 = -faceAngleRaw` so that closed face → ball
-///   ends with `position.y > 0` (left of target). Marked `HACK` until v1.2
-///   adds a handedness toggle.
+/// Sign convention (synthesis §3.3, enforced at the producer since B80):
+///   `faceAngleRaw < 0` = closed face = pull = ball left of the target line.
+///   `FaceAngleComputer` now guarantees this convention (it negates the raw
+///   CCW-positive IMU yaw delta — see its doc block), so the internal flip
+///   `ψ_0 = -faceAngleRaw` is plain frame algebra (closed → `position.y > 0`
+///   = left), no longer a right-handed-user HACK. Pull/push *wording* is
+///   still right-handed golf language — a left-hander's "pull" goes right —
+///   which lives in MarioKartAssist, not here.
 ///
 /// Determinism: same inputs → byte-identical outputs. No RNG, no async work,
 /// no global mutable state. Implemented as a caseless enum (no instances ever
@@ -234,8 +237,9 @@ public enum BallPhysics {
             )
         }
 
-        // 4. Sign flip: phone yaw delta → green-frame azimuth (synthesis §3.3).
-        //    HACK: assumes right-handed user; v1.2 adds handedness setting.
+        // 4. Sign flip: face angle → green-frame azimuth (synthesis §3.3).
+        //    B80: producer-enforced convention (negative = closed = pull =
+        //    left), so closed → psi0 > 0 → +y = left. Pure frame algebra.
         let psi0 = -faceAngleRaw
         var velocity = SIMD2<Double>(
             v0Magnitude * cos(psi0),

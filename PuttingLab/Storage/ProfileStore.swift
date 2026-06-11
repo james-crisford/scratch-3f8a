@@ -31,10 +31,16 @@ final class ProfileStore: @unchecked Sendable {
     /// Loads the profile. Returns nil for genuinely-missing data AND for corrupted/old data
     /// (e.g. v0.1 profile with renamed fields). Treating decode failures as "needs recalibration"
     /// avoids upgrade-crashes that would otherwise lose the user mid-session.
+    ///
+    /// B80 — profiles learned under an older face-angle pipeline are
+    /// sanitized at this boundary: the bias flips meaning across the v2→v3
+    /// sign-convention change, so it is zeroed; the speed factor (a
+    /// magnitude) survives so the user keeps distance calibration.
     func load() throws -> CalibrationProfile? {
         guard let data = defaults.data(forKey: key) else { return nil }
         do {
-            return try JSONDecoder().decode(CalibrationProfile.self, from: data)
+            let profile = try JSONDecoder().decode(CalibrationProfile.self, from: data)
+            return profile.sanitizedForCurrentPipeline
         } catch is DecodingError {
             return nil
         }

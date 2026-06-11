@@ -27,7 +27,11 @@ struct ImpactDetectorFuzzTests {
                 let r = try ImpactDetector().detect(in: fixture.window)
                 successCount += 1
                 let deg = r.faceAngleRaw * 180.0 / .pi
-                if abs(deg - faceAngleDeg) < 10.0 { faceWithin10Deg += 1 }
+                // B80 — compare against the generator's signed truth
+                // (−faceAngleDeg under the v3 golf sign), not the raw
+                // physical rotation input.
+                let expectedDeg = fixture.expectedFaceAngleRad * 180.0 / .pi
+                if abs(deg - expectedDeg) < 10.0 { faceWithin10Deg += 1 }
             } catch {
                 crashCount += 1
             }

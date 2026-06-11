@@ -60,9 +60,25 @@ struct StrokeReplay: Sendable, Codable {
         let confidence: Double
         let snappedToSquare: Bool
         let snapReason: String?
+
+        /// B80 — `faceAngleRaw` normalized to the CURRENT (v3 golf-sign)
+        /// convention for display: v3-tagged records pass through; v2/v1/
+        /// untagged records were captured under the inverted sign (CCW-
+        /// positive impact − press) and are negated so old and new strokes
+        /// read consistently in history views. Display-only — never write
+        /// this back into a replay (round-trip must stay byte-faithful).
+        var faceAngleRawCurrentConvention: Double {
+            faceAngleRawMeaning == "v3_press_attitude_delta_golf_sign"
+                ? faceAngleRaw
+                : -faceAngleRaw
+        }
         /// B78 (schemaVersion 2). One of:
-        ///   * `"v2_press_attitude_delta"` — yaw(impact) − yaw(press), no bias.
-        ///   * `"v1_arkit_compass_fused_with_bias"` — legacy pipeline.
+        ///   * `"v3_press_attitude_delta_golf_sign"` — B80+: yaw(press) −
+        ///     yaw(impact); negative = closed/pull/left (golf convention).
+        ///   * `"v2_press_attitude_delta"` — B78/B79: yaw(impact) − yaw(press),
+        ///     no bias. INVERTED sign relative to v3.
+        ///   * `"v1_arkit_compass_fused_with_bias"` — legacy pipeline (also
+        ///     pre-golf-sign).
         /// Lets offline analysers reason about cross-build mixes without
         /// re-deriving from schemaVersion + appVersion.
         let faceAngleRawMeaning: String?
@@ -231,7 +247,11 @@ extension StrokeReplay {
                 confidence: r.confidence,
                 snappedToSquare: r.snappedToSquare,
                 snapReason: r.snapReason.map { String(describing: $0) },
-                faceAngleRawMeaning: "v2_press_attitude_delta"
+                // B80 — golf-sign convention (negative = closed/pull/left;
+                // producer emits press - impact). v2-tagged or untagged
+                // records carry the OLD inverted sign — offline tools and
+                // history views must branch on this tag before comparing.
+                faceAngleRawMeaning: "v3_press_attitude_delta_golf_sign"
             )
         } else {
             self.result = nil

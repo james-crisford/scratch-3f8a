@@ -6,37 +6,42 @@ import simd
 @Suite("Press-to-Impact Pipeline — Full Integration")
 struct PressToImpactIntegrationTests {
 
-    @Test("baseline: 5° yaw swing captured and reported")
+    // B80 — fixtures apply a CCW (positive CoreMotion) world rotation of
+    // `yawDegrees`; under the v3 golf-sign convention (press − impact)
+    // CCW = closing for an RH golfer, so the reported face angle is
+    // −yawDegrees (pull). Every sign expectation in this suite encodes
+    // that deliberately — do NOT "fix" them back to +.
+    @Test("baseline: 5° CCW swing reads −5° (pull) under v3 golf sign")
     func baseline5DegSwing() throws {
         let fixture = buildSwingFixture(
             yawDegrees: 5.0,
             attitudeAtPressIdentity: true,
             profile: nil
         )
-        
+
         let detector = ImpactDetector()
         let result = try detector.detect(in: fixture.window)
-        
+
         #expect(!result.snappedToSquare)
-        #expect(abs(result.faceAngleDegrees - 5.0) < 2.0)
+        #expect(abs(result.faceAngleDegrees - (-5.0)) < 2.0)
     }
 
     @Test("attitudeAtPress is captured correctly at start of stillness")
     func attitudeAtPressCapture() throws {
         let tiltYaw = 10.0 * .pi / 180.0
         let tilted = simd_quatd(angle: tiltYaw, axis: SIMD3(0, 0, 1))
-        
+
         let fixture = buildSwingFixture(
             yawDegrees: 5.0,
             customAttitudeAtPress: tilted,
             profile: nil
         )
-        
+
         let detector = ImpactDetector()
         let result = try detector.detect(in: fixture.window)
-        
+
         #expect(!result.snappedToSquare)
-        #expect(abs(result.faceAngleDegrees - 5.0) < 2.0)
+        #expect(abs(result.faceAngleDegrees - (-5.0)) < 2.0)
     }
 
     @Test("with stale AR9 profile (bias +5.64°), raw yaw still yields +5° face angle")
@@ -63,35 +68,40 @@ struct PressToImpactIntegrationTests {
 
         #expect(!result.snappedToSquare)
         // B78 — the raw face angle from the press-attitude pipeline is
-        // already the correct +5°; a stale +5.64° bias profile must NOT
-        // be subtracted any more. The test exists to prove exactly that
-        // (the AR9 over-correction class). Apply the legacy bias on the
-        // side and confirm it would have *broken* the result, surfacing
-        // the regression if anyone re-enables the bias path.
-        #expect(abs(result.faceAngleDegrees - 5.0) < 2.0)
+        // already correct (−5° under the B80 v3 golf sign for this CCW
+        // fixture); a stale +5.64° bias profile must NOT be subtracted
+        // any more. The test exists to prove exactly that (the AR9
+        // over-correction class). Apply the legacy bias on the side and
+        // confirm it would have *broken* the result, surfacing the
+        // regression if anyone re-enables the bias path. (B80 note: the
+        // stored bias ALSO flips meaning across the sign change —
+        // ProfileStore zeroes pre-v3 biases at load — but this canary
+        // stays sign-valid because it only asserts "subtracting moves
+        // the result off target".)
+        #expect(abs(result.faceAngleDegrees - (-5.0)) < 2.0)
         let woulHaveBeenCorrectedDeg = ImpactDetector.wrapAngle(
             result.faceAngleRaw - profile.faceAngleBiasRad) * 180.0 / .pi
-        #expect(abs(woulHaveBeenCorrectedDeg - 5.0) > 2.0,
+        #expect(abs(woulHaveBeenCorrectedDeg - (-5.0)) > 2.0,
                 "legacy bias path would have driven the result off by ~5.64°; if this fires, the bias subtraction has been re-enabled somewhere")
     }
 
-    @Test("relative delta preserved: tilted press + 5° swing → 5° face angle")
+    @Test("relative delta preserved: tilted press + 5° CCW swing → −5° face angle")
     func tiltedPressPreservesRelativeDelta() throws {
         let tiltRadians = 15.0 * .pi / 180.0
         let tilted = simd_quatd(angle: tiltRadians, axis: SIMD3(0, 0, 1))
         let swingRelativeToTilt = 5.0
-        
+
         let fixture = buildSwingFixture(
             yawDegrees: swingRelativeToTilt,
             customAttitudeAtPress: tilted,
             profile: nil
         )
-        
+
         let detector = ImpactDetector()
         let result = try detector.detect(in: fixture.window)
-        
+
         #expect(!result.snappedToSquare)
-        #expect(abs(result.faceAngleDegrees - swingRelativeToTilt) < 2.0)
+        #expect(abs(result.faceAngleDegrees - (-swingRelativeToTilt)) < 2.0)
     }
 
     @Test("peak velocity detected near middle of 700ms swing window")
@@ -121,12 +131,12 @@ struct PressToImpactIntegrationTests {
             attitudeAtPressIdentity: true,
             profile: nil
         )
-        
+
         let detector = ImpactDetector()
         let result = try detector.detect(in: fixture.window)
-        
+
         #expect(!result.snappedToSquare)
-        #expect(abs(result.faceAngleDegrees - 8.0) < 2.0)
+        #expect(abs(result.faceAngleDegrees - (-8.0)) < 2.0)
     }
 
     @Test("no bias correction when profile is nil")
@@ -137,12 +147,12 @@ struct PressToImpactIntegrationTests {
             attitudeAtPressIdentity: true,
             profile: nil
         )
-        
+
         let detector = ImpactDetector()
         let result = try detector.detect(in: fixture.window)
-        
+
         #expect(!result.snappedToSquare)
-        #expect(abs(result.faceAngleDegrees - rawYaw) < 2.0)
+        #expect(abs(result.faceAngleDegrees - (-rawYaw)) < 2.0)
     }
 
     @Test("high confidence on clean swing (no ARKit loss)")
@@ -260,6 +270,8 @@ fileprivate func buildSwingFixture(
         window: window,
         expectedImpactTime: startTime + pressDuration + swingDuration / 2.0,
         expectedPeakVelocity: peakVelocity,
-        expectedFaceAngleRad: yawRad
+        // B80 — v3 golf sign: a CCW (positive) world rotation reads as a
+        // NEGATIVE (closed/pull) face angle.
+        expectedFaceAngleRad: -yawRad
     )
 }

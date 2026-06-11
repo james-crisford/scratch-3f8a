@@ -110,9 +110,11 @@ struct PuttHistoryView: View {
             loaded.reserveCapacity(min(urls.count, 50))
             for u in urls.prefix(50) {
                 if let r = try? store.load(from: u) {
+                    // B80 — bucket on the sign-normalized value so pre-fix
+                    // records don't display mirrored pull/push labels.
                     loaded.append(Entry(url: u, replay: r,
                                          direction: marioKart.bucket(
-                                            faceAngleDeg: r.result.map { $0.faceAngleRaw * 180.0 / .pi } ?? 0
+                                            faceAngleDeg: r.result.map { $0.faceAngleRawCurrentConvention * 180.0 / .pi } ?? 0
                                          )))
                 }
             }
@@ -187,7 +189,7 @@ struct PuttHistoryView: View {
 
         var summaryText: String {
             let v = replay.result?.peakVelocity ?? 0
-            let fdeg = (replay.result?.faceAngleRaw ?? 0) * 180.0 / .pi
+            let fdeg = (replay.result?.faceAngleRawCurrentConvention ?? 0) * 180.0 / .pi
             let snapped = replay.result?.snappedToSquare == true
             let faceText = snapped ? "snapped" : String(format: "%+.1f°", fdeg)
             let batch = (replay.batchId ?? "").isEmpty ? "" : " · \(replay.batchId!)"
@@ -222,7 +224,7 @@ private struct PuttDetailCard: View {
                     }
                     LabeledContent("Face angle",
                                    value: String(format: "%+.2f°",
-                                                  (entry.replay.result?.faceAngleRaw ?? 0) * 180.0 / .pi))
+                                                  (entry.replay.result?.faceAngleRawCurrentConvention ?? 0) * 180.0 / .pi))
                     LabeledContent("Peak velocity",
                                    value: String(format: "%.3f m/s", entry.replay.result?.peakVelocity ?? 0))
                     LabeledContent("Confidence",

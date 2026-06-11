@@ -36,7 +36,27 @@ final class FaceAngleComputer: Sendable {
     ///   1. At press-begin, capture the phone's IMU attitude quaternion.
     ///      That moment IS the user's declared "square" by gesture.
     ///   2. At impact, take the IMU attitude quaternion again.
-    ///   3. faceAngle = wrapAngle(yaw(attitudeAtImpact) - yaw(attitudeAtPress)).
+    ///   3. faceAngle = wrapAngle(yaw(attitudeAtPress) - yaw(attitudeAtImpact)).
+    ///
+    /// B80 — SIGN CONVENTION (golf convention, enforced HERE and only here):
+    ///   negative = closed face = pull = ball LEFT of the target line;
+    ///   positive = open face = push = ball RIGHT (right-handed golfer).
+    /// CoreMotion attitude yaw is CCW-positive viewed from above, and for a
+    /// right-handed golfer (target on his left) CLOSING the face rotates the
+    /// face normal CCW — i.e. closed = POSITIVE raw IMU delta. B78 emitted
+    /// `yaw(impact) - yaw(press)` directly, so every label downstream
+    /// (BallPhysics §3.3, MarioKartAssist, the result panel) — all of which
+    /// document "negative = closed/pull/left" — was inverted vs reality.
+    /// The b79 session proved it: three intended-square strokes read
+    /// -17.9/-10.9/-12.3 (labelled "pull — ball goes left") while the video
+    /// showed all three rolls missing RIGHT. The deltas were real clockwise
+    /// = OPEN rotations. Negating at the producer (press - impact) makes
+    /// every existing consumer true with zero edits. The yaw-delta identity
+    /// itself is exact for this grip: a world-vertical rotation θ
+    /// premultiplies the attitude by Rz(θ) and ZYX-yaw(Rz(θ)·R) = yaw(R)+θ
+    /// while the device X axis stays off vertical (James's grip keeps
+    /// gravity.x ≈ 0, so no gimbal trouble; cross-axis crosstalk ≤ ~3° even
+    /// at ±20° pitch / ±5° roll swings).
     ///
     /// CoreMotion's fused attitude is dominated by the gyroscope at sub-
     /// second timescales (the magnetometer mostly contributes drift
@@ -70,7 +90,10 @@ final class FaceAngleComputer: Sendable {
         _ = arkitBaselineYaw
         let yawAtPress = ImpactDetector.yawFromQuaternion(window.lock.attitudeAtPress)
         let yawAtImpact = ImpactDetector.yawFromQuaternion(attitudeAtImpact)
-        let raw = ImpactDetector.wrapAngle(yawAtImpact - yawAtPress)
+        // B80 — golf-sign convention: negative = closed/pull/left. CoreMotion
+        // yaw is CCW-positive = closed for an RH golfer, hence press - impact
+        // (NOT impact - press as in B78/B79; see the doc block above).
+        let raw = ImpactDetector.wrapAngle(yawAtPress - yawAtImpact)
         return FaceAngleSource(radians: raw, origin: .pressAttitude)
     }
 }

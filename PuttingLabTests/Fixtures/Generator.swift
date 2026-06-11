@@ -59,7 +59,12 @@ enum StrokeFixtures {
         )
         // Independent wrap math — DO NOT call production wrapAngle here, otherwise a sign
         // or bounds bug in wrapAngle would silently match the expected truth.
-        var rawFace = faceRad - lockYawCompass
+        // B80 — v3 golf-sign truth: the press attitude above is identity and
+        // the impact attitude is Rz(faceRad), so the pipeline reads
+        // yaw(press) − yaw(impact) = −faceRad (CCW physical rotation =
+        // closed = pull = negative). The v2+ pipeline never consults the
+        // compass, so lockYawCompass no longer enters the expected truth.
+        var rawFace = -faceRad
         while rawFace > .pi { rawFace -= 2.0 * .pi }
         while rawFace <= -.pi { rawFace += 2.0 * .pi }
         let expectedFace = rawFace
@@ -85,12 +90,16 @@ enum StrokeFixtures {
         )
     }
 
+    // B80 — `faceAngleDeg` is the PHYSICAL CCW rotation at impact. Under
+    // the v3 golf sign, CCW = closing for an RH golfer, so a pull fixture
+    // rotates +deg (reads −deg) and a push fixture rotates −deg (reads
+    // +deg). Pre-B80 these were inverted along with the pipeline.
     static func pull(deg: Double) -> SyntheticStroke {
-        synthesise(name: "pull_\(Int(deg))deg", faceAngleDeg: -deg)
+        synthesise(name: "pull_\(Int(deg))deg", faceAngleDeg: deg)
     }
 
     static func push(deg: Double) -> SyntheticStroke {
-        synthesise(name: "push_\(Int(deg))deg", faceAngleDeg: deg)
+        synthesise(name: "push_\(Int(deg))deg", faceAngleDeg: -deg)
     }
 
     static func flickShort(ms: Int) -> SyntheticStroke {

@@ -2574,7 +2574,12 @@ struct ARPlacementView: View {
                        "velocity_mps": String(format: "%.4f", impact.peakVelocity),
                        "face_angle_deg": String(format: "%.2f", impact.faceAngleDegrees),
                        "face_angle_raw_deg": String(format: "%.2f", rawImpact.faceAngleDegrees),
-                       "face_angle_pipeline": "v2_press_attitude_delta",
+                       // B80 — golf-sign convention. NOTE: the
+                       // press_to_impact_delta_yaw_deg key below is computed
+                       // inline (impact - press, UN-negated) as a deliberate
+                       // cross-build canary: post-B80, face_angle_raw_deg
+                       // == -press_to_impact_delta_yaw_deg in this payload.
+                       "face_angle_pipeline": "v3_press_attitude_delta_golf_sign",
                        "attitude_at_press_yaw_deg": String(format: "%.2f", yawAtPressDeg),
                        "attitude_at_impact_yaw_deg": String(format: "%.2f", yawAtImpactDeg),
                        "press_to_impact_delta_yaw_deg": String(format: "%.2f", pressToImpactDeltaDeg),

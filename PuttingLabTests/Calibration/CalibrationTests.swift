@@ -186,8 +186,11 @@ struct CalibrationModelTests {
 
     @Test("face angle bias detected when synthetic strokes systematically pull")
     func biasDetected() throws {
+        // B80 — `faceAngleDeg` is the PHYSICAL CCW rotation; under the v3
+        // golf sign +5° CCW READS −5° (pull). The fixture input flips so
+        // these strokes still "systematically pull" as the name claims.
         let inputs = try (0..<5).map { _ in
-            try cleanCalibrationPair(faceAngleDeg: -5.0)
+            try cleanCalibrationPair(faceAngleDeg: 5.0)
         }.map { CalibrationInput(window: $0.window, impact: $0.impact) }
         let profile = CalibrationModel.compute(from: inputs, targetDistanceFeet: 8.0)
         let biasDeg = profile.faceAngleBiasRad * 180.0 / .pi
@@ -197,8 +200,10 @@ struct CalibrationModelTests {
 
     @Test("applyBias subtracts the calibrated bias")
     func biasApplied() throws {
+        // B80 — +3° CCW physical reads −3° (pull) under v3; a −3° bias
+        // then zeroes an equally-pulled next stroke.
         let inputs = try (0..<5).map { _ in
-            try cleanCalibrationPair(faceAngleDeg: -3.0)
+            try cleanCalibrationPair(faceAngleDeg: 3.0)
         }.map { CalibrationInput(window: $0.window, impact: $0.impact) }
         let profile = CalibrationModel.compute(from: inputs, targetDistanceFeet: 8.0)
         let rawNextStroke = -3.0 * .pi / 180.0

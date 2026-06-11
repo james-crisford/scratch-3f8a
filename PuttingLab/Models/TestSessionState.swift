@@ -27,7 +27,16 @@ final class TestSessionState {
     private static let keyCurrentBatchIndex = "TestSessionState_v1.currentBatchIndex"
     private static let keyStrokesInCurrentBatch = "TestSessionState_v1.strokesInCurrentBatch"
     private static let keyTotalStrokesCompleted = "TestSessionState_v1.totalStrokesCompleted"
-    private static let keyCalibrationFaceAngles = "TestSessionState_v1.calibrationFaceAnglesRad"
+    // B80 — key bumped v1 → v3 with the face-angle sign-convention change.
+    // A baseline accumulated under the v2 (inverted) sign, subtracted from
+    // v3 raws in PracticeSessionView's "face (cal)" row, would roughly
+    // DOUBLE the displayed error instead of centering it. Bumping the key
+    // makes pre-B80 baselines invisible (UI falls back to "face (raw)"
+    // until 3 fresh cal strokes accumulate); the legacy key is purged in
+    // loadIfAvailable(). The stroke counters above are sign-agnostic and
+    // keep their v1 keys.
+    private static let keyCalibrationFaceAngles = "TestSessionState_v3.calibrationFaceAnglesRad"
+    private static let legacyKeyCalibrationFaceAngles = "TestSessionState_v1.calibrationFaceAnglesRad"
 
     init(
         batches: [TestBatch] = TestBatch.allBatches,
@@ -141,6 +150,9 @@ final class TestSessionState {
             // Defensive: drop non-finite entries that might have snuck in.
             calibrationFaceAnglesRad = raw.filter { $0.isFinite }
         }
+        // B80 — purge any baseline persisted under the pre-sign-fix key so
+        // it can never be resurrected by a future key revert.
+        userDefaults.removeObject(forKey: Self.legacyKeyCalibrationFaceAngles)
     }
 
     func clearPersistence() {
@@ -148,5 +160,6 @@ final class TestSessionState {
         userDefaults.removeObject(forKey: Self.keyStrokesInCurrentBatch)
         userDefaults.removeObject(forKey: Self.keyTotalStrokesCompleted)
         userDefaults.removeObject(forKey: Self.keyCalibrationFaceAngles)
+        userDefaults.removeObject(forKey: Self.legacyKeyCalibrationFaceAngles)
     }
 }
