@@ -779,7 +779,7 @@ struct ARPlacementView: View {
                     if let (ball, hole) = ballHole {
                         scene.placeAddressMarkers(
                             ball: ball, hole: hole,
-                            stance: StanceGeometry.compute(profile: updated))
+                            profile: updated)
                     }
                 }
             )
@@ -1357,7 +1357,11 @@ struct ARPlacementView: View {
             // B42: title badge — quieter caption2 weight, version stamp
             // visible at a glance so any future Gemini frame can be
             // tied back to the exact build that produced it.
-            Text(hudCompact ? "v0.4.8" : "PuttingLab · v0.4.8")
+            // B80 — read the real bundle version. The badge was hardcoded
+            // "v0.4.8" through v0.7.x, stamping every screen-recording
+            // frame with the wrong build — the b79 session video carried
+            // it, which is exactly when build provenance matters most.
+            Text(hudCompact ? Self.versionBadgeCompact : Self.versionBadgeFull)
                 .font(.caption2.weight(.medium).monospacedDigit())
                 .foregroundStyle(.white.opacity(0.85))
                 .padding(.horizontal, 12)
@@ -1367,6 +1371,21 @@ struct ARPlacementView: View {
         }
         .padding(.top, 12)
     }
+
+    /// B80 — live version badge from the bundle (e.g. "v0.7.15 (80)").
+    /// Falls back to "v?" only if Info.plist is somehow unreadable.
+    private static let versionBadgeCompact: String = {
+        let info = Bundle.main.infoDictionary
+        let short = info?["CFBundleShortVersionString"] as? String
+        let build = info?["CFBundleVersion"] as? String
+        switch (short, build) {
+        case let (s?, b?): return "v\(s) (\(b))"
+        case let (s?, nil): return "v\(s)"
+        default: return "v?"
+        }
+    }()
+
+    private static let versionBadgeFull: String = "PuttingLab · \(versionBadgeCompact)"
 
     /// B57.2 — slim always-visible row of Record / Save / Send-this /
     /// Send-all. Mirrors the same actions that live deeper inside
@@ -1900,13 +1919,10 @@ struct ARPlacementView: View {
                                  "ball_y": String(format: "%.4f", ballWorld.y),
                                  "ball_z": String(format: "%.4f", ballWorld.z)])
             placementState = .complete(ball: ballWorld, hole: world)
-            // B46 Slice 3.1: drop foot markers at the address
-            // position behind the ball — shows the user where to
-            // stand for the putt.
-            // B78 — stance spread scaled by the user's height profile.
+            // B80 — one-sided stance markers, handedness-aware.
             scene.placeAddressMarkers(
                 ball: ballWorld, hole: world,
-                stance: StanceGeometry.compute(profile: userProfile))
+                profile: userProfile)
         // B42: Move-ball UX — preserved hole stays, new ball drops.
         case .replacingBall(let preservedHole):
             scene.placeBall(at: world)
@@ -1929,7 +1945,7 @@ struct ARPlacementView: View {
             placementState = .complete(ball: world, hole: preservedHole)
             scene.placeAddressMarkers(
                 ball: world, hole: preservedHole,
-                stance: StanceGeometry.compute(profile: userProfile))
+                profile: userProfile)
         // B42: Move-hole UX — preserved ball stays, new hole drops.
         case .replacingHole(let preservedBall):
             scene.placeHole(at: world)
@@ -1946,7 +1962,7 @@ struct ARPlacementView: View {
             placementState = .complete(ball: preservedBall, hole: world)
             scene.placeAddressMarkers(
                 ball: preservedBall, hole: world,
-                stance: StanceGeometry.compute(profile: userProfile))
+                profile: userProfile)
         case .complete, .rolling, .rolled:
             // No placement action during the post-placement flows.
             break
@@ -2511,6 +2527,19 @@ struct ARPlacementView: View {
                 // actually fires instead of dead-falling to compass yaw.
                 arkitBaselineYaw: recordingArkitBaseline
             )
+            // B80 — SHADOW-ONLY timing telemetry. The deep audit's H5
+            // finding: 'impact = peak hand velocity' samples the face
+            // angle away from actual ball-passage, inflating the reading
+            // at James's ~30-60°/s face sweep. The candidate v3 impact
+            // definition is 'closest re-approach of the phone to the
+            // address position' from the ARKit pose track — but its
+            // gating thresholds (max-departure hysteresis, pose quality)
+            // must be MEASURED before it can drive results. This logs
+            // both definitions side by side every stroke; it changes
+            // nothing user-facing.
+            logImpactTimingShadow(result: result,
+                                   window: window,
+                                   poses: posesDuringRecording)
             // Build an AddressPose for downstream consumers (e.g. the
             // roll animator + result panel). v0.2.0 didn't need one
             // because PracticeSessionView had its own flow; we keep
@@ -2618,6 +2647,82 @@ struct ARPlacementView: View {
             awaitingRollStart = false
             startRoll(ball: ball, hole: hole, pose: pose, impact: impact)
         }
+    }
+
+    /// B80 — shadow telemetry comparing the SHIPPED impact definition
+    /// (peak integrated hand velocity) against the CANDIDATE definition
+    /// (closest re-approach of the phone to its press/address position,
+    /// from the recorded ARKit pose track). Logs one event per stroke;
+    /// drives nothing. The next device session's logs calibrate:
+    ///   * how far the velocity peak sits from the geometric re-approach,
+    ///   * whether real strokes produce enough camera displacement for a
+    ///     max-departure hysteresis gate (audit risk: soft 1 m putts may
+    ///     move only centimetres), and
+    ///   * ARKit pose quality mid-swing (duplicate-frame ratio).
+    private func logImpactTimingShadow(result: ImpactResult,
+                                        window: StrokeWindow,
+                                        poses: [ARPose]) {
+        var payload: [String: String] = [
+            "kind": "b80_impact_timing_shadow",
+            "impact_offset_s": String(format: "%.4f", result.timestamp - window.start),
+            "window_duration_s": String(format: "%.4f", window.duration),
+            "pose_count": "\(poses.count)",
+        ]
+        defer { logger.log(.note, "B80 impact-timing shadow", payload: payload) }
+
+        // Dedupe by timestamp: the capture loop appends one ARFrame per
+        // 100 Hz motion sample but frames refresh at ~60 Hz, so ~40% are
+        // duplicates that would corrupt a closest-approach refinement.
+        var unique: [(t: TimeInterval, p: SIMD3<Float>)] = []
+        unique.reserveCapacity(poses.count)
+        for pose in poses {
+            guard pose.timestamp.isFinite,
+                  pose.timestamp != unique.last?.t else { continue }
+            let c = pose.transform.columns.3
+            guard c.x.isFinite, c.y.isFinite, c.z.isFinite else { continue }
+            unique.append((pose.timestamp, SIMD3<Float>(c.x, c.y, c.z)))
+        }
+        payload["pose_count_unique"] = "\(unique.count)"
+        guard unique.count >= 5, let p0 = unique.first?.p else { return }
+
+        var maxDeparture: Float = 0
+        var maxDepartureIdx = 0
+        for (i, sample) in unique.enumerated() {
+            let d = simd_distance(sample.p, p0)
+            if d > maxDeparture {
+                maxDeparture = d
+                maxDepartureIdx = i
+            }
+        }
+        payload["max_departure_m"] = String(format: "%.4f", maxDeparture)
+        payload["max_departure_offset_s"] = String(
+            format: "%.4f", unique[maxDepartureIdx].t - unique[0].t)
+
+        // FIRST local minimum after max departure (audit risk: a global
+        // minimum can latch onto the post-follow-through return to
+        // address, reading even later than the velocity peak).
+        guard maxDepartureIdx < unique.count - 2 else { return }
+        var reapproachIdx: Int? = nil
+        for i in (maxDepartureIdx + 1)..<(unique.count - 1) {
+            let prev = simd_distance(unique[i - 1].p, p0)
+            let here = simd_distance(unique[i].p, p0)
+            let next = simd_distance(unique[i + 1].p, p0)
+            if here <= prev && here < next {
+                reapproachIdx = i
+                break
+            }
+        }
+        guard let idx = reapproachIdx else { return }
+        let reapproachT = unique[idx].t
+        payload["reapproach_offset_s"] = String(format: "%.4f", reapproachT - unique[0].t)
+        payload["reapproach_dist_m"] = String(
+            format: "%.4f", simd_distance(unique[idx].p, p0))
+        // Positive = the shipped velocity-peak impact fires AFTER the
+        // geometric re-approach (late read). ARFrame timestamps and
+        // motion timestamps share the boot clock; pipeline latency
+        // (~17-50 ms) is acceptable for shadow comparison.
+        payload["impact_minus_reapproach_s"] = String(
+            format: "%.4f", result.timestamp - reapproachT)
     }
 
     /// B55 P0.3 — wait for the phone to be steady before invoking
@@ -3746,65 +3851,59 @@ final class ARPlacementScene {
         addressMarkersAnchor = nil
     }
 
-    /// B46 (Slice 3.1) — render two translucent yellow foot
-    /// markers on the AR floor showing the user where to stand
-    /// for the putt. Position computed from the ball + hole
-    /// world coords:
-    ///   * 60 cm behind the ball along the negative aim direction
-    ///   * markers spread 26 cm apart, perpendicular to aim line
-    ///   * 24 cm long × 10 cm wide each
+    /// B80 — render two opaque yellow foot markers as a TRUE golf address
+    /// stance, solved by the pure `StanceGeometry.addressPlacement`:
+    ///   * BOTH feet on ONE side of the ball→hole line (right-handed =
+    ///     the up×aim / left side; handedness mirrors it)
+    ///   * stance line set back `setbackMetres` (~0.37 m) perpendicular
+    ///     from the line; feet spread shoulder-width ALONG the line,
+    ///     lead foot toward the hole; ball one ball-width ahead of centre
+    ///   * foot long axes point from the toes AT the line, slight toe-out
+    ///   * Y is FLOOR-RELATIVE (`ball.y` is the raycast floor height at
+    ///     the ball + 10 mm lift). The B46-B79 code set absolute world
+    ///     y = 0.01→0.08, which floated the feet by however high the
+    ///     phone was at session start (~0.93 m in the b79 session —
+    ///     ARKit's origin is the phone pose at launch, NOT the floor).
+    ///     The old "LiDAR occlusion sits 3-5 cm above floor" rationale
+    ///     was inoperative: scene-understanding occlusion is never
+    ///     enabled in this app; the pre-B77 invisibility was frustum
+    ///     culling of markers placed behind the camera.
     ///
-    /// Materials use `PhysicallyBasedMaterial` (matches B45
-    /// `environmentTexturing = .automatic` so they shade with the
-    /// ARKit-estimated ambient light). Markers are visually below
-    /// the floor (lifted 1 mm only) so the user can see they're
-    /// affordances, not physical objects.
-    ///
-    /// Hidden — but the entities stay in the scene graph for the
-    /// future stroke-detection path (B48) to flip via `isEnabled`.
-    /// B78 — accepts an explicit `StanceGeometry` so the foot half-spread
-    /// scales with the user's declared height instead of the hard-coded
-    /// 18 cm we shipped in B77. Defaults to the 170 cm UK adult median
-    /// profile so older call sites that haven't been migrated still get
-    /// reasonable placement.
+    /// The history of this function is a museum of stance bugs — straddle
+    /// spread across the line (B77/B78), long axis along the line (B79),
+    /// absolute Y (B46-B79). All three James-reported symptoms; see the
+    /// b80 audit. Takes the full `UserProfile` (NO default) so handedness
+    /// can never silently fall back at a call site.
     func placeAddressMarkers(ball: SIMD3<Float>,
                               hole: SIMD3<Float>,
-                              stance: StanceGeometry = .compute(profile: .default)) {
+                              profile: UserProfile) {
         guard let arView else { return }
-        // B79 — compute aim direction BEFORE wiping last-good markers.
-        // Pre-B79 we cleared first; if ball and hole arrived co-located
-        // (e.g. mid-replace transient) the guard below silently returned
-        // and the user lost their markers with no redraw.
-        let aimVec = SIMD3<Float>(hole.x - ball.x, 0, hole.z - ball.z)
-        let aimLen = simd_length(aimVec)
-        guard aimLen > 0.01 else {
+        // B79 guard ordering — solve the FULL placement BEFORE wiping
+        // last-good markers. If ball/hole arrive co-located (mid-replace
+        // transient) we keep the previous markers instead of blanking.
+        let stance = StanceGeometry.compute(profile: profile)
+        guard let placement = StanceGeometry.addressPlacement(
+            ball: ball,
+            hole: hole,
+            stance: stance,
+            handedness: profile.handedness
+        ) else {
             logger?.log(.note,
-                        "placeAddressMarkers skipped — ball/hole co-located",
-                        payload: ["aim_len_m": String(format: "%.4f", aimLen)])
+                        "placeAddressMarkers skipped — degenerate ball/hole",
+                        payload: ["ball_x": String(format: "%.4f", ball.x),
+                                  "ball_z": String(format: "%.4f", ball.z),
+                                  "hole_x": String(format: "%.4f", hole.x),
+                                  "hole_z": String(format: "%.4f", hole.z)])
             return
         }
         clearAddressMarkers()
-        let aim = aimVec / aimLen
-        // Perpendicular in the floor plane (rotate 90° about Y).
-        let perp = SIMD3<Float>(-aim.z, 0, aim.x)
 
-        // Marker geometry — 24 cm long × 10 cm wide.
-        // B57: Y raised to 5cm (was 1cm in B55) — James reported
-        // markers STILL invisible on B56. Root cause likely the
-        // LiDAR mesh occlusion plane sits 3-5cm above floor due to
-        // scan accuracy, so 1cm markers were hidden under it.
-        // 5cm sits clearly above the worst-case LiDAR mesh anchor.
-        // Switched to FULLY OPAQUE UnlitMaterial — the previous
-        // 0.78-alpha transparent rendering also didn't blend well
-        // with the camera-feed grey carpet.
+        // Marker geometry — 24 cm long × 10 cm wide, long axis on local
+        // +Z (B79: `generatePlane` lays `width` on local +X and `depth`
+        // on local +Z). The placement yaws point local +Z from the
+        // golfer's toes at the target line.
         let footLen: Float = 0.24
         let footWid: Float = 0.10
-        // B79 — `generatePlane` lays `width` on local +X and `depth` on
-        // local +Z. The footRot below yaws about world +Y so local +Z
-        // ends up pointing along the aim direction (toward the ball).
-        // Pre-B79 we set width=footLen / depth=footWid, which put the
-        // long axis ACROSS the stance — yellow tally marks instead of
-        // foot rectangles. Swap so depth carries the long axis.
         let footMesh = MeshResource.generatePlane(width: footWid,
                                                    depth: footLen,
                                                    cornerRadius: 0.02)
@@ -3814,59 +3913,48 @@ final class ARPlacementScene {
                                                           blue: 0.20,
                                                           alpha: 1.0))
 
-        // Stance position: 60 cm behind the ball along -aim. Foot
-        // markers spread 26 cm apart sideways via ±perp.
-        // B77 — place markers ALONGSIDE the ball, not 60 cm behind it.
-        // James on B76: "feet placement still not correct should the
-        // feet placement be placed where the ball is, as it will always
-        // be linked to the ball". Pre-B77 stanceCenter was ball - aim*0.60
-        // (60 cm in -aim, BEHIND the camera in stance pose → always
-        // culled from the view frustum, which is why we'd added the
-        // 2D HUD overlay in B70 as a workaround). The proper fix: put
-        // them at the ball, with a wider perp spread so they flank
-        // the ball on left + right as visible peripheral marks. The
-        // user looking down at the ball in stance now SEES both yellow
-        // rectangles to either side of the ball — matching how golf
-        // stance actually relates to ball position.
-        // B78 — feet flank the ball at the user's actual shoulder half-
-        // width (bideltoid ≈ 0.245 × height). Pre-B78 was a hard-coded
-        // ±18 cm spread regardless of who was using the app.
-        let stanceCenter = ball
-        let footOffset = perp * Float(stance.footHalfSpreadMetres)
-
-        // Yaw the foot rectangle so its long axis aligns with the
-        // aim direction (foot points TOWARD the ball).
-        let yaw = atan2(aim.x, aim.z)
-        let footRot = simd_quatf(angle: yaw, axis: SIMD3<Float>(0, 1, 0))
-
         let anchor = AnchorEntity(world: .zero)
 
-        let leftFoot = ModelEntity(mesh: footMesh, materials: [footMaterial])
-        leftFoot.position = stanceCenter - footOffset
-        leftFoot.position.y = 0.08
-        leftFoot.orientation = footRot
-        anchor.addChild(leftFoot)
+        let leadFoot = ModelEntity(mesh: footMesh, materials: [footMaterial])
+        leadFoot.position = placement.leadFootPosition
+        leadFoot.orientation = simd_quatf(angle: placement.leadFootYaw,
+                                           axis: SIMD3<Float>(0, 1, 0))
+        anchor.addChild(leadFoot)
 
-        let rightFoot = ModelEntity(mesh: footMesh, materials: [footMaterial])
-        rightFoot.position = stanceCenter + footOffset
-        rightFoot.position.y = 0.08
-        rightFoot.orientation = footRot
-        anchor.addChild(rightFoot)
+        let trailFoot = ModelEntity(mesh: footMesh, materials: [footMaterial])
+        trailFoot.position = placement.trailFootPosition
+        trailFoot.orientation = simd_quatf(angle: placement.trailFootYaw,
+                                            axis: SIMD3<Float>(0, 1, 0))
+        anchor.addChild(trailFoot)
 
         arView.scene.addAnchor(anchor)
         addressMarkersAnchor = anchor
 
+        // Telemetry now reports RENDERED positions (including Y). The
+        // pre-B80 payload logged the intended stance centre while the
+        // code rendered absolute y = 0.08 — which is exactly how the
+        // floating-feet bug hid from log-only debugging for 30+ builds.
         logger?.log(.materialApplied,
-                    "B46 address markers applied",
+                    "B80 address markers applied",
                     payload: ["entity": "address_markers",
-                              "design": "b46_foot_markers",
-                              "material": "PhysicallyBasedMaterial.yellow_translucent",
-                              "stance_x": String(format: "%.4f", stanceCenter.x),
-                              "stance_y": String(format: "%.4f", stanceCenter.y),
-                              "stance_z": String(format: "%.4f", stanceCenter.z),
-                              "aim_yaw_deg": String(format: "%.2f", yaw * 180 / .pi),
+                              "design": "b80_one_sided_stance",
+                              "material": "UnlitMaterial.yellow_opaque",
+                              "handedness": profile.handedness.rawValue,
+                              "side_sign": String(format: "%.0f", placement.sideSign),
+                              "setback_m": String(format: "%.4f", stance.setbackMetres),
                               "foot_half_spread_m": String(format: "%.4f", stance.footHalfSpreadMetres),
-                              "shoulder_width_m": String(format: "%.4f", stance.shoulderWidthMetres)])
+                              "shoulder_width_m": String(format: "%.4f", stance.shoulderWidthMetres),
+                              "stance_x": String(format: "%.4f", placement.stanceCenter.x),
+                              "stance_y": String(format: "%.4f", placement.stanceCenter.y),
+                              "stance_z": String(format: "%.4f", placement.stanceCenter.z),
+                              "lead_x": String(format: "%.4f", placement.leadFootPosition.x),
+                              "lead_y": String(format: "%.4f", placement.leadFootPosition.y),
+                              "lead_z": String(format: "%.4f", placement.leadFootPosition.z),
+                              "trail_x": String(format: "%.4f", placement.trailFootPosition.x),
+                              "trail_y": String(format: "%.4f", placement.trailFootPosition.y),
+                              "trail_z": String(format: "%.4f", placement.trailFootPosition.z),
+                              "lead_yaw_deg": String(format: "%.2f", placement.leadFootYaw * 180 / .pi),
+                              "trail_yaw_deg": String(format: "%.2f", placement.trailFootYaw * 180 / .pi)])
     }
 
     /// B46 — toggle address-marker visibility. Called by the
@@ -3909,7 +3997,15 @@ final class ARPlacementScene {
         )
         material.blending = .transparent(opacity: .init(floatLiteral: 0.65))
         let marker = ModelEntity(mesh: mesh, materials: [material])
-        marker.position = SIMD3<Float>(world.x, 0.0008, world.z)
+        // B80 — floor-relative Y. The pre-B80 absolute 0.0008 was the same
+        // bug family as the floating foot markers: ARKit's world origin is
+        // the phone pose at session start, so absolute-y decals hover by
+        // however high the phone was held (~0.85 m in the b79 session).
+        // `ballWorldPosition.y` is the raycast floor height; the animator's
+        // emitted `world.y` includes the ball-radius lift, so it is NOT a
+        // valid floor reference.
+        let floorY = ballWorldPosition?.y ?? world.y
+        marker.position = SIMD3<Float>(world.x, floorY + 0.0008, world.z)
         rollTrailAnchor?.addChild(marker)
         rollTrailMarkers.append(marker)
     }
@@ -4810,11 +4906,10 @@ private struct ARPlacementSceneRepresentable: UIViewRepresentable {
                                          "z": String(format: "%.4f", world.z),
                                          "distance_m": String(format: "%.4f", dist)])
                     _placementState.wrappedValue = .complete(ball: ballWorld, hole: world)
-                    // B46 Slice 3.1: drop foot markers behind the ball.
-                    // B78 — stance spread scaled by user height profile.
+                    // B80 — one-sided stance markers, handedness-aware.
                     scene.placeAddressMarkers(
                         ball: ballWorld, hole: world,
-                        stance: StanceGeometry.compute(profile: self.getUserProfile()))
+                        profile: self.getUserProfile())
                     lastPlacementAt = Date()
                 // B42: tap-to-place mirrors the crosshair Move-ball /
                 // Move-hole flow when the user is in a replacing state.
@@ -4834,7 +4929,7 @@ private struct ARPlacementSceneRepresentable: UIViewRepresentable {
                     _placementState.wrappedValue = .complete(ball: world, hole: preservedHole)
                     scene.placeAddressMarkers(
                         ball: world, hole: preservedHole,
-                        stance: StanceGeometry.compute(profile: self.getUserProfile()))
+                        profile: self.getUserProfile())
                     lastPlacementAt = Date()
                 case .replacingHole(let preservedBall):
                     scene.placeHole(at: world)
@@ -4848,7 +4943,7 @@ private struct ARPlacementSceneRepresentable: UIViewRepresentable {
                     _placementState.wrappedValue = .complete(ball: preservedBall, hole: world)
                     scene.placeAddressMarkers(
                         ball: preservedBall, hole: world,
-                        stance: StanceGeometry.compute(profile: self.getUserProfile()))
+                        profile: self.getUserProfile())
                     lastPlacementAt = Date()
                 case .complete, .rolling, .rolled:
                     // B47/B48/B49: tap is ignored in the

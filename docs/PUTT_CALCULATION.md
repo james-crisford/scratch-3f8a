@@ -32,13 +32,22 @@ The pipeline only requires CoreMotion. ARKit positions the ball + hole + foot ma
 
 ## 3. Phone-as-putter coordinate convention
 
-You hold the phone vertical in your lead hand, screen facing you, back camera pointing in the direction of the swing.
+**The grip (corrected 2026-06, see `docs/putting-stance-reference.md`):** you hold the phone with BOTH hands in a normal putter grip, arms hanging in front of you at address, top of the phone toward the floor, back of the phone toward your legs, one LONG SIDE of the phone facing the target. The phone replaces the putter head; your stroke is a normal putting stroke.
 
-- **Phone Y axis** = the shaft (down through your hand to the imaginary clubhead)
-- **Phone X axis** = the face normal (perpendicular to the face, pointing the way a real putter face would point)
-- **Yaw of the phone about world Z** = how open/closed the face is
+> The original spec said "vertical in lead hand, screen facing you" — that hold is dead. It survives in some older docs; if you find it, it's stale, not a second supported grip. (PuttingLab/CLAUDE.md §3 decision #2 still carries the old wording pending a sign-off to amend a locked decision.)
 
-These conventions are baked into [PuttingLab/CLAUDE.md](../CLAUDE.md) §3 and never re-litigated.
+- **Phone's long side** = the putter face (the side facing the target at address)
+- **Rotation of the phone about the WORLD VERTICAL axis** = how open/closed the face is
+- The press at address declares "this heading = square = 0°"; the absolute hold angle doesn't matter, only the press-to-impact rotation
+
+**Sign convention (v3, B80 — golf convention, enforced in `FaceAngleComputer`):**
+
+```
+faceAngle < 0  →  face CLOSED  →  PULL  →  ball left of the target line
+faceAngle > 0  →  face OPEN    →  PUSH  →  ball right of the target line
+```
+
+CoreMotion's attitude yaw is CCW-positive viewed from above, and for a right-handed golfer *closing* the face is a CCW rotation — so the producer emits `yaw(press) − yaw(impact)` to land on the golf convention. (B78/B79 emitted `impact − press`, which labelled every open-faced push as a "pull"; combined with a mirrored renderer the on-screen ball went the physically-correct way while the text said the opposite. Fixed atomically in B80.)
 
 ---
 
@@ -71,10 +80,12 @@ You move the phone backwards (backswing), then forwards through the line of the 
 3. **FaceAngleComputer** reads `attitudeAtPress` from the lock and `attitudeAtImpact` from the detector, extracts the yaw of each, and subtracts:
 
    ```
-   faceAngle = wrapAngle( yaw(attitudeAtImpact) − yaw(attitudeAtPress) )
+   faceAngle = wrapAngle( yaw(attitudeAtPress) − yaw(attitudeAtImpact) )    # v3, B80
    ```
 
-   That single subtraction IS the face angle. No fusion, no compass, no bias correction. The yaw extraction uses the standard `atan2(2·(w·z + x·y), 1 − 2·(y² + z²))` formula on the quaternion components — gimbal-safe except when the phone is exactly vertical, where the result is documented as undefined-but-finite.
+   That single subtraction IS the face angle. No fusion, no compass, no bias correction. The press-minus-impact order lands the result on the golf sign convention (§3): a CCW (closing) rotation reads negative = pull. The yaw extraction uses the standard `atan2(2·(w·z + x·y), 1 − 2·(y² + z²))` formula on the quaternion components — exact for world-vertical rotations while the phone's X axis stays off vertical (true throughout the both-hands grip), gimbal-degenerate only when X points straight up/down.
+
+   > **Known caveat (under instrumentation in B80):** "peak forward velocity" is not exactly "ball passage". The audit of the b79 session found the velocity peak can sit 100+ ms away from the moment the phone re-passes the address position, which at a 30-60°/s face sweep inflates the reading by several degrees. B80 logs a per-stroke `b80_impact_timing_shadow` event comparing both definitions; the timing fix lands once that data sets the thresholds.
 
 ### Stage 4 — Translate velocity to distance
 
@@ -148,7 +159,7 @@ Every stroke is serialized to a JSON file you can save and email back for offlin
 - All IMU samples in the window (100 Hz: timestamp, rotationRate, userAcceleration, gravity, attitude quaternion).
 - The `StillnessLock` including `attitudeAtPress` (new in B78).
 - The `ImpactResult` (peak velocity, face angle, confidence, snap reason).
-- A `faceAngleRawMeaning` tag: `"v2_press_attitude_delta"` for new strokes, `"v1_arkit_compass_fused_with_bias"` for legacy replays.
+- A `faceAngleRawMeaning` tag: `"v3_press_attitude_delta_golf_sign"` for B80+ strokes (negative = closed/pull/left); `"v2_press_attitude_delta"` (B78/B79) and `"v1_arkit_compass_fused_with_bias"` (legacy) both carry the INVERTED sign relative to v3 — anything comparing across builds must branch on this tag.
 - The `peakImpact` log event now includes `attitude_at_press_yaw_deg`, `attitude_at_impact_yaw_deg`, and `press_to_impact_delta_yaw_deg` so you can sanity-check the math against the displayed result without re-running the code.
 
 Legacy v1 replays still deserialize cleanly. Missing `attitudeAtPress` falls back to the first sample's attitude in the window (the closest stand-in the old format stored).

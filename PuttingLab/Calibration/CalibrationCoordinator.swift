@@ -18,7 +18,9 @@ final class CalibrationCoordinator {
     private var inputs: [CalibrationInput] = []
     private var consecutiveRejections: Int = 0
     static let stallThreshold: Int = 3
-    static let stalledHint: String = "Couldn't read your last few strokes. Try a smoother arc and keep the phone vertical."
+    // B80 — "keep the phone vertical" was the dead one-hand hold spec;
+    // the real grip is both hands, putter-style, pressed at address.
+    static let stalledHint: String = "Couldn't read your last few strokes. Try a smoother arc and keep the same grip you pressed with."
 
     init(requiredStrokes: Int = 5, targetDistanceFeet: Double = 8.0) {
         self.requiredStrokes = requiredStrokes

@@ -250,13 +250,16 @@ final class BallRollAnimator {
                                   startY: Float,
                                   trailEmitter: ((SIMD3<Float>) -> Void)?) async {
         let dropDurationS: Double = 0.35
-        // B67 — target Y derived from the captured holeWorldY so the
-        // descent lands inside the cup geometry even when the world-Y
-        // origin does not coincide with floor=0 (LiDAR-relocalised
-        // sessions, multi-room scans). Pre-B67 this was hardcoded as
-        // `-cupDepth/2` (~-4 cm absolute world Y), correct only when
-        // floorY≈0. AR7 stroke 5 raised this on .captured outcomes.
-        let targetY: Float = holeWorldY - Self.cupDepth / 2
+        // B67 — target derived from the captured holeWorldY so the descent
+        // lands inside the cup geometry even when the world-Y origin does
+        // not coincide with floor=0. B80 — converted to the BALL ANCHOR'S
+        // LOCAL frame: `ballEntity.position` is local to its anchor (B76),
+        // so the pre-B80 world-frame value (holeWorldY − cupDepth/2)
+        // would have dropped the ball ~0.85 m BELOW the floor in the b79
+        // session's frame (floor at world −0.853). Gemini review caught
+        // this; the .triggered observer event already computed the local
+        // form — the animation now matches it.
+        let targetY: Float = (holeWorldY - ballStart.y) - Self.cupDepth / 2
         let frames = Int(dropDurationS / Self.frameInterval)
         let startWall = CACurrentMediaTime()
         for _ in 0..<frames {
@@ -271,7 +274,12 @@ final class BallRollAnimator {
             var p = ballEntity.position
             p.y = startY + (targetY - startY) * eased
             ballEntity.position = p
-            trailEmitter?(p)
+            // B80 — the emitter contract is WORLD coords (the roll loop
+            // passes worldPos(from:)); `p` is anchor-local, so convert.
+            // Pre-B80 this passed `p` raw — trail dots during the drop
+            // phase rendered at wrong x/z whenever the anchor wasn't at
+            // the world origin.
+            trailEmitter?(ballStart + p)
             try? await Task.sleep(nanoseconds: UInt64(Self.frameInterval * 1_000_000_000))
             if raw >= 1.0 { break }
         }

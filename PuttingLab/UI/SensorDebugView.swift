@@ -458,7 +458,7 @@ private struct OnboardingOverlay: View {
                     .multilineTextAlignment(.center)
                 VStack(alignment: .leading, spacing: 14) {
                     bullet("1. Grant camera permission (needed for AR yaw)")
-                    bullet("2. Hold phone vertically, screen facing you")
+                    bullet("2. Hold the phone in your natural putting grip — both hands, like a putter")
                     bullet("3. Stay still ~1s → \"Aimed ✓\" + a haptic tap")
                     bullet("4. Make a putting motion → STROKE → DONE")
                     bullet("5. Watch sensor numbers tick at ~100 Hz")

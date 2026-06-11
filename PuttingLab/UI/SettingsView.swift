@@ -59,12 +59,14 @@ struct SettingsView: View {
                 } header: {
                     Text("Putting hand")
                 } footer: {
-                    // B79 — be honest: the picker saves the value but
-                    // foot-marker placement and face-angle sign convention
-                    // are still right-handed only. Disclosure prevents a
-                    // left-hander from thinking the app is wrong about
-                    // their stroke when it's actually wrong about them.
-                    Text("Saved for a future update. v1 foot markers are symmetric and face-angle sign is right-hand-mirrored.")
+                    // B80 — handedness now drives which side of the line
+                    // the foot markers go (mirrored for lefties). Stay
+                    // honest about what it does NOT yet drive: the
+                    // pull/push wording is right-handed golf language
+                    // (a left-hander's pull goes right of the line), and
+                    // the left-handed stance mirror hasn't been validated
+                    // on-device by a left-handed tester yet.
+                    Text("Places the foot markers on your side of the line. Pull/push wording is still described right-handed.")
                 }
 
                 Section {
@@ -85,10 +87,17 @@ struct SettingsView: View {
                             .foregroundStyle(.secondary)
                             .monospacedDigit()
                     }
+                    HStack {
+                        Text("Stance setback from line")
+                        Spacer()
+                        Text(String(format: "%.1f cm", preview.setbackMetres * 100.0))
+                            .foregroundStyle(.secondary)
+                            .monospacedDigit()
+                    }
                 } header: {
                     Text("Preview")
                 } footer: {
-                    Text("Bideltoid (outer-shoulder-to-outer-shoulder) ≈ 0.245 × height. ANSUR II adult median.")
+                    Text("Bideltoid (outer-shoulder-to-outer-shoulder) ≈ 0.245 × height (ANSUR II adult median). Setback = putter-lie hand offset + eyes-over-ball posture.")
                 }
             }
             .navigationTitle("Settings")
