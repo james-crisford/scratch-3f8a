@@ -33,6 +33,14 @@ targets:
         CFBundleDisplayName: PuttingLab
         CFBundleShortVersionString: "0.7.15"
         CFBundleVersion: "80"
+        # B80 — declare export-compliance here, in the XcodeGen source of
+        # truth. It was only in the hand-written Info.plist, which XcodeGen
+        # OVERWRITES on every `xcodegen generate`, so the flag could be
+        # dropped from the uploaded build — leaving each TestFlight build in
+        # "Missing Compliance" until manually cleared in App Store Connect.
+        # false = uses only exempt/standard encryption (HTTPS), no custom
+        # crypto. PuttingLab does no networking and no custom encryption.
+        ITSAppUsesNonExemptEncryption: false
         LSRequiresIPhoneOS: true
         UILaunchScreen: {}
         UIRequiredDeviceCapabilities:
