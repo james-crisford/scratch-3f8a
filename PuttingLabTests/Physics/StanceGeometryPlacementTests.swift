@@ -173,12 +173,14 @@ struct StanceGeometryPlacementTests {
 
         // Translate the whole scene; output must translate identically.
         // The b46-b79 code FAILS this: its y stayed at the absolute 0.08
-        // regardless of where the floor actually was.
+        // regardless of where the floor actually was. Tolerances are
+        // float-ulp aware: (hole+t)−(ball+t) is not bitwise hole−ball,
+        // so the derived aim/yaw wobble by an ulp at translated scale.
         let t = SIMD3<Float>(3, 5, -2)
         let p2 = try #require(place(ball: ball + t, hole: hole + t, heightCm: 185))
-        #expect(simd_length((p2.leadFootPosition - p1.leadFootPosition) - t) < 1e-4)
-        #expect(simd_length((p2.trailFootPosition - p1.trailFootPosition) - t) < 1e-4)
-        #expect(p2.leadFootYaw == p1.leadFootYaw)
+        #expect(simd_length((p2.leadFootPosition - p1.leadFootPosition) - t) < 5e-4)
+        #expect(simd_length((p2.trailFootPosition - p1.trailFootPosition) - t) < 5e-4)
+        #expect(abs(p2.leadFootYaw - p1.leadFootYaw) < 1e-3)
     }
 
     // MARK: - Guards

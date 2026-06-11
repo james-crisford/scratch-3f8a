@@ -229,7 +229,16 @@ fileprivate func buildSwingFixture(
         } else if i < pressN + swingN {
             let swingPhaseT = TimeInterval(i - pressN) * dt
             accel = accelAmp * cos(omega * swingPhaseT)
-            let swingProgress = swingPhaseT / swingDuration
+            // B80 — face rotation completes BY the velocity peak (mid-
+            // swing, where ImpactDetector samples the attitude) and holds
+            // through the follow-through. The B78 version slerped linearly
+            // across the WHOLE swing, so the attitude at the peak was only
+            // 50% of yawDegrees — every face-angle expectation in this
+            // suite was off by 2x from the day it was written (these tests
+            // were never CI-run before B80: both B78/B79 TestFlight builds
+            // shipped with skip_tests=true). peakVelocityTiming pins the
+            // peak at mid-swing, which is what exposed this.
+            let swingProgress = min(1.0, swingPhaseT / (swingDuration / 2.0))
             attitude = simd_slerp(attitudeAtPress, attitudeAtImpact, swingProgress)
         } else {
             accel = 0.0
