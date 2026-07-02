@@ -2,14 +2,22 @@ import Foundation
 import simd
 
 struct CalibrationProfile: Codable, Sendable, Equatable {
-    /// B80 — face-angle pipeline version this profile was learned under.
+    /// Pipeline version this profile was learned under.
     /// 2 = B78/B79 press-attitude delta with the INVERTED sign (impact -
-    /// press); 3 = golf-sign convention (press - impact; negative = closed/
-    /// pull/left). `faceAngleBiasRad` learned under v2 means the OPPOSITE
-    /// direction under v3, so loaders must discard the bias of any profile
-    /// older than `currentPipelineVersion` (speedToDistanceFactor is a
-    /// magnitude — sign-agnostic — and survives the migration).
-    static let currentPipelineVersion = 3
+    /// press); 3 = B80 golf-sign convention (press - impact; negative =
+    /// closed/pull/left) — `faceAngleBiasRad` learned under v2 means the
+    /// OPPOSITE direction under v3, so loaders discard pre-v3 bias.
+    /// 4 = S2 fix — speedToDistanceFactor objective re-derived against
+    /// BallPhysics.simulatePutt (the law the AR ball actually rolls with).
+    /// Pre-v4 factors inverted the legacy DistanceModel formula and
+    /// under-deliver by ~2.6x through the live sim (b79: 10 ft target →
+    /// 3.8 ft rolls), so loaders reset them to
+    /// `defaultSpeedToDistanceFactor`; the user must recalibrate.
+    static let currentPipelineVersion = 4
+
+    /// Uncalibrated launch factor (B57-era hand-tuning against
+    /// BallPhysics); also the reset value when migrating a pre-v4 profile.
+    static let defaultSpeedToDistanceFactor: Double = 14.4
 
     let meanTempoSeconds: TimeInterval
     let speedToDistanceFactor: Double
@@ -40,17 +48,21 @@ struct CalibrationProfile: Codable, Sendable, Equatable {
         self.pipelineVersion = pipelineVersion
     }
 
-    /// B80 — self with the face-angle bias zeroed when it was learned under
-    /// an older sign convention. The bias has no production consumer today
-    /// (logging/manifests only), but a flipped-sign value in telemetry is
-    /// exactly how the b79 session misled log-only debugging — sanitize at
-    /// the load boundary.
+    /// Sanitize at the load boundary (B80 + S2 rules):
+    /// - pre-v3 profiles: zero the face-angle bias (learned under the
+    ///   inverted sign convention — a flipped-sign value in telemetry is
+    ///   exactly how the b79 session misled log-only debugging).
+    /// - pre-v4 profiles: reset speedToDistanceFactor to the default —
+    ///   it was learned by inverting the legacy DistanceModel formula and
+    ///   under-delivers ~2.6x through the live BallPhysics sim.
     var sanitizedForCurrentPipeline: CalibrationProfile {
         guard pipelineVersion < Self.currentPipelineVersion else { return self }
         return CalibrationProfile(
             meanTempoSeconds: meanTempoSeconds,
-            speedToDistanceFactor: speedToDistanceFactor,
-            faceAngleBiasRad: 0,
+            speedToDistanceFactor: pipelineVersion < 4
+                ? Self.defaultSpeedToDistanceFactor
+                : speedToDistanceFactor,
+            faceAngleBiasRad: pipelineVersion < 3 ? 0 : faceAngleBiasRad,
             swingPlaneAxis: swingPlaneAxis,
             arkitBaselineStability: arkitBaselineStability,
             validStrokeCount: validStrokeCount,

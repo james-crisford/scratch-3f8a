@@ -241,7 +241,8 @@ struct ARPlacementView: View {
     /// dataset (mean hand peak 0.151 m/s → 1.91 m/s for 3m putt).
     /// B57: now overridable by a loaded `CalibrationProfile` (see
     /// `calibrationProfile` @State below).
-    private static let defaultSpeedCalibration: Double = 14.4
+    private static let defaultSpeedCalibration: Double =
+        CalibrationProfile.defaultSpeedToDistanceFactor
 
     /// B57 — loaded calibration profile (if any). Sourced from the
     /// shared `ProfileStore` (UserDefaults). Used to:

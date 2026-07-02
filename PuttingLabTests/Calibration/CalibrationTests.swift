@@ -184,6 +184,73 @@ struct CalibrationModelTests {
         #expect(slow.speedToDistanceFactor > fast.speedToDistanceFactor)
     }
 
+    @Test("S2: calibrated factor makes the live sim roll the target distance (±1%)")
+    func calibratedFactorRollsTargetThroughLiveSim() {
+        let targetFeet = 8.0
+        let targetMetres = targetFeet * CalibrationModel.metresPerFoot
+        for meanV in [0.05, 0.0954, 0.151, 0.5, 1.0, 2.0] {
+            let factor = CalibrationModel.factorDelivering(
+                targetMetres: targetMetres,
+                meanPeakVelocity: meanV,
+                stimpFeet: BallPhysics.defaultStimp
+            )
+            let rolled = BallPhysics.simulatePutt(
+                peakVelocity: meanV,
+                faceAngleRaw: 0,
+                speedCalibration: factor,
+                stimpFeet: BallPhysics.defaultStimp,
+                cupPosition: SIMD2<Double>(1e9, 0)
+            ).endPosition.x
+            #expect(
+                abs(rolled - targetMetres) < targetMetres * 0.01,
+                "meanV \(meanV): rolled \(rolled) m for target \(targetMetres) m (factor \(factor))"
+            )
+        }
+    }
+
+    @Test("S2 migration: pre-v4 profile factor resets to default on sanitize; v3 bias survives")
+    func preV4FactorReset() {
+        let v3 = CalibrationProfile(
+            meanTempoSeconds: 0.6,
+            speedToDistanceFactor: 14.183,
+            faceAngleBiasRad: 0.05,
+            swingPlaneAxis: SIMD3<Double>(1, 0, 0),
+            arkitBaselineStability: 0.9,
+            validStrokeCount: 5,
+            targetDistanceFeet: 8.0,
+            pipelineVersion: 3
+        )
+        let migrated = v3.sanitizedForCurrentPipeline
+        #expect(migrated.speedToDistanceFactor == CalibrationProfile.defaultSpeedToDistanceFactor)
+        #expect(migrated.faceAngleBiasRad == 0.05)
+
+        let v2 = CalibrationProfile(
+            meanTempoSeconds: 0.6,
+            speedToDistanceFactor: 14.183,
+            faceAngleBiasRad: 0.05,
+            swingPlaneAxis: SIMD3<Double>(1, 0, 0),
+            arkitBaselineStability: 0.9,
+            validStrokeCount: 5,
+            targetDistanceFeet: 8.0,
+            pipelineVersion: 2
+        )
+        let migratedV2 = v2.sanitizedForCurrentPipeline
+        #expect(migratedV2.speedToDistanceFactor == CalibrationProfile.defaultSpeedToDistanceFactor)
+        #expect(migratedV2.faceAngleBiasRad == 0)
+
+        let v4 = CalibrationProfile(
+            meanTempoSeconds: 0.6,
+            speedToDistanceFactor: 22.9,
+            faceAngleBiasRad: 0.01,
+            swingPlaneAxis: SIMD3<Double>(1, 0, 0),
+            arkitBaselineStability: 0.9,
+            validStrokeCount: 5,
+            targetDistanceFeet: 8.0,
+            pipelineVersion: 4
+        )
+        #expect(v4.sanitizedForCurrentPipeline == v4)
+    }
+
     @Test("face angle bias detected when synthetic strokes systematically pull")
     func biasDetected() throws {
         // B80 — `faceAngleDeg` is the PHYSICAL CCW rotation; under the v3

@@ -25,6 +25,14 @@ struct DistanceResult: Sendable, Equatable {
     }
 }
 
+/// LEGACY (S2 fix, 2026-07-02): no production consumers remain. The AR
+/// result panel displays the ACTUAL rolled distance from BallPhysics, and
+/// CalibrationModel now inverts BallPhysics directly (pipeline v4) — this
+/// model's quadratic law delivered ~2.6x the BallPhysics roll for the same
+/// inputs (19.7 vs the ~36 that stimpmeter kinematics imply, and no launch
+/// losses), which was the S2 calibration bug. Retained for tests and
+/// historical-data decode only. Do not wire back into production.
+///
 /// Empirical putt-roll model from Marquardt 2007 / Holmes 1991 / Pelz: distance scales
 /// as ball_speed² × Stimp / decelerationConstant. Stimp 10 ≈ medium residential green.
 /// Friction constant 19.7 ft/s² is derived from Holmes' empirical capture-speed work.

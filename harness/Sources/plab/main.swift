@@ -1,5 +1,6 @@
 import Foundation
 import simd
+@testable import PuttingLab
 
 // plab — off-device replay + simulation harness for PuttingLab.
 // Compiles the app's own mechanics sources (zero-copy, see Package.swift)
@@ -238,11 +239,18 @@ func cmdCalfit(_ paths: [String]) {
     let meanRatio = ratios.reduce(0, +) / Double(max(ratios.count, 1))
     let refit = refitFactor(peakVelocity: impliedMeanV, targetMetres: targetMetres)
     print("")
-    print("mean ratio (BallPhysics roll / DistanceModel raw): \(f(meanRatio, 4))")
-    print("  -> a user calibrated via DistanceModel objective sees the live sim deliver ~\(f(meanRatio * 100, 1))% of the calibration target")
-    print("refit: factor that makes BallPhysics roll = \(f(target, 1)) ft at the SAME implied cal velocity: \(f(refit, 3)) (vs \(realFactor) from DistanceModel objective, ratio \(f(refit / realFactor, 3)))")
-    print("")
-    print("S2 fix options this quantifies: (a) re-derive CalibrationModel objective against BallPhysics.simulatePutt (factor -> ~\(f(refit, 1))), or (b) retire one of the two distance laws entirely.")
+    print("mean ratio (BallPhysics roll / legacy DistanceModel raw): \(f(meanRatio, 4))")
+    print("  -> a user calibrated via the LEGACY (pre-v4) objective saw the live sim deliver ~\(f(meanRatio * 100, 1))% of the calibration target")
+    print("refit (harness-independent bisection): \(f(refit, 3)) (vs \(realFactor) legacy, ratio \(f(refit / realFactor, 3)))")
+
+    // Cross-validate the SHIPPED v4 objective against this harness's
+    // independent bisection — both must land on the same factor.
+    let v4Factor = CalibrationModel.factorDelivering(
+        targetMetres: targetMetres,
+        meanPeakVelocity: impliedMeanV,
+        stimpFeet: BallPhysics.defaultStimp)
+    let agrees = abs(v4Factor - refit) < 1e-6
+    print("production v4 objective (CalibrationModel.factorDelivering): \(f(v4Factor, 3)) — \(agrees ? "MATCHES harness refit" : "DISAGREES with harness refit \(f(refit, 3)) — INVESTIGATE")")
 }
 
 // MARK: - sim
@@ -271,6 +279,7 @@ guard let cmd = args.first else {
       plab replay <dir|files...>
       plab parity <dir|files...>
       plab calfit <dir|files...>
+      plab h5
       plab sim --peak 0.15 --face -3 --cal 14.4 [--cup 2.0]
     """)
     exit(2)
@@ -280,6 +289,7 @@ switch cmd {
 case "replay": cmdReplay(rest)
 case "parity": cmdParity(rest)
 case "calfit": cmdCalfit(rest)
+case "h5": cmdH5()
 case "sim":
     var opts: [String: String] = [:]
     var i = 0

@@ -1,4 +1,5 @@
 import Foundation
+import Observation
 
 enum CalibrationStatus: Sendable, Equatable {
     case awaitingStrokes(collected: Int, required: Int)

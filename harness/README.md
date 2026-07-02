@@ -13,13 +13,22 @@ both now deprecated.
 ## Quick start
 
 ```bash
+harness/run.sh test                          # the app's portable test suite (327 tests, ~1s)
 harness/run.sh parity data/raw/by-build      # field-split parity gate, 192 strokes
 harness/run.sh replay data/raw/by-build/0.2.2-16
-harness/run.sh calfit data/raw/by-build      # S2 speed-factor quantification
+harness/run.sh calfit data/raw/by-build      # S2 speed-factor quantification + v4 objective cross-check
+harness/run.sh h5                            # face-sampling-time error on synthetic ground truth
 harness/run.sh sim --peak 0.15 --face -3 --cal 22.9 --cup 2.0
 ```
 
 Docker Desktop must be running. Cold build ~20 s, incremental a few seconds.
+
+`test` runs the real app suites (all Physics, Calibration, detectors,
+Storage, fuzz/invariant integration) — everything except the
+CoreMotion/ARKit/UIKit-bound files — via Swift Testing on Linux,
+serially (`--no-parallel`): corelibs-foundation UserDefaults loses
+writes under the parallel executor (known-deferred H7 isolation issue;
+verified 2026-07-02: parallel = 1-2 flaky failures, serial = 327/327).
 
 ## What compiles off-device (verified 2026-07-02, HEAD a3c69a9)
 

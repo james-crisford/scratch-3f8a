@@ -21,8 +21,11 @@ enum CalibrationModel {
 
         let factor: Double
         if meanPeakVel > 1e-9, targetDistanceFeet > 0 {
-            let requiredFps = sqrt(targetDistanceFeet * DistanceModel.decelerationConstant / DistanceModel.defaultStimp)
-            factor = requiredFps / (meanPeakVel * DistanceModel.mpsToFps)
+            factor = Self.factorDelivering(
+                targetMetres: targetDistanceFeet * Self.metresPerFoot,
+                meanPeakVelocity: meanPeakVel,
+                stimpFeet: BallPhysics.defaultStimp
+            )
         } else {
             factor = 1.0
         }
@@ -57,5 +60,55 @@ enum CalibrationModel {
 
     static func applyBias(_ faceAngleRaw: Double, profile: CalibrationProfile) -> Double {
         ImpactDetector.wrapAngle(faceAngleRaw - profile.faceAngleBiasRad)
+    }
+
+    static let metresPerFoot = 0.3048
+
+    /// S2 fix (pipeline v4): the calibration factor must invert the SAME
+    /// law the live AR ball rolls with — `BallPhysics.simulatePutt` — not
+    /// the legacy `DistanceModel` formula, whose quadratic law delivered
+    /// only ~38% of the calibration target through the real sim (the
+    /// b79 session: 10 ft target → 3.8 ft rolls with factor 14.18).
+    /// Bisection over the simulator itself keeps this exact by
+    /// construction under any future BallPhysics change (friction law,
+    /// integration step, launch chain). Monotonic: roll distance strictly
+    /// increases with factor. 60 iterations narrows [0.01, 500] to ~1e-9
+    /// relative — one-time cost at calibration completion.
+    static func factorDelivering(
+        targetMetres: Double,
+        meanPeakVelocity: Double,
+        stimpFeet: Double
+    ) -> Double {
+        let loBound = 0.01
+        let hiBound = 500.0
+        var lo = loBound
+        var hi = hiBound
+        for _ in 0..<60 {
+            let mid = (lo + hi) / 2
+            let rolled = BallPhysics.simulatePutt(
+                peakVelocity: meanPeakVelocity,
+                faceAngleRaw: 0,
+                speedCalibration: mid,
+                stimpFeet: stimpFeet,
+                cupPosition: SIMD2<Double>(1e9, 0)
+            ).endPosition.x
+            if rolled < targetMetres {
+                lo = mid
+            } else {
+                hi = mid
+            }
+        }
+        let result = (lo + hi) / 2
+        // A result pinned to the ORIGINAL search bounds means the true
+        // factor lies outside [loBound, hiBound] — a physics-constant
+        // shift or an input far outside the calibration envelope. The
+        // clamped value is still the best available answer for the user,
+        // so return it; the assert surfaces the condition in debug/test
+        // builds and compiles out of release.
+        assert(
+            result > loBound * 1.01 && result < hiBound * 0.99,
+            "factorDelivering pinned to search bound (\(result)) — target \(targetMetres) m at \(meanPeakVelocity) m/s is outside the calibration envelope"
+        )
+        return result
     }
 }

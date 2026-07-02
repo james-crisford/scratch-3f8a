@@ -80,6 +80,9 @@ public func simd_normalize(_ v: SIMD3<Float>) -> SIMD3<Float> { v / simd_length(
 public func simd_cross(_ a: SIMD3<Double>, _ b: SIMD3<Double>) -> SIMD3<Double> {
     SIMD3(a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x)
 }
+
+public func simd_distance(_ a: SIMD3<Double>, _ b: SIMD3<Double>) -> Double { simd_length(a - b) }
+public func simd_distance(_ a: SIMD3<Float>, _ b: SIMD3<Float>) -> Float { simd_length(a - b) }
 public func simd_cross(_ a: SIMD3<Float>, _ b: SIMD3<Float>) -> SIMD3<Float> {
     SIMD3(a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x)
 }
