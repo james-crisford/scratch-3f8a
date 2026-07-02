@@ -58,9 +58,17 @@ public struct simd_float4x4: Equatable, Sendable {
     }
 
     public var columns: (SIMD4<Float>, SIMD4<Float>, SIMD4<Float>, SIMD4<Float>) {
-        (c0, c1, c2, c3)
+        get { (c0, c1, c2, c3) }
+        set { (c0, c1, c2, c3) = newValue }
     }
 }
+
+public let matrix_identity_float4x4 = simd_float4x4(columns: (
+    SIMD4<Float>(1, 0, 0, 0),
+    SIMD4<Float>(0, 1, 0, 0),
+    SIMD4<Float>(0, 0, 1, 0),
+    SIMD4<Float>(0, 0, 0, 1)
+))
 
 public func simd_length(_ v: SIMD3<Double>) -> Double { simd_dot(v, v).squareRoot() }
 public func simd_length(_ v: SIMD2<Double>) -> Double { (v * v).sum().squareRoot() }
