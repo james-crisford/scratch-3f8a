@@ -394,4 +394,44 @@ struct BallPhysicsCupCaptureTests {
         )
         #expect(fast.outcome != .rejected)
     }
+
+    @Test("launch speed saturates at maxLaunchSpeedMps — no unresolved mega-rolls")
+    func launchSpeedSaturates() {
+        // Gate-passing peak x large calibration factor used to launch at
+        // 100+ m/s, exhaust maxIntegrationSteps mid-flight, and mislabel a
+        // still-moving ball as .stopped (plab fuzz, 2026-07-02).
+        let sim = BallPhysics.simulatePutt(
+            peakVelocity: 4.9,
+            faceAngleRaw: 0.2,
+            speedCalibration: 40.0,
+            stimpFeet: 14.0,
+            cupPosition: SIMD2<Double>(3.0, 0.0)
+        )
+        #expect(sim.outcome != .rejected)
+        if sim.outcome == .stopped {
+            #expect(simd_length(sim.endVelocity) <= BallPhysics.stopVelocity + 1e-9)
+        }
+        // Worst-case capped roll: v_max^2 / (2 mu g) at the slowest decel.
+        let maxRoll = BallPhysics.maxLaunchSpeedMps * BallPhysics.maxLaunchSpeedMps
+            / (2 * BallPhysics.rollingFriction(stimpFeet: 14.0) * 9.81)
+        #expect(simd_length(sim.endPosition) <= maxRoll * 1.01)
+    }
+
+    @Test("roll distance stays monotone in calibration factor across the launch cap")
+    func monotoneAcrossLaunchCap() {
+        // CalibrationModel.factorDelivering bisects over simulatePutt and
+        // requires monotone (saturating) distance in the factor.
+        var previous = -1.0
+        for factor in [0.5, 5.0, 20.0, 100.0, 400.0] {
+            let rolled = BallPhysics.simulatePutt(
+                peakVelocity: 0.15,
+                faceAngleRaw: 0,
+                speedCalibration: factor,
+                stimpFeet: 10.0,
+                cupPosition: SIMD2<Double>(999, 0)
+            ).endPosition.x
+            #expect(rolled >= previous - 1e-9, "factor \(factor): \(rolled) < \(previous)")
+            previous = rolled
+        }
+    }
 }

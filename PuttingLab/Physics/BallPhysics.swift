@@ -82,6 +82,18 @@ public enum BallPhysics {
     /// is wrong, bail out." Prevents runaway loops on pathological inputs.
     public static let maxIntegrationSteps: Int = 10_000
 
+    /// Physical ceiling on launch (ball) speed AFTER calibration. The
+    /// hardest realistic putt is ~3.5 m/s ball speed (a 40 ft slam on
+    /// Stimp 10); 4.0 gives lag-putt headroom. Applied as SATURATION,
+    /// not rejection, so roll distance stays monotone in the calibration
+    /// factor — CalibrationModel.factorDelivering bisects over this
+    /// function and requires monotonicity. Without this cap, a
+    /// gate-passing peak velocity times a large calibration factor
+    /// launches at 100+ m/s, exhausts maxIntegrationSteps mid-flight,
+    /// and (pre-fix) mislabelled a still-moving ball as .stopped
+    /// (found by `plab fuzz` 2026-07-02).
+    public static let maxLaunchSpeedMps: Double = 4.0
+
     /// Sensor-spike gate on raw peak hand velocity — nominally m/s, in
     /// `ImpactDetector`'s convention (g-units integrated as if m/s², so
     /// under-scaled vs true hand speed; the calibration factor absorbs the
@@ -228,10 +240,13 @@ public enum BallPhysics {
         //    ball-equivalent velocity per `DistanceModel`'s calibration chain
         //    (synthesis §3.1, §8). 0.90 = COR + face efficiency, √0.95 =
         //    skid energy proxy (one-shot, not simulated).
-        let v0Magnitude = peakVelocity
-            * speedCalibration
-            * launchCoefficient
-            * sqrt(skidEnergyRetention)
+        let v0Magnitude = min(
+            peakVelocity
+                * speedCalibration
+                * launchCoefficient
+                * sqrt(skidEnergyRetention),
+            Self.maxLaunchSpeedMps
+        )
 
         // 3. Zero-velocity short-circuit: never enter the loop with a stationary
         //    ball. Emit a single starting sample so the caller can still render
@@ -387,6 +402,14 @@ public enum BallPhysics {
         // informative outcome.
         if outcome == .stopped, lipOutSeen {
             outcome = .lipOut
+        }
+        // Never report .stopped while the ball is still moving: step
+        // exhaustion with residual speed means the sim failed to resolve
+        // (only reachable with exotic custom integrationStep values now
+        // that launch speed is capped). .rejected = "no trustworthy
+        // result", which every consumer already handles.
+        if outcome == .stopped, simd_length(velocity) > stopVelocity {
+            outcome = .rejected
         }
 
         return Result(

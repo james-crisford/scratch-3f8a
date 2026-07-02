@@ -307,4 +307,14 @@ struct MarioKartRobustnessTests {
         )
         #expect(f.anyLow)
     }
+    @Test("non-finite face angle snaps to Square, never renders nan")
+    func nonFiniteFaceSnapsSquare() {
+        let assist = MarioKartAssist()
+        for bad in [Double.nan, .infinity, -.infinity] {
+            let r = assist.bucket(faceAngleDeg: bad)
+            #expect(r.bucket == .square)
+            #expect(r.snappedToSquare)
+            #expect(r.displayDegrees == 0)
+        }
+    }
 }

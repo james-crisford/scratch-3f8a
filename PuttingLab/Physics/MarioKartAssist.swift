@@ -73,6 +73,19 @@ final class MarioKartAssist: Sendable {
     }
 
     func bucket(faceAngleDeg: Double, flags: ConfidenceFlags = .none) -> DirectionResult {
+        // A non-finite face angle (NaN attitude from a bad sensor fix)
+        // otherwise falls through every comparison into the widest bucket
+        // and renders "+nan deg" to the user. Wii rule: err toward Square.
+        // (Found by `plab fuzz` 2026-07-02.)
+        guard faceAngleDeg.isFinite else {
+            return DirectionResult(
+                bucket: .square,
+                label: "Square",
+                displayDegrees: 0,
+                cause: "Couldn't read the face angle on that one",
+                snappedToSquare: true
+            )
+        }
         if flags.anyLow {
             return DirectionResult(
                 bucket: .square,

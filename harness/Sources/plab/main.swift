@@ -290,6 +290,14 @@ case "replay": cmdReplay(rest)
 case "parity": cmdParity(rest)
 case "calfit": cmdCalfit(rest)
 case "h5": cmdH5()
+case "live": MainActor.assumeIsolated { cmdLive(rest) }
+case "fuzz":
+    var fuzzOpts: [String: String] = [:]
+    var j = 0
+    while j + 1 < rest.count {
+        if rest[j].hasPrefix("--") { fuzzOpts[rest[j]] = rest[j + 1]; j += 2 } else { j += 1 }
+    }
+    cmdFuzz(fuzzOpts)
 case "sim":
     var opts: [String: String] = [:]
     var i = 0
