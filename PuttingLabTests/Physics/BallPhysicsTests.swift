@@ -369,4 +369,29 @@ struct BallPhysicsCupCaptureTests {
         )
         #expect(result.outcome != .captured)
     }
+
+    @Test("IMU spike above maxPlausiblePeakVelocity is rejected, not rolled")
+    func sensorSpikeRejected() {
+        // The Build-6 DistanceModel spike guard, now enforced at the
+        // physics boundary: a double-integration glitch must never render
+        // a confidently-displayed multi-kilometre putt.
+        let spike = BallPhysics.simulatePutt(
+            peakVelocity: BallPhysics.maxPlausiblePeakVelocity + 1.0,
+            faceAngleRaw: 0,
+            speedCalibration: 14.4,
+            stimpFeet: 10.0,
+            cupPosition: SIMD2<Double>(2.0, 0.0)
+        )
+        #expect(spike.outcome == .rejected)
+        #expect(spike.path.isEmpty)
+
+        let fast = BallPhysics.simulatePutt(
+            peakVelocity: BallPhysics.maxPlausiblePeakVelocity - 0.1,
+            faceAngleRaw: 0,
+            speedCalibration: 1.0,
+            stimpFeet: 10.0,
+            cupPosition: SIMD2<Double>(2.0, 0.0)
+        )
+        #expect(fast.outcome != .rejected)
+    }
 }

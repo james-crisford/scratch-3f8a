@@ -82,6 +82,17 @@ public enum BallPhysics {
     /// is wrong, bail out." Prevents runaway loops on pathological inputs.
     public static let maxIntegrationSteps: Int = 10_000
 
+    /// Sensor-spike gate on raw peak hand velocity — nominally m/s, in
+    /// `ImpactDetector`'s convention (g-units integrated as if m/s², so
+    /// under-scaled vs true hand speed; the calibration factor absorbs the
+    /// scale — do NOT "fix" the units). Ported from the legacy DistanceModel's
+    /// Build-6 guard, which the AR path silently lost when it stopped
+    /// consuming DistanceModel: an IMU double-integration spike times the
+    /// calibration factor otherwise rolls a confidently-rendered
+    /// multi-kilometre putt. Anything above this is not a putt — reject
+    /// rather than display (Wii rule: never confidently wrong).
+    public static let maxPlausiblePeakVelocity: Double = 5.0
+
     /// Penner 2002 reference μ_r = 0.131 for the Stimpmeter "average green"
     /// of the late 1990s. Kept as documentation only — modern Stimp-10 greens
     /// use the S-dependent form below ("Penner 2002 μ_r = 0.131 for a
@@ -207,6 +218,9 @@ public enum BallPhysics {
             return .empty
         }
         guard peakVelocity >= 0 else {
+            return .empty
+        }
+        guard peakVelocity <= Self.maxPlausiblePeakVelocity else {
             return .empty
         }
 
