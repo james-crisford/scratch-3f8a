@@ -184,6 +184,45 @@ struct CalibrationModelTests {
         #expect(slow.speedToDistanceFactor > fast.speedToDistanceFactor)
     }
 
+    @Test("spike-contaminated calibration never yields a pinned or garbage factor")
+    func spikeContaminatedCalibrationFallsBack() {
+        // Mean above the physics spike gate: every sim call inside the
+        // bisection returns .rejected (rolled = 0), lo marches to the top
+        // bound. Pre-fix this crashed a debug build (assert) or persisted
+        // factor ~500 in release (2026-07-02 adversarial audit, CRITICAL).
+        let pinned = CalibrationModel.factorDelivering(
+            targetMetres: 8.0 * CalibrationModel.metresPerFoot,
+            meanPeakVelocity: BallPhysics.maxPlausiblePeakVelocity + 1.0,
+            stimpFeet: BallPhysics.defaultStimp
+        )
+        #expect(pinned == CalibrationProfile.defaultSpeedToDistanceFactor)
+    }
+
+    @Test("compute with spike-poisoned mean returns the default factor, not garbage")
+    func computeSpikePoisonedMeanUsesDefault() throws {
+        // 4 clean strokes + inputs whose mean exceeds the spike gate.
+        var inputs = try (0..<4).map { _ in
+            try cleanCalibrationPair(peakVelocity: 0.5)
+        }.map { CalibrationInput(window: $0.window, impact: $0.impact) }
+        let spike = try cleanCalibrationPair(peakVelocity: 30.0)
+        inputs.append(CalibrationInput(window: spike.window, impact: spike.impact))
+        let profile = CalibrationModel.compute(from: inputs, targetDistanceFeet: 8.0)
+        #expect(profile.speedToDistanceFactor == CalibrationProfile.defaultSpeedToDistanceFactor)
+    }
+
+    @Test("calibration intake rejects a sensor-spike stroke")
+    @MainActor
+    func intakeRejectsSpikeStroke() throws {
+        let clean = try cleanCalibrationPair(peakVelocity: 0.5)
+        #expect(CalibrationCoordinator.isValid(impact: clean.impact, window: clean.window))
+        // The fixture drives the REAL detector, whose smoothing detects a
+        // slightly lower peak than requested — ask with margin and assert
+        // the precondition so the test can't silently pass the gate.
+        let spike = try cleanCalibrationPair(peakVelocity: BallPhysics.maxPlausiblePeakVelocity + 1.5)
+        #expect(spike.impact.peakVelocity > BallPhysics.maxPlausiblePeakVelocity)
+        #expect(!CalibrationCoordinator.isValid(impact: spike.impact, window: spike.window))
+    }
+
     @Test("S2: calibrated factor makes the live sim roll the target distance (±1%)")
     func calibratedFactorRollsTargetThroughLiveSim() {
         let targetFeet = 8.0

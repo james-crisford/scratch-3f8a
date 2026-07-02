@@ -2319,7 +2319,7 @@ struct ARPlacementView: View {
             case .captured: return "Drained!"
             case .lipOut:   return "Lipped out"
             case .stopped:  return "Stopped — tap Putt again"
-            case .rejected: return "Stroke too soft — try again"
+            case .rejected: return "Couldn't read that stroke — try again"
             }
         }
     }

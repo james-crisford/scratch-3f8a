@@ -66,5 +66,10 @@ final class CalibrationCoordinator {
             && window.duration >= 0.2
             && impact.peakVelocity >= 0.3
             && impact.peakVelocity.isFinite
+            // A double-integration spike averaged into the 5-stroke mean
+            // poisons the speed factor (one 9.0 among 0.35s -> factor
+            // ~0.95 -> real putts roll centimetres). Mirror the physics
+            // gate at intake so spikes count as rejections, not data.
+            && impact.peakVelocity <= BallPhysics.maxPlausiblePeakVelocity
     }
 }

@@ -444,8 +444,10 @@ final class PracticeSessionViewModel {
                 // arithmetic but NOT for the full CalibrationProfile that
                 // ProfileStore expects (face bias + speed factor + swing
                 // axis + stability).
-                pendingCalibrationInputs.append(CalibrationInput(
-                    window: window, impact: result))
+                if CalibrationCoordinator.isValid(impact: result, window: window) {
+                    pendingCalibrationInputs.append(CalibrationInput(
+                        window: window, impact: result))
+                }
             }
             let replay = StrokeReplay(
                 window: window,
@@ -631,6 +633,11 @@ final class PracticeSessionViewModel {
         justCompletedBatch = nil
         lastImpactResult = nil
         lastError = nil
+        // Stale calibration inputs from the previous session would be
+        // averaged into the NEXT session's profile (confirmed by the
+        // 2026-07-02 adversarial audit) — clear all pending state.
+        pendingCalibrationInputs.removeAll()
+        pendingImpactJudgment = nil
         phase = .instructions
     }
 }

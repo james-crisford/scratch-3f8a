@@ -20,14 +20,20 @@ enum CalibrationModel {
         let meanPeakVel = inputs.reduce(0.0) { $0 + $1.impact.peakVelocity } / countSafe
 
         let factor: Double
-        if meanPeakVel > 1e-9, targetDistanceFeet > 0 {
+        if meanPeakVel > 1e-9,
+           meanPeakVel <= BallPhysics.maxPlausiblePeakVelocity,
+           targetDistanceFeet > 0 {
             factor = Self.factorDelivering(
                 targetMetres: targetDistanceFeet * Self.metresPerFoot,
                 meanPeakVelocity: meanPeakVel,
                 stimpFeet: BallPhysics.defaultStimp
             )
         } else {
-            factor = 1.0
+            // Degenerate mean (zero, or spike-contaminated beyond the
+            // physics gate where every sim call returns .rejected and the
+            // bisection would pin to its upper bound): fall back to the
+            // uncalibrated default rather than persisting garbage.
+            factor = CalibrationProfile.defaultSpeedToDistanceFactor
         }
 
         var axisSum = SIMD3<Double>.zero
@@ -100,15 +106,15 @@ enum CalibrationModel {
         }
         let result = (lo + hi) / 2
         // A result pinned to the ORIGINAL search bounds means the true
-        // factor lies outside [loBound, hiBound] — a physics-constant
-        // shift or an input far outside the calibration envelope. The
-        // clamped value is still the best available answer for the user,
-        // so return it; the assert surfaces the condition in debug/test
-        // builds and compiles out of release.
-        assert(
-            result > loBound * 1.01 && result < hiBound * 0.99,
-            "factorDelivering pinned to search bound (\(result)) — target \(targetMetres) m at \(meanPeakVelocity) m/s is outside the calibration envelope"
-        )
+        // factor lies outside [loBound, hiBound] — e.g. every sim call
+        // returned .rejected (spike-gated input) so distance was 0 for
+        // all 60 iterations and lo marched to the top. A pinned bound is
+        // never a usable factor (500 turns a normal 0.15 putt into a
+        // 65 m/s launch); return the safe default instead of crashing
+        // (debug assert) or persisting garbage (release).
+        guard result > loBound * 1.01, result < hiBound * 0.99 else {
+            return CalibrationProfile.defaultSpeedToDistanceFactor
+        }
         return result
     }
 }
