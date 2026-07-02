@@ -56,6 +56,10 @@ struct MotionSample: Sendable, Equatable {
         simd_length(userAcceleration)
     }
 
+    /// Top-up phone orientation check. NOTE: in the documented putting
+    /// grip (top of phone toward the floor) this reads FALSE by design —
+    /// it exists for the reading-pose debug display (SensorDebugView row)
+    /// only. No mechanics consumer; do not gate stroke logic on it.
     var isVertical: Bool {
         let downward = SIMD3<Double>(0, -1, 0)
         return simd_dot(simd_normalize(gravity), downward) > 0.96

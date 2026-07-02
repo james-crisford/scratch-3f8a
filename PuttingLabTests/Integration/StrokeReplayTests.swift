@@ -167,6 +167,34 @@ struct StrokeReplayTests {
 
     // MARK: - Build 9: load() hardening (size cap before read, JSON depth limit, NaN reject)
 
+    @Test("load rejects deep nesting hidden behind close-brackets in string literals")
+    func loadRejectsStringMaskedDeepNesting() throws {
+        // Attack: each repetition opens ONE real array level, then a
+        // string containing "]]" — a scanner that counts brackets inside
+        // strings sees its counter oscillate near zero while the true
+        // structural depth grows unbounded (decoder stack-overflow DoS).
+        let tmp = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("PuttingLabTest_\(UUID().uuidString)", isDirectory: true)
+        let store = StrokeReplayStore(directory: tmp)
+        defer { try? store.clear() }
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+
+        let attack = String(repeating: "[\"]]\",", count: 150)
+        let url = tmp.appendingPathComponent("masked-nesting.json")
+        try Data(attack.utf8).write(to: url)
+
+        #expect(throws: (any Error).self) {
+            _ = try store.load(from: url)
+        }
+        // And specifically the nesting guard (code 2), not a decode error.
+        do {
+            _ = try store.load(from: url)
+        } catch let e as NSError {
+            #expect(e.domain == "StrokeReplayStore")
+            #expect(e.code == 2)
+        }
+    }
+
     @Test("load rejects an oversized JSON before reading it into memory")
     func loadRejectsOversizedFile() throws {
         let tmp = URL(fileURLWithPath: NSTemporaryDirectory())

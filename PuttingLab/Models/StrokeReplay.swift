@@ -388,9 +388,8 @@ final class StrokeReplayStore: @unchecked Sendable {
             )
         }
         // M4 (security): cap JSON nesting depth before handing to decoder.
-        // Cheap byte-scan: max run of consecutive `[` or `{` (string-literal
-        // brackets count too, but that costs us nothing — a real replay
-        // never has 100 consecutive open-brackets anywhere).
+        // String-aware byte-scan tracking true structural nesting depth
+        // (brackets inside string literals are ignored — see the guard).
         try Self.assertJSONNestingDepthOK(data: data, max: Self.maxJSONNestingDepth)
 
         let decoder = JSONDecoder()
@@ -407,6 +406,14 @@ final class StrokeReplayStore: @unchecked Sendable {
         // on decode — that NaN then propagates into ImpactDetector.detect()
         // and downstream UI formatters which can crash or render garbage.
         try Self.assertAllSamplesFinite(replay.samples)
+        // Window bounds feed StrokeWindow.duration and every downstream
+        // time comparison — NaN here slips past the sample guard.
+        guard replay.windowStart.isFinite, replay.windowEnd.isFinite else {
+            throw NSError(
+                domain: "StrokeReplayStore", code: 3,
+                userInfo: [NSLocalizedDescriptionKey: "Non-finite window bounds"]
+            )
+        }
         // Same defence for the cached ImpactResult — NaN in peakVelocity /
         // faceAngleRaw / confidence / timestamp would crash the history-
         // view formatters or skew offline algorithm replays.
@@ -426,9 +433,30 @@ final class StrokeReplayStore: @unchecked Sendable {
         // into deeper structures). Brackets inside string literals still
         // count, but a real StrokeReplay never has 100 of those — a false
         // reject on a malicious file beats a stack overflow on a real one.
+        // String-aware scan: brackets inside string literals must be
+        // ignored ENTIRELY. Counting them looked harmless ("a false
+        // reject beats a stack overflow") but close-brackets inside a
+        // string DECREMENT the counter — '{"a":"]]]"' oscillates the
+        // counted depth near zero while the real structural nesting
+        // grows unbounded, re-opening the decoder stack-overflow DoS
+        // (2026-07-02 adversarial audit, 2/2 confirmed).
         var depth = 0
+        var inString = false
+        var escaped = false
         for b in data {
-            if b == UInt8(ascii: "[") || b == UInt8(ascii: "{") {
+            if inString {
+                if escaped {
+                    escaped = false
+                } else if b == UInt8(ascii: "\\") {
+                    escaped = true
+                } else if b == UInt8(ascii: "\"") {
+                    inString = false
+                }
+                continue
+            }
+            if b == UInt8(ascii: "\"") {
+                inString = true
+            } else if b == UInt8(ascii: "[") || b == UInt8(ascii: "{") {
                 depth += 1
                 if depth > max {
                     throw NSError(

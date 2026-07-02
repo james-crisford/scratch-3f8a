@@ -2610,9 +2610,12 @@ struct ARPlacementView: View {
                        // cross-build canary: post-B80, face_angle_raw_deg
                        // == -press_to_impact_delta_yaw_deg in this payload.
                        "face_angle_pipeline": "v3_press_attitude_delta_golf_sign",
-                       "attitude_at_press_yaw_deg": String(format: "%.2f", yawAtPressDeg),
-                       "attitude_at_impact_yaw_deg": String(format: "%.2f", yawAtImpactDeg),
-                       "press_to_impact_delta_yaw_deg": String(format: "%.2f", pressToImpactDeltaDeg),
+                       // Snapped strokes carry an identity attitudeAtImpact —
+                       // yaw fields would be garbage relative to press and the
+                       // canary equality does NOT hold (audit 2026-07-02).
+                       "attitude_at_press_yaw_deg": impact.snappedToSquare ? "snapped" : String(format: "%.2f", yawAtPressDeg),
+                       "attitude_at_impact_yaw_deg": impact.snappedToSquare ? "snapped" : String(format: "%.2f", yawAtImpactDeg),
+                       "press_to_impact_delta_yaw_deg": impact.snappedToSquare ? "snapped" : String(format: "%.2f", pressToImpactDeltaDeg),
                        "calibrated": calibrationProfile == nil ? "false" : "true",
                        "confidence": String(format: "%.3f", impact.confidence),
                        "snapped_to_square": impact.snappedToSquare ? "true" : "false",
