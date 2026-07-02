@@ -1093,6 +1093,16 @@ struct ARPlacementView: View {
                     strokeReplaysIncluded: 0
                 )
             )
+            // B81 — include the stroke replays in the bundle (curated,
+            // dotfile-safe snapshot via the store's own export API).
+            var replaysIncluded = 0
+            if let replaySnapshot = try? StrokeReplayStore.shared.stageExportSnapshot() {
+                let dest = stagingTmp.appendingPathComponent("StrokeReplays", isDirectory: true)
+                try? FileManager.default.moveItem(at: replaySnapshot, to: dest)
+                replaysIncluded = ((try? FileManager.default.contentsOfDirectory(
+                    at: dest, includingPropertiesForKeys: nil)) ?? [])
+                    .filter { $0.pathExtension == "json" }.count
+            }
             // Pass 2: re-write the manifest with accurate file inventory.
             let files = ARLogExport.inventoryStagedFiles(stagingURL: stagingTmp)
             let manifest = ARLogExport.BundleManifest(
@@ -1107,7 +1117,7 @@ struct ARPlacementView: View {
                 calibrationProfileLoaded: profile != nil,
                 calibrationFaceAngleBiasDeg: profile.map { Double($0.faceAngleBiasRad) * 180.0 / .pi },
                 calibrationSpeedToDistanceFactor: profile.map { Double($0.speedToDistanceFactor) },
-                strokeReplaysIncluded: 0
+                strokeReplaysIncluded: replaysIncluded
             )
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -2541,6 +2551,25 @@ struct ARPlacementView: View {
             logImpactTimingShadow(result: result,
                                    window: window,
                                    poses: posesDuringRecording)
+            // B81 — persist the full sensor window + AR pose track. AR mode
+            // previously saved NO stroke data at all (every session's raw
+            // signal was lost; 2026-07-02 audit). Fire-and-forget off the
+            // MainActor, same pattern as PracticeSessionViewModel.
+            let replay = StrokeReplay(
+                window: window,
+                result: result,
+                deviceModel: SessionCoordinator.deviceModelString(),
+                appVersion: SessionCoordinator.appVersionString(),
+                batchId: "ar",
+                arPoses: posesDuringRecording
+            )
+            logger.log(.note, "b81 stroke replay capture",
+                       payload: ["samples": "\(window.samples.count)",
+                                 "ar_poses": "\(posesDuringRecording.count)",
+                                 "schema": "\(replay.schemaVersion)"])
+            Task.detached(priority: .utility) {
+                _ = try? StrokeReplayStore.shared.save(replay)
+            }
             // Build an AddressPose for downstream consumers (e.g. the
             // roll animator + result panel). v0.2.0 didn't need one
             // because PracticeSessionView had its own flow; we keep
@@ -2895,7 +2924,10 @@ struct ARPlacementView: View {
             speedCalibration: calibrationProfile?.speedToDistanceFactor ?? Self.defaultSpeedCalibration,
             stimpFeet: BallPhysics.defaultStimp,
             startPosition: .zero,
-            cupPosition: SIMD2<Double>(Double(aimLen), 0)
+            cupPosition: SIMD2<Double>(Double(aimLen), 0),
+            captureShrink: BallPhysics.HoleModel.captureShrink,
+            lipOutForwardBias: BallPhysics.HoleModel.lipOutForwardBias,
+            lipOutSpeedRetention: BallPhysics.HoleModel.lipOutSpeedRetention
         )
         let distanceMetres = sqrt(sim.endPosition.x * sim.endPosition.x
                                    + sim.endPosition.y * sim.endPosition.y)

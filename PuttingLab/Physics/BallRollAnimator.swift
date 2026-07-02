@@ -131,7 +131,10 @@ final class BallRollAnimator {
             speedCalibration: speedCalibration,
             stimpFeet: stimpFeet,
             startPosition: .zero,
-            cupPosition: cup2D
+            cupPosition: cup2D,
+            captureShrink: BallPhysics.HoleModel.captureShrink,
+            lipOutForwardBias: BallPhysics.HoleModel.lipOutForwardBias,
+            lipOutSpeedRetention: BallPhysics.HoleModel.lipOutSpeedRetention
         )
 
         guard !result.path.isEmpty else {

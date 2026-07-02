@@ -36,6 +36,11 @@ struct StrokeReplay: Sendable, Codable {
     /// Human-readable stroke type (e.g. "Clean baseline stroke",
     /// "Deliberate PULL stroke") — copied from `TestBatch.strokeTypeLabel`.
     let batchStrokeType: String?
+    /// B81 (schema v3) — the ARKit camera pose track captured during the
+    /// press window. nil on v1/v2 replays and on practice-mode strokes
+    /// (no AR session). This is the data the H5 impact-timing candidate
+    /// (closest re-approach to address) needs for offline development.
+    let arPoses: [SerializedARPose]?
 
     struct SerializedSample: Sendable, Codable {
         let timestamp: TimeInterval
@@ -89,6 +94,7 @@ struct StrokeReplay: Sendable, Codable {
         case samples, lock, windowStart, windowEnd, result, userNote
         case userImpactJudgment
         case batchId, batchStrokeIndex, batchStrokeType
+        case arPoses
     }
 }
 
@@ -96,6 +102,41 @@ struct StrokeReplay: Sendable, Codable {
 //
 // Backward-compat note: v1 tester JSONs do NOT carry `schemaVersion`. We decode it
 // with `decodeIfPresent ?? 1` so future additions can advance the version without
+extension StrokeReplay {
+    /// B81 (schema v3) — one ARKit camera pose. `transform` is the 4x4
+    /// world transform flattened column-major to 16 doubles.
+    struct SerializedARPose: Sendable, Codable {
+        let timestamp: TimeInterval
+        let transform: [Double]
+        let trackingNormal: Bool
+
+        enum PoseKeys: String, CodingKey {
+            case timestamp, transform, trackingNormal
+        }
+
+        init(timestamp: TimeInterval, transform: [Double], trackingNormal: Bool) {
+            self.timestamp = timestamp
+            self.transform = transform
+            self.trackingNormal = trackingNormal
+        }
+
+        /// Bounds-checked decoder — a truncated transform array would
+        /// otherwise crash any consumer that indexes [0..15].
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: PoseKeys.self)
+            timestamp = try c.decode(TimeInterval.self, forKey: .timestamp)
+            let m = try c.decode([Double].self, forKey: .transform)
+            guard m.count == 16 else {
+                throw DecodingError.dataCorruptedError(
+                    forKey: .transform, in: c,
+                    debugDescription: "transform must have 16 elements, got \(m.count)")
+            }
+            transform = m
+            trackingNormal = try c.decodeIfPresent(Bool.self, forKey: .trackingNormal) ?? true
+        }
+    }
+}
+
 // breaking old files on disk. The custom `init(from:)` here OVERRIDES the synthesized
 // decoder; the synthesized `encode(to:)` is preserved.
 extension StrokeReplay {
@@ -115,6 +156,7 @@ extension StrokeReplay {
         self.batchId = try c.decodeIfPresent(String.self, forKey: .batchId)
         self.batchStrokeIndex = try c.decodeIfPresent(Int.self, forKey: .batchStrokeIndex)
         self.batchStrokeType = try c.decodeIfPresent(String.self, forKey: .batchStrokeType)
+        self.arPoses = try c.decodeIfPresent([SerializedARPose].self, forKey: .arPoses)
     }
 }
 
@@ -210,9 +252,29 @@ extension StrokeReplay {
         batchId: String? = nil,
         batchStrokeIndex: Int? = nil,
         batchStrokeType: String? = nil,
+        arPoses: [ARPose]? = nil,
         now: Date = Date()
     ) {
-        self.schemaVersion = 2
+        // v3 = carries an AR pose track (B81); v2 = press-attitude lock only.
+        let serializedPoses: [SerializedARPose]? = arPoses.flatMap { poses in
+            poses.isEmpty ? nil : poses.map { pose in
+                let c0 = pose.transform.columns.0
+                let c1 = pose.transform.columns.1
+                let c2 = pose.transform.columns.2
+                let c3 = pose.transform.columns.3
+                return SerializedARPose(
+                    timestamp: pose.timestamp,
+                    transform: [
+                        Double(c0.x), Double(c0.y), Double(c0.z), Double(c0.w),
+                        Double(c1.x), Double(c1.y), Double(c1.z), Double(c1.w),
+                        Double(c2.x), Double(c2.y), Double(c2.z), Double(c2.w),
+                        Double(c3.x), Double(c3.y), Double(c3.z), Double(c3.w),
+                    ],
+                    trackingNormal: pose.trackingState.isNormal)
+            }
+        }
+        self.arPoses = serializedPoses
+        self.schemaVersion = serializedPoses != nil ? 3 : 2
         self.capturedAt = now
         self.deviceModel = deviceModel
         self.appVersion = appVersion

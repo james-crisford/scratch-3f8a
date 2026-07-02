@@ -184,6 +184,23 @@ public enum BallPhysics {
         return 0.611 / clamped
     }
 
+    // MARK: - Hole-model production tuning
+
+    /// Hole-model v1.1 production values — the single tuning point both
+    /// production call sites (BallRollAnimator + ARPlacementView result
+    /// VM) read. These are the literature-derived candidates (Penner
+    /// 2002 / Hogan & Antali 2025 capture narrowing; forward rim-hop):
+    /// shipped in B82 for James's on-green feel validation. Tune offline
+    /// via `plab replay --shrink --fwd --ret` against recorded strokes,
+    /// then change the numbers HERE only. `simulatePutt`'s parameter
+    /// defaults stay legacy (1.0 / 0.0 / 0.6) so the harness always has
+    /// a stable legacy baseline to compare against.
+    public enum HoleModel {
+        public static let captureShrink: Double = 0.25
+        public static let lipOutForwardBias: Double = 0.7
+        public static let lipOutSpeedRetention: Double = 0.6
+    }
+
     // MARK: - Simulation
 
     /// Simulate a flat-green putt roll.

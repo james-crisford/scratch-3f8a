@@ -100,7 +100,7 @@ func cmdReplay(_ paths: [String]) {
         }
     }
     let (ok, failed) = replayAll(collectJSONs(files))
-    var header = "file,schema,judgment,stored_peak,replayed_peak,stored_face_deg,replayed_face_deg_HEADPIPELINE,stored_snap,replayed_snap,replayed_conf"
+    var header = "file,schema,poses,judgment,stored_peak,replayed_peak,stored_face_deg,replayed_face_deg_HEADPIPELINE,stored_snap,replayed_snap,replayed_conf"
     if cal != nil { header += ",sim_outcome,sim_roll_m,sim_lateral" }
     print(header)
     for r in ok {
@@ -108,6 +108,7 @@ func cmdReplay(_ paths: [String]) {
         var cols: [String] = [
             r.url.lastPathComponent,
             "\(r.replay.schemaVersion)",
+            "\(r.replay.arPoses?.count ?? 0)",
             r.replay.userImpactJudgment ?? "-",
             sr.map { f($0.peakVelocity) } ?? "-",
             f(r.result.peakVelocity),

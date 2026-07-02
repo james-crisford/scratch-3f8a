@@ -167,6 +167,62 @@ struct StrokeReplayTests {
 
     // MARK: - Build 9: load() hardening (size cap before read, JSON depth limit, NaN reject)
 
+    @Test("schema v3: AR pose track round-trips; v2 stays v2 without poses")
+    func schemaV3PoseRoundTrip() throws {
+        // Minimal self-contained window (fixtures in CalibrationTests are
+        // fileprivate): two quiet samples + identity press lock.
+        let q = simd_quatd(ix: 0, iy: 0, iz: 0, r: 1)
+        let samples = [0.0, 0.01, 0.3].map { dt in
+            MotionSample(timestamp: 100.0 + dt,
+                         rotationRate: SIMD3(0.1, 0, 0),
+                         userAcceleration: SIMD3(0.2, 0, 0),
+                         gravity: SIMD3(0, -1, 0),
+                         attitude: q)
+        }
+        let window = StrokeWindow(
+            start: samples[0].timestamp,
+            end: samples[samples.count - 1].timestamp,
+            samples: samples,
+            lock: StillnessLock(yawTargetCompass: 0, attitudeAtPress: q,
+                                gravity: SIMD3(0, -1, 0),
+                                lockedAt: samples[0].timestamp))
+
+        var transform = matrix_identity_float4x4
+        transform.columns.3 = SIMD4<Float>(0.1, 1.2, -0.3, 1)
+        let poses = [
+            ARPose(timestamp: window.start + 0.1,
+                   transform: transform,
+                   trackingState: .normal),
+            ARPose(timestamp: window.start + 0.2,
+                   transform: transform,
+                   trackingState: .limited(.excessiveMotion)),
+        ]
+        let v3 = StrokeReplay(
+            window: window, result: nil,
+            deviceModel: "test", appVersion: "t", batchId: "ar",
+            arPoses: poses)
+        #expect(v3.schemaVersion == 3)
+
+        let tmp = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("PuttingLabTest_\(UUID().uuidString)", isDirectory: true)
+        let store = StrokeReplayStore(directory: tmp)
+        defer { try? store.clear() }
+        let url = try store.save(v3)
+        let loaded = try store.load(from: url)
+        #expect(loaded.schemaVersion == 3)
+        #expect(loaded.arPoses?.count == 2)
+        #expect(loaded.arPoses?[0].transform.count == 16)
+        #expect(abs((loaded.arPoses?[0].transform[13] ?? 0) - 1.2) < 1e-6)
+        #expect(loaded.arPoses?[0].trackingNormal == true)
+        #expect(loaded.arPoses?[1].trackingNormal == false)
+
+        let v2 = StrokeReplay(
+            window: window, result: nil,
+            deviceModel: "test", appVersion: "t")
+        #expect(v2.schemaVersion == 2)
+        #expect(v2.arPoses == nil)
+    }
+
     @Test("load rejects deep nesting hidden behind close-brackets in string literals")
     func loadRejectsStringMaskedDeepNesting() throws {
         // Attack: each repetition opens ONE real array level, then a

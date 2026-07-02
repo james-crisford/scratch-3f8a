@@ -100,9 +100,16 @@ func cmdFuzz(_ opts: [String: String]) {
         let cal = rng.range(0.5, 40)
         let stimp = rng.range(3, 15)                    // crosses the 4...14 clamp
         let cupX = rng.next() < 0.02 ? 0.0 : rng.range(0.15, 6)  // 2%: cup at start
+        // Alternate every other iteration between the legacy hole model
+        // and the shipped HoleModel v1.1 candidates so invariants hold
+        // under BOTH parameterisations.
+        let useV11 = i % 2 == 1
         let sim = BallPhysics.simulatePutt(
             peakVelocity: v, faceAngleRaw: face, speedCalibration: cal,
-            stimpFeet: stimp, cupPosition: SIMD2<Double>(cupX, 0))
+            stimpFeet: stimp, cupPosition: SIMD2<Double>(cupX, 0),
+            captureShrink: useV11 ? BallPhysics.HoleModel.captureShrink : 1.0,
+            lipOutForwardBias: useV11 ? BallPhysics.HoleModel.lipOutForwardBias : 0.0,
+            lipOutSpeedRetention: useV11 ? BallPhysics.HoleModel.lipOutSpeedRetention : 0.6)
         let tag = String(describing: sim.outcome)
         outcomes[tag, default: 0] += 1
 
