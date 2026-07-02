@@ -200,6 +200,16 @@ public enum BallPhysics {
     ///   - startPosition: Ball start in green frame, metres. Default origin.
     ///   - cupPosition: Cup centre in green frame, metres.
     ///   - integrationStep: Δt in seconds. Default 16 ms (60 fps).
+    ///   - captureShrink: Hole-model v1.1 — fraction of the cup radius
+    ///     still capturable at the capture velocity (effective radius
+    ///     shrinks linearly with entry speed). 1.0 = legacy uniform disc
+    ///     (default); ~0.25 = literature narrowing. Tune via harness.
+    ///   - lipOutForwardBias: Hole-model v1.1 — exit-direction blend for
+    ///     lip-outs: 0 = legacy pure-radial kick (dead-centre over-speed
+    ///     bounces straight back); 1 = fully forward (hops the far rim
+    ///     and continues). Tune via harness.
+    ///   - lipOutSpeedRetention: Fraction of entry speed kept after the
+    ///     lip-out kick. Default 0.6 (legacy).
     /// - Returns: Trajectory + outcome. Pathological inputs (NaN, Inf, negative
     ///   velocity, non-positive Δt) → `.rejected` with empty path.
     public static func simulatePutt(
@@ -209,7 +219,10 @@ public enum BallPhysics {
         stimpFeet: Double = defaultStimp,
         startPosition: SIMD2<Double> = .zero,
         cupPosition: SIMD2<Double>,
-        integrationStep: Double = defaultIntegrationStep
+        integrationStep: Double = defaultIntegrationStep,
+        captureShrink: Double = 1.0,
+        lipOutForwardBias: Double = 0.0,
+        lipOutSpeedRetention: Double = 0.6
     ) -> Result {
 
         // 1. Reject non-finite inputs. Pull peakVelocity through a separate
@@ -338,7 +351,7 @@ public enum BallPhysics {
             //    pass within `cupRadius` of `cupPosition`? Use closest-point-
             //    on-segment to avoid missing fast passes where the segment
             //    spans more than the cup diameter in a single step.
-            if let entrySpeed = segmentCupEntrySpeed(
+            if let (entrySpeed, impactParameter) = segmentCupEntrySpeed(
                 from: position,
                 to: nextPosition,
                 cup: cupPosition,
@@ -346,7 +359,11 @@ public enum BallPhysics {
                 velocityOut: velocityAfterStep
             ) {
                 time += dt
-                if entrySpeed <= captureVelocity {
+                let captureRadius = effectiveCaptureRadius(
+                    entrySpeed: entrySpeed,
+                    shrinkAtCaptureSpeed: captureShrink
+                )
+                if entrySpeed <= captureVelocity, impactParameter <= captureRadius {
                     // Capture: snap to cup centre at rest.
                     path.append(PathSample(
                         position: cupPosition,
@@ -374,10 +391,27 @@ public enum BallPhysics {
                         let inSpeed = simd_length(velocity)
                         outward = inSpeed > 1e-9 ? -velocity / inSpeed : SIMD2<Double>(1, 0)
                     }
-                    velocity = outward * (entrySpeed * 0.6)
-                    // Push position 1 cm clear of the disc edge so the next
-                    // segment check starts outside.
-                    position = cupPosition + outward * (cupRadius + 0.01)
+                    // Hole-model v1.1 exit direction: blend the legacy
+                    // radial kick toward the incoming direction. At bias 0
+                    // this is exactly the legacy behaviour; at bias ~0.7 a
+                    // dead-centre over-speed hit hops the far rim and
+                    // continues forward (Hogan & Antali 2025) while edge
+                    // grazes still curl off to the correct side.
+                    let inSpeedForDir = simd_length(velocity)
+                    let forward: SIMD2<Double> = inSpeedForDir > 1e-9
+                        ? velocity / inSpeedForDir
+                        : -outward
+                    var exitDir = outward * (1.0 - lipOutForwardBias)
+                        + forward * lipOutForwardBias
+                    let exitLen = simd_length(exitDir)
+                    // Degenerate blend (bias ~0.5 on a dead-centre hit where
+                    // forward == -outward): fall back to the radial kick.
+                    exitDir = exitLen > 1e-6 ? exitDir / exitLen : outward
+                    velocity = exitDir * (entrySpeed * lipOutSpeedRetention)
+                    // Push position 1 cm clear of the disc edge along the
+                    // EXIT direction so the next segment check starts
+                    // outside (a forward hop lands just past the far rim).
+                    position = cupPosition + exitDir * (cupRadius + 0.01)
                     path.append(PathSample(
                         position: position,
                         velocity: velocity,
@@ -434,13 +468,13 @@ public enum BallPhysics {
         cup: SIMD2<Double>,
         velocityIn: SIMD2<Double>,
         velocityOut: SIMD2<Double>
-    ) -> Double? {
+    ) -> (speed: Double, impactParameter: Double)? {
         let segment = to - from
         let segLenSq = simd_dot(segment, segment)
         guard segLenSq > 1e-12 else {
             // Degenerate segment — treat as point.
             let dist = simd_length(from - cup)
-            return dist <= cupRadius ? simd_length(velocityIn) : nil
+            return dist <= cupRadius ? (simd_length(velocityIn), dist) : nil
         }
         // Parametric closest approach: t in [0, 1].
         let toCup = cup - from
@@ -451,6 +485,30 @@ public enum BallPhysics {
         guard dist <= cupRadius else { return nil }
         // Linearly interpolate the velocity vector at parameter t.
         let velocityAtClosest = velocityIn + (velocityOut - velocityIn) * t
-        return simd_length(velocityAtClosest)
+        // Impact parameter = closest approach of the trajectory LINE, not
+        // the clamped segment: at 60 fps the first segment touching the
+        // disc is still ~2 cm short of true closest approach, which made
+        // even a dead-centre putt read as an edge pass under the shrunk
+        // capture radius. On a flat green the path is straight, so the
+        // line distance (unclamped t) is the exact impact parameter.
+        let lineClosest = from + segment * tRaw
+        let impactParameter = simd_length(lineClosest - cup)
+        return (simd_length(velocityAtClosest), impactParameter)
+    }
+
+    /// Hole-model v1.1 — effective capture radius shrinks with entry
+    /// speed (Penner 2002 / Hogan & Antali 2025: the effective hole
+    /// narrows toward zero as speed approaches the capture limit; a
+    /// grazing edge pass at speed always lips out in reality).
+    /// `shrinkAtCaptureSpeed` = fraction of the cup radius still
+    /// capturable AT the capture velocity: 1.0 reproduces the legacy
+    /// uniform disc; ~0.25 is the literature narrowing. Linear in speed.
+    static func effectiveCaptureRadius(
+        entrySpeed: Double,
+        shrinkAtCaptureSpeed: Double
+    ) -> Double {
+        let s = min(max(entrySpeed / captureVelocity, 0), 1)
+        let fraction = 1.0 - (1.0 - shrinkAtCaptureSpeed) * s
+        return cupRadius * fraction
     }
 }

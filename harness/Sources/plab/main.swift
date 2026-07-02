@@ -80,12 +80,21 @@ func cmdReplay(_ paths: [String]) {
     var files: [String] = []
     var cal: Double? = nil
     var cup = 2.0
+    var shrink = 1.0
+    var fwd = 0.0
+    var ret = 0.6
     var i = 0
     while i < paths.count {
         if paths[i] == "--cal", i + 1 < paths.count {
             cal = Double(paths[i + 1]); i += 2
         } else if paths[i] == "--cup", i + 1 < paths.count {
             cup = Double(paths[i + 1]) ?? cup; i += 2
+        } else if paths[i] == "--shrink", i + 1 < paths.count {
+            shrink = Double(paths[i + 1]) ?? shrink; i += 2
+        } else if paths[i] == "--fwd", i + 1 < paths.count {
+            fwd = Double(paths[i + 1]) ?? fwd; i += 2
+        } else if paths[i] == "--ret", i + 1 < paths.count {
+            ret = Double(paths[i + 1]) ?? ret; i += 2
         } else {
             files.append(paths[i]); i += 1
         }
@@ -113,7 +122,10 @@ func cmdReplay(_ paths: [String]) {
                 peakVelocity: r.result.peakVelocity,
                 faceAngleRaw: r.result.faceAngleRaw,
                 speedCalibration: cal,
-                cupPosition: SIMD2<Double>(cup, 0))
+                cupPosition: SIMD2<Double>(cup, 0),
+                captureShrink: shrink,
+                lipOutForwardBias: fwd,
+                lipOutSpeedRetention: ret)
             let side: String
             if sim.endPosition.y > 0.02 {
                 side = "LEFT " + f(sim.endPosition.y, 2) + "m"
@@ -294,11 +306,17 @@ func cmdSim(_ opts: [String: String]) {
     let faceDeg = Double(opts["--face"] ?? "") ?? 0
     let cal = Double(opts["--cal"] ?? "") ?? 14.4
     let cup = Double(opts["--cup"] ?? "") ?? 2.0
+    let shrink = Double(opts["--shrink"] ?? "") ?? 1.0
+    let fwd = Double(opts["--fwd"] ?? "") ?? 0.0
+    let ret = Double(opts["--ret"] ?? "") ?? 0.6
     let sim = BallPhysics.simulatePutt(
         peakVelocity: peak,
         faceAngleRaw: faceDeg * .pi / 180,
         speedCalibration: cal,
-        cupPosition: SIMD2<Double>(cup, 0))
+        cupPosition: SIMD2<Double>(cup, 0),
+        captureShrink: shrink,
+        lipOutForwardBias: fwd,
+        lipOutSpeedRetention: ret)
     print("peak=\(f(peak,3)) m/s face=\(f(faceDeg,2))deg cal=\(f(cal,2)) cup=\(f(cup,2))m")
     print("outcome=\(sim.outcome) end=(\(f(sim.endPosition.x,3)), \(f(sim.endPosition.y,3))) m endSpeed=\(f(simd_length(sim.endVelocity),3)) m/s duration=\(f(sim.totalDuration,2))s pathPoints=\(sim.path.count)")
 }

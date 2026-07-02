@@ -395,6 +395,55 @@ struct BallPhysicsCupCaptureTests {
         #expect(fast.outcome != .rejected)
     }
 
+    @Test("hole v1.1: capture shrink makes a fast edge-graze lip out (a miss is a miss)")
+    func captureShrinkEdgeGrazeLipsOut() {
+        // Aim so the path passes ~4 cm off cup centre (inside the 5.4 cm
+        // disc) at just under capture speed. Legacy uniform disc: drops.
+        // Shrunk hole: lips out.
+        let cup = SIMD2<Double>(2.0, 0.0)
+        let offset = atan2(0.040, 2.0) // rad — lateral 4 cm at the cup
+        func run(shrink: Double) -> BallPhysics.Outcome {
+            BallPhysics.simulatePutt(
+                peakVelocity: 2.05,
+                faceAngleRaw: -offset, // psi0 = +offset -> passes 4 cm left
+                speedCalibration: 1.0,
+                stimpFeet: 10.0,
+                cupPosition: cup,
+                captureShrink: shrink
+            ).outcome
+        }
+        #expect(run(shrink: 1.0) == .captured)   // legacy behaviour
+        #expect(run(shrink: 0.25) == .lipOut)    // narrowed hole: miss is a miss
+
+        // Dead-centre at the same speed must STILL drop under the shrink.
+        let centre = BallPhysics.simulatePutt(
+            peakVelocity: 2.05,
+            faceAngleRaw: 0,
+            speedCalibration: 1.0,
+            stimpFeet: 10.0,
+            cupPosition: cup,
+            captureShrink: 0.25
+        ).outcome
+        #expect(centre == .captured)
+    }
+
+    @Test("hole v1.1: forward bias makes a dead-centre over-speed hit hop FORWARD, not bounce back")
+    func lipOutForwardBiasHopsForward() {
+        let cup = SIMD2<Double>(1.0, 0.0)
+        func endX(bias: Double) -> Double {
+            BallPhysics.simulatePutt(
+                peakVelocity: 2.6, // over capture speed at the cup
+                faceAngleRaw: 0,
+                speedCalibration: 1.0,
+                stimpFeet: 10.0,
+                cupPosition: cup,
+                lipOutForwardBias: bias
+            ).endPosition.x
+        }
+        #expect(endX(bias: 0.0) < cup.x)   // legacy: bounced back toward player
+        #expect(endX(bias: 1.0) > cup.x)   // forward hop: past the cup
+    }
+
     @Test("launch speed saturates at maxLaunchSpeedMps — no unresolved mega-rolls")
     func launchSpeedSaturates() {
         // Gate-passing peak x large calibration factor used to launch at
