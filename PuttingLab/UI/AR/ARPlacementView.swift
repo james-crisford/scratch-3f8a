@@ -2954,7 +2954,9 @@ struct ARPlacementView: View {
             }
             outcomeTint = .white
         case .rejected:
-            outcomeHeadline = "Too soft to read"
+            // .rejected covers both too-soft AND sensor-spike strokes
+            // since a5107c4 — the copy must not claim to know which.
+            outcomeHeadline = "Couldn't read that one"
             outcomeTint = .yellow
         }
 

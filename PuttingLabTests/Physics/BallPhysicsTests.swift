@@ -395,6 +395,34 @@ struct BallPhysicsCupCaptureTests {
         #expect(fast.outcome != .rejected)
     }
 
+    @Test("slope: downhill rolls farther, uphill shorter, cross-slope breaks the line")
+    func slopeGradientBehaviour() {
+        func endPos(_ slope: SIMD2<Double>) -> SIMD2<Double> {
+            BallPhysics.simulatePutt(
+                peakVelocity: 1.5,
+                faceAngleRaw: 0,
+                speedCalibration: 1.0,
+                stimpFeet: 10.0,
+                cupPosition: SIMD2<Double>(999, 0),
+                slopeGradient: slope
+            ).endPosition
+        }
+        let flat = endPos(.zero)
+        let downhill = endPos(SIMD2<Double>(0.03, 0))   // 3% downhill along the putt
+        let uphill = endPos(SIMD2<Double>(-0.03, 0))
+        let cross = endPos(SIMD2<Double>(0, 0.03))      // 3% falling to the left
+        #expect(downhill.x > flat.x + 0.1)
+        #expect(uphill.x < flat.x - 0.1)
+        #expect(abs(flat.y) < 1e-9)
+        #expect(cross.y > 0.05, "cross-slope must curl the ball downhill (+y)")
+        // Flat default must be exactly the legacy path (no drift from the
+        // slope term when the gradient is zero).
+        let legacy = BallPhysics.simulatePutt(
+            peakVelocity: 1.5, faceAngleRaw: 0, speedCalibration: 1.0,
+            stimpFeet: 10.0, cupPosition: SIMD2<Double>(999, 0))
+        #expect(legacy.endPosition == flat)
+    }
+
     @Test("hole v1.1: capture shrink makes a fast edge-graze lip out (a miss is a miss)")
     func captureShrinkEdgeGrazeLipsOut() {
         // Aim so the path passes ~4 cm off cup centre (inside the 5.4 cm

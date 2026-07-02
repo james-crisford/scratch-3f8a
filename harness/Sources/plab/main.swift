@@ -310,6 +310,8 @@ func cmdSim(_ opts: [String: String]) {
     let shrink = Double(opts["--shrink"] ?? "") ?? 1.0
     let fwd = Double(opts["--fwd"] ?? "") ?? 0.0
     let ret = Double(opts["--ret"] ?? "") ?? 0.6
+    let slopeX = Double(opts["--slopex"] ?? "") ?? 0.0
+    let slopeY = Double(opts["--slopey"] ?? "") ?? 0.0
     let sim = BallPhysics.simulatePutt(
         peakVelocity: peak,
         faceAngleRaw: faceDeg * .pi / 180,
@@ -317,7 +319,8 @@ func cmdSim(_ opts: [String: String]) {
         cupPosition: SIMD2<Double>(cup, 0),
         captureShrink: shrink,
         lipOutForwardBias: fwd,
-        lipOutSpeedRetention: ret)
+        lipOutSpeedRetention: ret,
+        slopeGradient: SIMD2<Double>(slopeX, slopeY))
     print("peak=\(f(peak,3)) m/s face=\(f(faceDeg,2))deg cal=\(f(cal,2)) cup=\(f(cup,2))m")
     print("outcome=\(sim.outcome) end=(\(f(sim.endPosition.x,3)), \(f(sim.endPosition.y,3))) m endSpeed=\(f(simd_length(sim.endVelocity),3)) m/s duration=\(f(sim.totalDuration,2))s pathPoints=\(sim.path.count)")
 }

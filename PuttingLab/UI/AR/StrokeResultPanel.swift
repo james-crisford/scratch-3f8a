@@ -141,9 +141,14 @@ struct StrokeResultViewModel: Equatable {
     let autoDismissAfter: Double
 
     var distancePrimary: String { String(format: "%.2f m", distanceMetres) }
-    var distanceSecondary: String? { String(format: "%.1f ft · %@",
-                                              distanceFeet,
-                                              distanceBucketLabel) }
+    /// The spec's honesty band (§2.6): a sensor-inferred distance is an
+    /// ESTIMATE and is always displayed as one — "est. 2.0–2.6 m". ±15%.
+    var distanceSecondary: String? {
+        String(format: "est. %.1f–%.1f m · %@",
+               distanceMetres * 0.85,
+               distanceMetres * 1.15,
+               distanceBucketLabel)
+    }
     var distanceTint: Color {
         switch distanceMetres {
         case ..<3.0:  return .green
@@ -159,15 +164,24 @@ struct StrokeResultViewModel: Equatable {
         }
     }
 
+    /// Honesty rule (spec §5.1 / golf-swing-game-design skill): NEVER show
+    /// the raw face angle in decimals — the sensor cannot defend "+7.3°".
+    /// Primary = the bucketed call; secondary = the honest RANGE the
+    /// bucket spans, capped at 30° for the widest bucket.
     var faceAnglePrimary: String {
-        String(format: "%@%.1f°", faceAngleDeg >= 0 ? "+" : "", faceAngleDeg)
+        switch abs(faceAngleDeg) {
+        case ..<6.0:   return "Square"
+        case ..<12.0:  return faceAngleDeg < 0 ? "Slight pull" : "Slight push"
+        case ..<20.0:  return faceAngleDeg < 0 ? "Pull" : "Push"
+        default:       return faceAngleDeg < 0 ? "Big pull" : "Big push"
+        }
     }
     var faceAngleSecondary: String? {
         switch abs(faceAngleDeg) {
-        case ..<6.0:   return "square"
-        case ..<12.0:  return faceAngleDeg < 0 ? "slight pull" : "slight push"
-        case ..<20.0:  return faceAngleDeg < 0 ? "pull" : "push"
-        default:       return "miss"
+        case ..<6.0:   return "face within ±6°"
+        case ..<12.0:  return "face 6–12° \(faceAngleDeg < 0 ? "left" : "right")"
+        case ..<20.0:  return "face 12–20° \(faceAngleDeg < 0 ? "left" : "right")"
+        default:       return "face 20–30°+ \(faceAngleDeg < 0 ? "left" : "right")"
         }
     }
     var faceTint: Color {

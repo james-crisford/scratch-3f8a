@@ -227,6 +227,13 @@ public enum BallPhysics {
     ///     and continues). Tune via harness.
     ///   - lipOutSpeedRetention: Fraction of entry speed kept after the
     ///     lip-out kick. Default 0.6 (legacy).
+    ///   - slopeGradient: Green slope as a downhill gradient vector in the
+    ///     green frame (magnitude = grade, e.g. 0.02 = 2%). Rolling-sphere
+    ///     acceleration (5/7)·g·grade is applied every step, so cross-slope
+    ///     putts break naturally. Default .zero = flat (legacy). Magnitude
+    ///     clamped to 0.25. A ball that decelerates below stopVelocity
+    ///     stops even downhill (static-friction holds putts at rest on
+    ///     real greens; keeps the stop condition unambiguous).
     /// - Returns: Trajectory + outcome. Pathological inputs (NaN, Inf, negative
     ///   velocity, non-positive Δt) → `.rejected` with empty path.
     public static func simulatePutt(
@@ -239,7 +246,8 @@ public enum BallPhysics {
         integrationStep: Double = defaultIntegrationStep,
         captureShrink: Double = 1.0,
         lipOutForwardBias: Double = 0.0,
-        lipOutSpeedRetention: Double = 0.6
+        lipOutSpeedRetention: Double = 0.6,
+        slopeGradient: SIMD2<Double> = .zero
     ) -> Result {
 
         // 1. Reject non-finite inputs. Pull peakVelocity through a separate
@@ -254,6 +262,7 @@ public enum BallPhysics {
             stimpFeet.isFinite,
             startPosition.x.isFinite, startPosition.y.isFinite,
             cupPosition.x.isFinite, cupPosition.y.isFinite,
+            slopeGradient.x.isFinite, slopeGradient.y.isFinite,
             integrationStep.isFinite,
             integrationStep > 0
         else {
@@ -310,6 +319,15 @@ public enum BallPhysics {
         let mu = rollingFriction(stimpFeet: stimpFeet)
         let frictionDecel = mu * g
 
+        // 5b. Slope term (v1.1 foundation): constant downhill acceleration
+        //     for a rolling sphere, (5/7)·g·grade. Clamp the grade so a
+        //     pathological gradient can't outrun the integrator.
+        let slopeLen = simd_length(slopeGradient)
+        let clampedSlope = slopeLen > 0.25
+            ? slopeGradient * (0.25 / slopeLen)
+            : slopeGradient
+        let slopeAccel = clampedSlope * ((5.0 / 7.0) * g)
+
         // 6. Pre-size to spare the array reallocation. A typical 3-m putt at
         //    Stimp 10 lasts ~3 s ⇒ ~180 samples at 16 ms.
         var path: [PathSample] = []
@@ -345,7 +363,7 @@ public enum BallPhysics {
             // the velocity direction is constant, so this reduces to scalar
             // deceleration along v_0.
             let frictionDir = velocity / speed
-            let acceleration = -frictionDecel * frictionDir
+            let acceleration = -frictionDecel * frictionDir + slopeAccel
 
             // Semi-implicit Euler step.
             let nextVelocity = velocity + acceleration * dt
