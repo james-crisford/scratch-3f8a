@@ -75,11 +75,28 @@ func replayAll(_ urls: [URL]) -> (ok: [Replayed], failed: [(URL, String)]) {
 // MARK: - replay
 
 func cmdReplay(_ paths: [String]) {
-    let (ok, failed) = replayAll(collectJSONs(paths))
-    print("file,schema,judgment,stored_peak,replayed_peak,stored_face_deg,replayed_face_deg_HEADPIPELINE,stored_snap,replayed_snap,replayed_conf")
+    // Optional trailing options: --cal <factor> --cup <metres> add live-sim
+    // columns (outcome + end position under HEAD physics at that factor).
+    var files: [String] = []
+    var cal: Double? = nil
+    var cup = 2.0
+    var i = 0
+    while i < paths.count {
+        if paths[i] == "--cal", i + 1 < paths.count {
+            cal = Double(paths[i + 1]); i += 2
+        } else if paths[i] == "--cup", i + 1 < paths.count {
+            cup = Double(paths[i + 1]) ?? cup; i += 2
+        } else {
+            files.append(paths[i]); i += 1
+        }
+    }
+    let (ok, failed) = replayAll(collectJSONs(files))
+    var header = "file,schema,judgment,stored_peak,replayed_peak,stored_face_deg,replayed_face_deg_HEADPIPELINE,stored_snap,replayed_snap,replayed_conf"
+    if cal != nil { header += ",sim_outcome,sim_roll_m,sim_lateral" }
+    print(header)
     for r in ok {
         let sr = r.replay.result
-        print([
+        var cols: [String] = [
             r.url.lastPathComponent,
             "\(r.replay.schemaVersion)",
             r.replay.userImpactJudgment ?? "-",
@@ -90,7 +107,24 @@ func cmdReplay(_ paths: [String]) {
             sr.map { String($0.snappedToSquare) } ?? "-",
             String(r.result.snappedToSquare),
             f(r.result.confidence, 3),
-        ].joined(separator: ","))
+        ]
+        if let cal {
+            let sim = BallPhysics.simulatePutt(
+                peakVelocity: r.result.peakVelocity,
+                faceAngleRaw: r.result.faceAngleRaw,
+                speedCalibration: cal,
+                cupPosition: SIMD2<Double>(cup, 0))
+            let side: String
+            if sim.endPosition.y > 0.02 {
+                side = "LEFT " + f(sim.endPosition.y, 2) + "m"
+            } else if sim.endPosition.y < -0.02 {
+                side = "RIGHT " + f(-sim.endPosition.y, 2) + "m"
+            } else {
+                side = "online"
+            }
+            cols += ["\(sim.outcome)", f(simd_length(sim.endPosition), 2), side]
+        }
+        print(cols.joined(separator: ","))
     }
     for (u, e) in failed {
         FileHandle.standardError.write("FAILED \(u.lastPathComponent): \(e)\n".data(using: .utf8)!)
@@ -290,6 +324,35 @@ case "replay": cmdReplay(rest)
 case "parity": cmdParity(rest)
 case "calfit": cmdCalfit(rest)
 case "h5": cmdH5()
+case "calfactor":
+    // plab calfactor <files...> [--target-ft 8] — compute the TRUE v4
+    // calibration factor from recorded cal strokes on the laptop (the
+    // on-device value predates the S2 fix and is wrong).
+    var calFiles: [String] = []
+    var targetFt = 8.0
+    var k = 0
+    while k < rest.count {
+        if rest[k] == "--target-ft", k + 1 < rest.count {
+            targetFt = Double(rest[k + 1]) ?? targetFt; k += 2
+        } else {
+            calFiles.append(rest[k]); k += 1
+        }
+    }
+    let (calOk, _) = replayAll(collectJSONs(calFiles))
+    let peaks = calOk.map { $0.result }
+        .filter { !$0.snappedToSquare && $0.peakVelocity >= ImpactDetector.minPeakVelocityMps
+            && $0.peakVelocity <= BallPhysics.maxPlausiblePeakVelocity }
+        .map { $0.peakVelocity }
+    if peaks.isEmpty {
+        print("{\"error\": \"no valid cal strokes (need peak >= 0.3, non-snapped)\", \"strokes\": \(calOk.count)}")
+        exit(1)
+    }
+    let meanPeak = peaks.reduce(0, +) / Double(peaks.count)
+    let factor = CalibrationModel.factorDelivering(
+        targetMetres: targetFt * CalibrationModel.metresPerFoot,
+        meanPeakVelocity: meanPeak,
+        stimpFeet: BallPhysics.defaultStimp)
+    print("{\"strokes\": \(peaks.count), \"mean_peak\": \(meanPeak), \"target_ft\": \(targetFt), \"factor\": \(factor)}")
 case "live": MainActor.assumeIsolated { cmdLive(rest) }
 case "fuzz":
     var fuzzOpts: [String: String] = [:]

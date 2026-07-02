@@ -64,7 +64,11 @@ final class CalibrationCoordinator {
     static func isValid(impact: ImpactResult, window: StrokeWindow) -> Bool {
         impact.confidence >= 0.5
             && window.duration >= 0.2
-            && impact.peakVelocity >= 0.3
+            // Floor = the detector's own snap threshold. The original 0.3
+            // predated device data: ALL 192 real strokes peak at 0.10-0.20
+            // in the detector's pseudo-units, so 0.3 rejected every genuine
+            // calibration stroke (verified against the corpus 2026-07-02).
+            && impact.peakVelocity >= ImpactDetector.minPeakVelocityMps
             && impact.peakVelocity.isFinite
             // A double-integration spike averaged into the 5-stroke mean
             // poisons the speed factor (one 9.0 among 0.35s -> factor

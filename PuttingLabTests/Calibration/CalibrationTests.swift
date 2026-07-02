@@ -139,19 +139,32 @@ struct CalibrationFlowTests {
         }
     }
 
-    @Test("low peak velocity impact rejected")
+    @Test("too-soft impact rejected; a REAL median-speed stroke accepted")
     func lowPeakRejected() throws {
+        // The original floor (0.3) predated device data: the 192-stroke
+        // corpus median peak is ~0.15 in the detector's pseudo-units, so
+        // 0.3 rejected virtually every genuine calibration stroke. The
+        // floor is now the detector's own snap threshold (0.05).
         let c = CalibrationCoordinator()
         let pair = try cleanCalibrationPair()
-        let bad = ImpactResult(
+        let tooSoft = ImpactResult(
+            timestamp: pair.impact.timestamp,
+            peakVelocity: 0.03,
+            faceAngleRaw: pair.impact.faceAngleRaw,
+            attitudeAtImpact: pair.impact.attitudeAtImpact,
+            confidence: pair.impact.confidence
+        )
+        c.ingest(window: pair.window, impact: tooSoft)
+        #expect(c.rejectedCount == 1)
+
+        let realMedianStroke = ImpactResult(
             timestamp: pair.impact.timestamp,
             peakVelocity: 0.15,
             faceAngleRaw: pair.impact.faceAngleRaw,
             attitudeAtImpact: pair.impact.attitudeAtImpact,
             confidence: pair.impact.confidence
         )
-        c.ingest(window: pair.window, impact: bad)
-        #expect(c.rejectedCount == 1)
+        #expect(CalibrationCoordinator.isValid(impact: realMedianStroke, window: pair.window))
     }
 }
 

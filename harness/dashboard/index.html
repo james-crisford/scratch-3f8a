@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>PuttingLab Live Session</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; margin: 0; }
+  body { font: 14px/1.45 -apple-system, "Segoe UI", sans-serif; background: #0d1117; color: #e6edf3; padding: 24px; }
+  h1 { font-size: 20px; margin-bottom: 4px; }
+  .sub { color: #8b949e; margin-bottom: 18px; font-size: 13px; }
+  .stats { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 18px; }
+  .stat { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 10px 16px; min-width: 120px; }
+  .stat .v { font-size: 22px; font-weight: 700; }
+  .stat .l { color: #8b949e; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; }
+  .fresh { color: #3fb950; } .stale { color: #d29922; }
+  .tablewrap { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+  th, td { padding: 7px 10px; text-align: left; border-bottom: 1px solid #21262d; white-space: nowrap; }
+  th { color: #8b949e; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; position: sticky; top: 0; background: #0d1117; }
+  tr:hover td { background: #161b22; }
+  .chip { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+  .captured { background: #1a3a24; color: #3fb950; }
+  .lipOut   { background: #3a2a12; color: #d29922; }
+  .stopped  { background: #21262d; color: #8b949e; }
+  .rejected { background: #3a1618; color: #f85149; }
+  .snap     { background: #1b2a3a; color: #58a6ff; }
+  .pull { color: #ff9db4; } .push { color: #7ee0ff; } .sq { color: #3fb950; }
+  .cal-row td { opacity: .55; }
+  .empty { color: #8b949e; padding: 40px 0; text-align: center; }
+  footer { margin-top: 16px; color: #484f58; font-size: 12px; }
+</style>
+</head>
+<body>
+  <h1>PuttingLab — Live Session</h1>
+  <div class="sub">Phone → Google Drive → laptop harness (real compiled pipeline). Auto-refreshes every 3s.</div>
+  <div class="stats">
+    <div class="stat"><div class="v" id="count">0</div><div class="l">strokes in</div></div>
+    <div class="stat"><div class="v" id="factor">–</div><div class="l">true cal factor</div></div>
+    <div class="stat"><div class="v" id="cup">–</div><div class="l">sim cup dist (m)</div></div>
+    <div class="stat"><div class="v" id="updated" class="stale">waiting…</div><div class="l">last ingest</div></div>
+  </div>
+  <div class="tablewrap">
+    <table id="tbl">
+      <thead><tr>
+        <th>#</th><th>time</th><th>batch</th><th>your tap</th>
+        <th>peak (raw)</th><th>face°</th><th>dir</th>
+        <th>sim outcome</th><th>roll m</th><th>lateral</th><th>conf</th>
+      </tr></thead>
+      <tbody id="rows"><tr><td colspan="11" class="empty">No strokes yet — putt, export to Drive, and rows appear here.</td></tr></tbody>
+    </table>
+  </div>
+  <footer>Phone display is NOT trusted tonight (old build) — this table runs today’s corrected physics. Face°: negative = closed/pull/left.</footer>
+<script>
+async function tick() {
+  try {
+    const r = await fetch('data.json?ts=' + Date.now(), {cache: 'no-store'});
+    if (!r.ok) return;
+    const d = await r.json();
+    document.getElementById('count').textContent = d.rows.length;
+    document.getElementById('factor').textContent = d.cal_factor ? d.cal_factor.toFixed(2) : '–';
+    document.getElementById('cup').textContent = d.cup_m ? d.cup_m.toFixed(2) : '–';
+    const upd = document.getElementById('updated');
+    upd.textContent = d.updated || '–';
+    const age = d.updated_epoch ? (Date.now()/1000 - d.updated_epoch) : 1e9;
+    upd.className = age < 60 ? 'v fresh' : 'v stale';
+    const tb = document.getElementById('rows');
+    if (!d.rows.length) return;
+    tb.innerHTML = d.rows.map((x, i) => {
+      const face = parseFloat(x.face_deg);
+      const dir = isNaN(face) ? '' : (face < -1.5 ? '<span class="pull">pull/L</span>' : face > 1.5 ? '<span class="push">push/R</span>' : '<span class="sq">square</span>');
+      const oc = x.snapped === 'true' ? '<span class="chip snap">snapped</span>'
+               : x.sim_outcome ? `<span class="chip ${x.sim_outcome}">${x.sim_outcome}</span>` : '';
+      return `<tr class="${x.batch && x.batch.startsWith('cal') ? 'cal-row' : ''}">
+        <td>${i+1}</td><td>${x.time || ''}</td><td>${x.batch || ''}</td><td>${x.judgment || ''}</td>
+        <td>${x.peak}</td><td>${x.face_deg}</td><td>${dir}</td>
+        <td>${oc}</td><td>${x.sim_roll || ''}</td><td>${x.sim_lateral || ''}</td><td>${x.conf}</td></tr>`;
+    }).join('');
+  } catch (e) { /* server briefly busy — next tick */ }
+}
+setInterval(tick, 3000); tick();
+</script>
+</body>
+</html>
