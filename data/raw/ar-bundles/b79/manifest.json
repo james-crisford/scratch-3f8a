@@ -1,0 +1,32 @@
+{
+  "appVersion" : "0.7.14 (79)",
+  "bundleVersion" : 1,
+  "calibrationFaceAngleBiasDeg" : -7.834145682377549,
+  "calibrationProfileLoaded" : true,
+  "calibrationSpeedToDistanceFactor" : 14.183068217897258,
+  "createdAt" : "2026-06-10T18:25:41Z",
+  "deviceModel" : "iPhone14,3",
+  "files" : [
+    {
+      "bytes" : 108063,
+      "filename" : "ar-slice2-placement-2026-06-10T18-24-46.894Z-FF8883.json",
+      "kind" : "session_json"
+    },
+    {
+      "bytes" : 117056217,
+      "filename" : "ar-slice2-placement-2026-06-10T18-24-46.894Z-FF8883.mp4",
+      "kind" : "recording_mp4"
+    },
+    {
+      "bytes" : 217,
+      "filename" : "calibrationProfile.json",
+      "kind" : "session_json"
+    }
+  ],
+  "osVersion" : "18.7.8",
+  "scope" : "session",
+  "sessionIds" : [
+    "ar-slice2-placement-2026-06-10T18-24-46.894Z-FF8883"
+  ],
+  "strokeReplaysIncluded" : 0
+}

@@ -1,5 +1,7 @@
 import Foundation
+#if canImport(CoreMotion)
 import CoreMotion
+#endif
 import simd
 
 struct MotionSample: Sendable, Equatable {
@@ -23,6 +25,7 @@ struct MotionSample: Sendable, Equatable {
         self.attitude = attitude
     }
 
+#if canImport(CoreMotion)
     init(from deviceMotion: CMDeviceMotion) {
         self.timestamp = deviceMotion.timestamp
         self.rotationRate = SIMD3(
@@ -43,6 +46,7 @@ struct MotionSample: Sendable, Equatable {
         let q = deviceMotion.attitude.quaternion
         self.attitude = simd_quatd(ix: q.x, iy: q.y, iz: q.z, r: q.w)
     }
+#endif
 
     var rotationMagnitude: Double {
         simd_length(rotationRate)

@@ -1,0 +1,154 @@
+====================================================================================================
+DESIGN: Stance v2 — One-Sided Golf Address Markers (handedness-aware, floor-relative, line-facing feet)
+--- algorithm:
+FRAME + CONVENTIONS
+- ARKit world frame: right-handed, +Y up. World origin = phone pose at session start (floor is at large negative y, e.g. -0.853 this session). Yaw convention used throughout the codebase for floor vectors: yaw(v) = atan2(v.x, v.z); increasing yaw = CCW viewed from above; simd_quatf(angle: yaw, axis: +Y) maps local +Z to (sin yaw, 0, cos yaw). Verified against the session log: atan2(aim.x, aim.z) = 160.9005° vs logged aim_yaw_deg 160.90.
+- Perpendiculars of a horizontal unit aim vector a = (ax, 0, az):
+  - leftPerp(a)  = up × a = ( az, 0, -ax)   ("left" for an observer walking ball→hole)
+  - rightPerp(a) = a × up = (-az, 0,  ax)   (this is the existing code's `perp` at ARPlacementView:3784 and BallRollAnimator:119 — it is RIGHT of aim, the root of the mirror finding)
+  Define leftPerp(of:) ONCE (in StanceGeometry) as the single source of truth; the renderer perp fix (roll-render-mirror-flip) should adopt the same helper. This change consumes it independently — no coupling to the physics/sign fix.
+
+INPUTS
+- ball b, hole h: raycast floor world positions (b.y IS the floor height at the ball).
+- stance: StanceGeometry (gains heightMetres stored field) — shoulderWidthMetres = 0.245·H, footHalfSpreadMetres = shoulderWidth/2, handToBallMetres = putterLen·cos(70°) ≈ 0.295 m @34in.
+- handedness: UserProfile.Handedness (already persisted; threaded to all 7 call sites which all hold the profile: ARPlacementView lines 780, 1907, 1930, 1947, 4810, 4830, 4844).
+- Tunables: liftMetres = 0.010, ballForwardMetres = 0.040 (clamp [0, 0.08]), toeOutRadians = 7° (clamp [0°, 12°]).
+
+STEP 1 — aim. aimVec = (h.x-b.x, 0, h.z-b.z); aimLen = |aimVec|; guard aimLen > 0.01 and all components finite, else return nil BEFORE clearing old markers (preserves the B79 co-located-transient guard ordering). a = aimVec/aimLen.
+
+STEP 2 — side selection. sideSign s = +1 if handedness == .right, -1 if .left. sideVec = s · leftPerp(a). A right-handed golfer stands on the LEFT of the aim vector (derivation in why_correct; confirmed by the session video — James's real feet were left of the line). Settings handedness is the ONLY input that places markers. Camera inference (below) is validator/telemetry only.
+
+STEP 3 — stance-line setback (height-scaled, perpendicular to the line).
+setbackMetres = handToBallMetres + 0.04 · heightMetres.
+Derivation: (a) putter-lie trig pins the hands: a conforming 34 in putter at 70°-from-vertical lie puts the grip 0.864·cos70° ≈ 0.295 m horizontally from the ball (StanceGeometry's existing handToBallMetres — finally consumed; fix its doc comment to say "perpendicular to the target line", and note the "70° from vertical (USGA)" label is the dubious convention — conventional putter lie is ~70° from horizontal — but cos(70°) is the correct horizontal projection either way, so 0.295 m stands). (b) eyes-over-ball posture: ball under the eyes; hip-to-eye ≈ 0.406·H, hip-hinge ≈ 40°, hips counterbalanced back ≈ 0.05·H ⇒ toe-line-to-ball ≈ H·(0.406·sin40° − 0.05) ≈ 0.20–0.22·H. The toes sit a height-scaled step behind the hand projection, hence +0.04·H. Defaults: H = 1.78 m → setback = 0.295 + 0.071 = 0.367 m (= 0.206·H, inside the 0.35–0.45 m empirical band); H = 1.70 → 0.363; session H = 1.85 → 0.369. Setback varies weakly with height because the putter pins the hands — physically right (shorter players stand more upright).
+
+STEP 4 — stance line center, with ball slightly forward of center.
+center = b + sideVec·setback − a·ballForwardMetres;   center.y = b.y + liftMetres.
+Ball position choice: slightly forward of stance center by 0.04 m (≈ one golf-ball width, 42.7 mm). Justification: standard putting doctrine (Pelz et al.) puts the ball 1–2 ball-widths ahead of center so contact happens fractionally on the upstroke for true roll; dead-center is the conservative alternative but "center to slightly forward" resolves to slightly-forward in essentially all modern putting instruction. Implemented by shifting the FEET back along −aim (the ball anchor never moves).
+
+STEP 5 — feet spread ALONG the aim direction.
+leadFoot  = center + a·footHalfSpread   (toward the hole)
+trailFoot = center − a·footHalfSpread
+Both y = b.y + lift. Spread = shoulder width (lead-to-trail distance = 2·footHalfSpread = 0.245·H), axis = aim, NOT perp (the B77/B79 bug applied the spread across the line).
+
+STEP 6 — foot orientation: long axes point AT the line (perpendicular to aim), toes toward the line.
+Mesh stays generatePlane(width: 0.10 (footWid), depth: 0.24 (footLen)) — long axis on local +Z. We want local +Z along −sideVec (from the golfer's toes toward the ball line):
+baseFootYaw = aimYaw − s·(π/2), where aimYaw = atan2(a.x, a.z).
+(Check: (sin baseFootYaw, 0, cos baseFootYaw) = −s·leftPerp exactly — verified numerically to 5 dp.)
+Optional toe-out (toes flare apart, lead toward target):
+leadFootYaw  = baseFootYaw + s·toeOut
+trailFootYaw = baseFootYaw − s·toeOut
+orientation = simd_quatf(angle: yaw, axis: (0,1,0)).
+
+STEP 7 — Y / lift (floor-relative, NEVER absolute).
+y = b.y + 0.010 for both feet. Rationale: the B57 comment's "LiDAR mesh occlusion 3–5 cm above floor" justification is inoperative — RealityKit scene-understanding occlusion is never enabled anywhere in the repo, and the B55/B56 history is confounded because the old constants were ABSOLUTE world Y (markers floated ~1 m regardless; pre-B77 invisibility was frustum culling). 10 mm is chosen over the aim line's 2 mm because the feet now sit up to ~0.6 m laterally fro
+--- why_correct:
+SIDE DERIVATION (RH golfer stands LEFT of the aim vector) — bird's-eye diagram, looking straight down (along −Y). In ARKit's right-handed +Y-up frame, viewing from above with aim drawn up-page gives a standard map view (verified: up × aim = "page-left" = the left hand of an observer walking ball→hole).
+
+            HOLE
+              ▲
+              │ aim
+   lead foot ▭│        ← lead foot toward hole
+   (toes →)   │
+        ●─────┤BALL    ● = ball, one ball-width ahead of stance center
+   trail foot▭│
+              │
+   GOLFER     │
+   (left side)│
+              ▼ (behind ball)
+
+A right-handed golfer swings the putter with the target on his LEFT: he faces the line square-on, and his left-hand side points along aim. Formally: let f = the golfer's facing direction (from his chest toward the line, horizontal). "Left of facing f" = up × f. Target-on-his-left means up × f = aim, which solves to f = aim × up = rightPerp(aim). He stands offset from the ball OPPOSITE to his facing: golferSide = ball − f·setback = ball + leftPerp(aim)·setback. So RH ⇒ LEFT of aim (up × aim side); LH mirrors to rightPerp. Cross-checks: (1) classic down-the-line camera footage (behind the ball looking at the hole) shows RH golfers on the left of the frame's target line; (2) GROUND TRUTH from today's video — James (right-handed) had his real feet on the LEFT of the ball-hole line, straddled by the wrongly-placed markers; (3) the algebra up × f = aim has a unique solution among the two perpendiculars — facing the other way would put the target on his right (the left-handed stance).
+
+CROSS-PRODUCT SIGNS VERIFIED NUMERICALLY: up × a for a = (ax, 0, az) is (1·az − 0, 0 − 0, 0 − 1·ax) = (az, 0, −ax). Sanity probe with a = (0, 0, −1) (the session-start camera forward): up × a = (−1, 0, 0) = −X, and ARKit's start convention is +X to the camera's right, so −X is indeed LEFT looking along −Z. The existing code's perp = (−az, 0, ax) = a × up = (+1, 0, 0) = RIGHT — which is exactly why the current ± spread straddles and why the roll renders mirrored (separate finding).
+
+FOOT ORIENTATION CORRECTNESS: simd_quatf(angle: θ, axis: +Y) maps local +Z → (sin θ, 0, cos θ) (right-hand rule about +Y: +Z→+X at θ=+90°, matching atan2(x, z)). With baseYaw = aimYaw − s·π/2 and s=+1: (sin baseYaw, 0, cos baseYaw) = aim rotated −90° about +Y = rightPerp(aim) = −sideVec, i.e. the foot's long axis points from the golfer's toes AT the line. Verified to 5 dp in the worked example: (sin 70.9005°, 0, cos 70.9005°) = 
+--- edge_cases:
+ * Ball/hole co-located (aimLen ≤ 0.01 m): return nil BEFORE clearAddressMarkers — preserves B79 guard ordering so a mid-replace transient keeps the last-good markers.
+ * Non-finite inputs (B74.1 NaN class — ARKit can emit non-finite transforms during tracking-limited transitions): guard isFinite on ball and aim components, return nil.
+ * Very short putt (hole < ~0.19 m from ball station): lead foot's along-aim station (+0.187 m) passes the hole's station — harmless since feet are 0.37 m to the side; no clamp, document only.
+ * Tilted/uneven detected plane: feet sit up to ~0.6 m laterally from the ball's raycast point; the 10 mm lift absorbs ~1.3° of plane tilt over that span. If far-edge clipping is observed on-device, raise lift (max ~0.02) — never revert to absolute world Y.
+ * Occlusion future-proofing: RealityKit scene-understanding occlusion is currently never enabled (the B57 3-5 cm rationale is moot); if a future build enables .occlusion, LiDAR mesh noise (±1-3 cm) will eat 10 mm decals — revisit by exempting markers or accepting partial clipping, 
+ * Left-handed user: full mirror (side, foot yaw, toe-out signs all flip via sideSign). The LH path is geometrically derived but empirically unvalidated — ship with the marker mirror only; do NOT bundle the BallPhysics psi0 / MarioKartAssist wording handedness flips (separate atomic
+ * Stale/default profile for a lefty (UserProfile.default = .right): markers land on the WRONG side — strictly worse than the old symmetric layout for that user. Mitigations: press-time validator telemetry/hint + honest Settings footer.
+ * Camera-vs-settings conflict: settings ALWAYS places. Camera evidence (press-time orientation only) logs every stroke; ≥2 consistent mismatches in one session → one non-blocking post-stroke hint suggesting the Settings toggle. Never auto-flip, never re-place markers mid-press (sce
+ * Placement-time camera position is rejected as a side signal by design (user is on the line extension aiming the crosshair); logged for telemetry only.
+ * Markers under the user's real feet at address may leave the camera frustum (the B56/B70/B77 visibility saga in reverse): they are STEP-IN guidance, visible while standing at placement; expectation-set with James, and the rendered lead/trail xyz log fields make visibility issues d
+--- test_plan:
+ * SESSION REGRESSION (golden): addressPlacement(ball: (-0.8055, -0.8532, 0.4600), hole: (-0.4629, -0.8535, -0.5294), stance: H=1.8498/34in (footHalfSpread 0.2266, setback 0.36934), handedness: .right) → leadFootPos == (-1.0935, -0.8432, 0.1628) ±1e-3, trailFootPos == (-1.2417, -0.8
+ * CARDINAL RH: ball (0,0,0), hole (2,0,0), H=1.70, RH, defaults → aim (1,0,0), setback 0.36335, half 0.20825; lead == (0.16825, 0.01, -0.36335), trail == (-0.24825, 0.01, -0.36335); baseFootYaw == 0° (feet point +Z, AT the line from the -Z side), leadYaw == +7°, trailYaw == -7°.
+ * CARDINAL LH MIRROR: same inputs, .left → lead == (0.16825, 0.01, +0.36335), trail == (-0.24825, 0.01, +0.36335); baseFootYaw == 180°, leadYaw == 173°, trailYaw == 187° (mod 360).
+ * MIRROR-SYMMETRY PROPERTY (100 random horizontal aims, random ball positions): LH output equals RH output reflected across the vertical plane containing the aim line — assert dot(foot−ball, leftPerp) flips sign exactly, along-aim stations and y unchanged, yaws reflect (yawLH == 2·
+ * SAME-SIDE INVARIANT (anti-straddle, the shipped bug): for 100 random configs, sign(dot(leadFoot−ball, leftPerp)) == sign(dot(trailFoot−ball, leftPerp)) == sideSign, and both magnitudes == setback ±1e-5.
+ * LEAD-IS-TOWARD-HOLE: for random configs with |hole−ball| > 0.5, distance(leadFoot, hole) < distance(trailFoot, hole).
+ * TOES-AT-LINE: with toeOut=0, pointing vector (sin yaw, 0, cos yaw) · (sideSign·leftPerp) == -1 ±1e-5 for both feet (long axis perpendicular to aim, pointing at the line).
+ * BALL-FORWARD: along-aim station of leadFoot == +footHalfSpread − 0.04 and trailFoot == −footHalfSpread − 0.04 (ball one ball-width ahead of stance center): session values +0.1866 / −0.2666 ±1e-4.
+ * FLOOR-RELATIVE Y / ORIGIN INDEPENDENCE: leadFoot.y == trailFoot.y == ball.y + 0.010 exactly; translate ball AND hole by (+3, +5, -2) → all outputs translate identically (kills the absolute-y bug class; old code FAILS this: y stayed 0.08).
+ * GUARDS: ball == hole == (1, -0.8, 1) → nil; hole.x = .nan → nil; aimLen 0.009 → nil (and the placeAddressMarkers wrapper must NOT have called clearAddressMarkers — assert last-good anchor retained in an integration test).
+--- migration:
+SHIP ORDER & ATTRIBUTION: Land this as its own commit/build, SEPARATE from (a) the floating-Y-only hotfix if that ships first, and (b) the face-angle sign + renderer perp atomic fix — distinct log fields (design tag, rendered foot positions) keep each change independently verifiable on-device. Do not recalibrate until the sign fixes land. Expectation-set with James: this fixes feet-floating and feet-straddling; putts will STILL render right of the cup until the sign change-set ships.
+
+CODE TOUCHPOINTS: (1) placeAddressMarkers signature gains stance (already there) + handedness with NO defaults — compiler forces audit of all 7 call sites (ARPlacementView 780, 1907, 1930, 1947 pass userProfile; 4810, 4830, 4844 pass self.getUserProfile()); remove the `.compute(profile: .default)` default parameter. (2) New pure StanceGeometry.addressPlacement + StancePlacement + leftPerp(of:) — leftPerp is the future shared convention point for the BallRollAnimator:119 / ARPlacementView:3784 perp fix (that fix adopts it later; this change does not touch the renderer). (3) Fix StanceGeometry.handToBallMetres doc comment (perpendicular to the line, not '-aim'; note the 70°-from-vertical label vs cos(70°) projection). (4) Sibling fix (same pass, separate concern): dropRollTrailMarker:3907 absolute y=0.0008 → ballWorldPosition.y + 0.0008 (NOT the animator's emitted y, which includes the ball-radius lift; dropBallIntoCup:270 passes anchor-LOCAL coords — fix or skip drop-phase emission). (5) Preserve
+====================================================================================================
+DESIGN: PuttingLab Render-Frame Repair v3 — single left-handed-perp + golf-sign convention, atomic producer+renderer fix
+--- algorithm:
+== CANONICAL CONVENTION TABLE (define once, everything else derives) ==
+
+| # | Quantity | Definition | Sign convention | Single owner (file:line) |
+|---|----------|------------|-----------------|--------------------------|
+| 1 | ARKit world | Right-handed, +Y up, origin = phone pose at session start, floor at arbitrary negative y (this session −0.853) | — | ARKit |
+| 2 | aim | normalize(horizontal(hole − ball)) = normalize((hole.x−ball.x, 0, hole.z−ball.z)); guard length > 0.01 m | unit vector toward cup | GreenFrame.aim (new helper); today duplicated in BallRollAnimator.start:111-118 and placeAddressMarkers:3773-3782 |
+| 3 | LEFT(aim) | up × aim = (aim.z, 0, −aim.x) | LEFT of the target line viewed from above (CCW +90° about +Y). Derivation: (0,1,0)×(ax,0,az) = (az,0,−ax); check aim=+X → LEFT=−Z ✓ | GreenFrame.leftPerp (NEW — the one and only place green↔world handedness is encoded) |
+| 4 | Green frame | 2D sim frame: +x toward cup, +y = LEFT of line, angles CCW from +x | +y = left | BallPhysics doc §Frame (lines 10-13) — already correct, unchanged |
+| 5 | green→world | world = ballWorld + aim·g.x + LEFT(aim)·g.y (+ floor-relative y lift) | — | BallRollAnimator.localPos/worldPos via cached perpUnit (line 119 is the bug site) |
+| 6 | CoreMotion yaw | ZYX Euler yaw of attitude quaternion: atan2(2(wz+xy), 1−2(y²+z²)); reference frames put Z vertical | positive = CCW viewed from above (right-hand rule about up). A physical world-vertical rotation θ premultiplies attitude by Rz(θ), and yaw(Rz(θ)·R) = yaw(R)+θ exactly while device-X stays off vertical — true in James's grip (gravity.x = −0.005..−0.012), inversion lives in roll/pitch | ImpactDetector.yawFromQuaternion:226-232 — DO NOT TOUCH (it also feeds the un-negated diagnostic log key) |
+| 7 | faceAngleRaw v3 | wrapAngle(yawAtPress − yawAtImpact) — NOTE: negation of today's order | NEGATIVE = closed = pull = ball LEFT of line; POSITIVE = open = push = ball RIGHT (right-handed golfer). | FaceAngleComputer.compute:73 (producer — the ONLY place the IMU sign meets the golf convention) |
+| 8 | psi0 (launch azimuth) | psi0 = −faceAngleRaw | pull (neg raw) → psi0 > 0 → green +y = LEFT ✓ | BallPhysics.swift:239 — code UNCHANGED, doc comment updated (no longer a HACK under enforced convention 7) |
+| 9 | Bucket labels | negative deg → pull family ("ball goes left"), positive → push family ("ball goes right") | matches 7 | MarioKartAssist:86-128 — UNCHANGED; StrokeResultPanel.swift:165-180 duplicate — UNCHANGED |
+| 10 | Result-panel text | faceAngleSecondary: deg<0→"pull", ≥0→"push" | matches 7 | StrokeResultPanel.swift:168-169 — UNCHANGED |
+
+== FACE-ANGLE SIGN: THE TWO OPTIONS (decision required, pick A) ==
+OPTION A (RECOMMENDED — "negative = closed/pull/left", the codebase-documented convention): producer emits raw = wrap(yawPress − yawImpact). Consequences: exactly ONE load-bearing producer line changes; MarioKartAssist, StrokeResultPanel, BallPhysics psi0=−raw, PuttHistoryView, ReplayHistoryView, all docs (BallPhysics §3.3, PUTT_CALCULATION.md) become TRUE with zero edits — they all already assume this convention. Equivalent statement: positive = open = push = right.
+OPTION B ("CCW-positive raw", keep producer raw = wrap(yawImpact − yawPress)): then closed/pull = POSITIVE for RH, and EVERY consumer must flip: MarioKartAssist isPull → deg>0, StrokeResultPanel:168-169 + tint, BallPhysics psi0 → +faceAngleRaw, every doc, every offline tool. ~8 scattered edit sites, each an independent sign-error opportunity; the StrokeResultPanel threshold duplication already demonstrates this class of drift. REJECT B.
+
+== WHY BOTH FIXES, AND THE EXACT TWO LOAD-BEARING LINES ==
+Bug 1 (producer semantic inversion): for an RH golfer (target to his left), closing the face rotates the face normal CCW viewed from above ⇒ closed = POSITIVE CoreMotion delta. James's deltas (−17.9/−10.9/−12.3) are CW = OPEN = push = ball right — video confirms right misses, app said "pull left". Option A producer negation fixes every label at the source.
+Bug 2 (renderer mirror): perp = (−aim.z, 0, aim.x) = −LEFT = RIGHT-of-aim, so green +y ("left") renders world-RIGHT. Today the two bugs cancel on screen (render accidentally true) while text carries the single error.
+
+PATCH SET (minimal, line-exact):
+P1.a FaceAngleComputer.swift:73 — `let raw = ImpactDetector.wrapAngle(yawAtImpact - yawAtPress)` → `let raw = ImpactDetector.wrapAngle(yawAtPress - yawAtImpact)`. Update doc block (lines 24-60) to state Convention A.
+P1.b NEW file PuttingLab/Physics/GreenFrame.swift — aim/leftPerp/worldOffset/signedLeft helpers (see sketch). This is the single handedness site forever (any future minimap uses it too).
+P1.c BallRollAnimator.swift:119 — `let perp = SIMD3<Float>(-aim.z, 0, aim.x)` → `let perp = GreenFrame.leftPerp(of: aim)`. Fix doc comments at lines 21 and 284-285. localPos/worldPos code unchanged.
+P1.d ARPlacementView.swift:3784 — same replacement, AND swap the offset signs at 3840/3846: `leftFoot.position = stanceCenter + footOffset` (was −), `rightFoot.position = stanceCenter - footOffset` (was +). Render-identical (symmetric ± use) but keeps the entity NAMES on the correct physical sides — today perp=RIGHT so leftFoot=−offset is accidentally on the left; after the flip the +/− must swap or names invert silently (refute-math verdict pinned this).
+P1.e Version tags: StrokeReplay.swift:234 `faceAngleRawMeaning: "v2_press_attitude_delta"` → `"v3_press_attitude_delta_golf_sign"`; ARPlacementView.swift:2577 `
+--- why_correct:
+DERIVATION FOR THE DOCUMENTED GRIP (both hands, phone inverted top-toward-floor, one long side facing the target, tilted ~40-55 deg):
+
+1) The producer sign. CMAttitude (Z-vertical reference frames) yaw is CCW-positive viewed from above. A physical rotation of the device by θ about the WORLD vertical premultiplies the attitude by Rz(θ), and ZYX yaw(Rz(θ)·R) = yaw(R) + θ exactly, provided the device X axis is not near vertical. The inverted grip lives entirely in roll/pitch: the session gravity vectors (device frame) are (−0.012, 0.777, −0.629), (−0.011, 0.668, −0.744), (−0.005, 0.874, −0.486) — gravity.x ≈ 0 means device-X stayed horizontal, so the yaw-delta identity holds with no gimbal trouble. Therefore yawAtImpact − yawAtPress equals the physical CCW rotation about world-up REGARDLESS of the inversion.
+   Geometry of "closed" for a right-handed golfer: stand the golfer facing north, target/hole to his left (west), square face normal = west (180 deg math-CCW-from-east). Closed = face aims left of the line; facing west, left = south (270 deg). West→south = +90 deg = CCW. So RH closed = CCW = POSITIVE CoreMotion delta, RH open = CW = NEGATIVE delta.
+   James's three intended-square strokes: deltas (impact−press) = −17.90, −10.92, −12.31 deg = CW = OPEN face = push = ball physically RIGHT. Gemini video ground truth: all three rendered rolls missed RIGHT. The app labeled all three "pull / face closed — ball goes left" — labels wrong, render accidentally right. Convention A (negative = closed/pull/left, the convention every consumer already encodes) therefore requires the producer to emit raw = wrap(yawPress − yawImpact): S1 → +17.90 (open/push) ✓ matches video.
+
+2) The renderer mirror. In right-handed +Y-up ARKit, LEFT of horizontal aim a is up × a = (a.z, 0, −a.x) (check: a=+X → LEFT=−Z; rotating +X by +90 deg CCW about +Y via Ry gives (0,0,−1) ✓). Code perp = (−a.z, 0, a.x) is the exact negation = RIGHT of aim, so green +y ("left") rendered world-right.
+
+3) WORKED NUMERIC CHAIN, stroke S1, v3 convention, both fixes applied — using today's telemetry:
+   ball=(−0.8055, −0.8532, 0.4600), hole=(−0.4629, −0.8535, −0.5294). aimVec=(0.3426, 0, −0.9894), |aimVec|=1.0470 ✓ (logged 1.047 m). aim=(0.3272, 0, −0.9450). LEFT=up×aim=(−0.9450, 0, −0.3272).
+   Producer: raw = 73.57 − 55.67 = +17.90 deg → POSITIVE = open. Bucket: 12 ≤ 17.9 < 20 → push, "Face open at impact — ball goes right of the line" ✓ truth.
+   Sim: psi0 = −raw = −17.90 deg. v0 = 0.138 × 14.18 × 0.90 ×
+--- edge_cases:
+ * Degenerate aim (ball ~ hole, aimLen <= 0.01): BallRollAnimator.start returns .rejected, placeAddressMarkers logs + skips (B79 guard order preserved — compute aim BEFORE clearAddressMarkers). GreenFrame.aim returns nil for the same gate.
+ * Yaw wrap at +/-180 deg: press +179, impact −175 → naive delta −354 → wrapAngle → +6 (CCW 6 deg = pull −6 under v3). wrapAngle maps to (−pi, pi]; wrap(yawPress−yawImpact) = −wrap(yawImpact−yawPress) everywhere except the measure-zero pi boundary — acceptable; tests pin one wrap ca
+ * Gimbal degeneracy: yaw-delta = physical world-Z rotation only while device X stays off vertical. James's grip gives |gravity.x| < 0.02; add an optional confidence flag if |gravity.x| > ~0.7 at press (future grips), do not block v3 on it.
+ * snappedToSquare strokes: faceAngleRaw = 0, attitude identity (ImpactDetector.snappedToSquare:234-245) — sign-agnostic, no migration needed.
+ * Stored v2 history: PuttHistoryView/ReplayHistoryView re-bucket persisted faceAngleRaw on every load; without the meaning-tag-gated flip (P1.f) every pre-fix stroke displays mirrored labels. Records with faceAngleRawMeaning == nil predate the tag — treat as v2.
+ * Calibration semantics flip: stored faceAngleBiasRad (−7.83 deg) means the opposite under v3; CalibrationModel.applyBias is live-but-uncalled, and PressToImpactIntegrationTests:42-76 is a deliberate canary asserting bias is NOT re-enabled — invalidate the stored bias via pipelineV
+ * Left-handed golfer: under v3 + unchanged consumers, an LH closed-face (CW = positive raw) gets the CORRECT ball direction on screen and in 'ball goes right' text, but the open/closed//pull/push terminology is mirrored (LH pull goes right). SettingsView.swift:67 already discloses 
+ * Inline log probe: press_to_impact_delta_yaw_deg (ARPlacementView:2567/2580) intentionally bypasses the producer; post-fix face_angle_raw_deg = −press_to_impact_delta_yaw_deg in the same payload. This is a feature (on-device canary + cross-build comparability) — document it, never
+ * Trail markers + cup-drop ride the animator's perpUnit — fixed automatically at the single site. The known dropBallIntoCup local-vs-world emitter mismatch (BallRollAnimator:270) and the trail absolute-y (ARPlacementView:3907) are H1-family bugs, untouched here.
+ * User perception: post-fix the ball still visibly misses right ~11-18 deg (his real open-face tendency, possibly inflated by H5 late sampling). The render was already truthful; only labels flip. Tell James explicitly or the fix reads as a no-op.
+--- test_plan:
+ * T1 PULL-renders-LEFT end-to-end: aim A=(1,0,0) (ball=(0,0,0), hole=(2,0,0)), v3 faceAngleRaw = −15 deg (−0.261799 rad), peakVelocity 0.15, speedCalibration 14.18, stimp 10. v0 = 0.15·14.18·0.90·√0.95 = 1.86589 m/s; d = v0²/(2·0.59939) = 2.9043 m. Expect BallPhysics.simulatePutt e
+ * T2 PUSH-renders-RIGHT mirror: identical inputs with raw = +15 deg. Assert endPosition.y ≈ −0.7517 < 0, signedLeft < 0 (RIGHT), bucket .push, cause contains "right". Together T1+T2 pin the full sign chain both ways.
+ * T3 Producer sign vs physical rotation (PRODUCTION compute(), not a test-local clone): attitudeAtPress = identity quaternion; attitudeAtImpact = simd_quatd(angle: 8·π/180, axis: (0,0,1)) — a physical CCW rotation about the reference vertical = RH golfer CLOSING the face. yawFromQu
+ * T4 Session-S1 pinned regression (pixels unchanged, labels flipped): press quat = quat(angle: 73.57 deg, axis (0,0,1)), impact quat = quat(angle: 55.67 deg, axis (0,0,1)) → production raw = +17.90 deg → bucket .push, cause "Face open at impact — ball goes right of the line". Feed 
+ * T5 Aim-rotation invariance (catches axis-dependent sign errors in the mapping): for aims {(1,0,0), (0,0,−1), (0.3272,0,−0.9450), normalize(−1,0,1)} with raw = −10 deg, peakVelocity 0.10, cal 14.18: compute world end via GreenFrame.worldOffset(green: simResult.endPosition, aim:); 
+--- migration:
+ATOMICITY: P1.a (producer negation) + P1.c/P1.d (perp flips) ship in ONE commit and ONE TestFlight build — either half alone renders the ball on the wrong side of reality (see algorithm STEP 1). Pre-ship gate: the STEP-0 on-device CCW canary read from the UN-negated press_to_impact_delta_yaw_deg key. Version everything: faceAngleRawMeaning + face_angle_pipeline → "v3_press_attitude_delta_golf_sign"; history views flip v2/nil-tagged records at display; CalibrationProfile gains pipelineVersion with load-time invalidation of faceAngleBiasRad (−7.83 flips meaning; the PressToImpactIntegrationTests bias-canary must be consciously rewritten, not deleted); clear UserDefaults TestSessionState.calibrationFaceAnglesRad (practice-mode display-time baseline). Recalibrate the 5-stroke profile only AFTER the v3 build is on James's phone. Offline tools (tools/ingest_strokes.py:154, tools/puttinglab/replay_viz.py:94, tools/simulate_historical_strokes.py:166, tools/bundle_analyzer.py) read faceAngleRaw/faceAngleBiasDeg unconditionally today — teach them to branch on the meaning tag in the same PR or cross-build analyses silently mix signs. Tests: rewrite FaceAngleComputerPressAttitudeTests against production compute(); flip PressToImpactIntegrationTests/ImpactDetectorTests:350-355 expectations; rename+flip StrokeFixtures.pull()/push(); leave BallPhysicsTests + MarioKartAssistTests untouched (they pin the internally-correct layers). EXPECTATION-SET WITH JAMES: post-fix the on-screen roll is pi

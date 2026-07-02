@@ -1,3 +1,14 @@
+"""DEPRECATED (2026-07-02) — use the plab harness instead: harness/run.sh (see harness/README.md)
+
+This Python port of LiveImpactDetector has VERIFIED drift vs HEAD:
+  1. Cooldown divergence: Swift starts the 0.4s cooldown even on gate-suppressed
+     fires (LiveImpactDetector.swift lastFireTime set before the gate check);
+     this port only sets last_t on non-gated fires.
+  2. Missing the B67 sessionWarmedUp/forceWarmUp latch that production ALWAYS
+     engages — first-fire predictions do not match shipped behaviour.
+The plab harness compiles the real LiveImpactDetector; sweep parameters there.
+"""
+# Original docstring preserved below (historical):
 """Grid-search LiveImpactDetector parameters against every stored stroke
 and rank the configurations by predicted "Just Right" judgment rate.
 
@@ -21,6 +32,7 @@ Run:
     python tools/parameter_search.py --top 5 --build 14   # only B14 strokes
     python tools/parameter_search.py --custom 1.5,1.0,1,0.02,0.4,5,1.0
 """
+
 
 from __future__ import annotations
 

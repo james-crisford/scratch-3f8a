@@ -1,0 +1,3606 @@
+{
+  "endedAt" : "2026-06-10T18:25:41Z",
+  "events" : [
+    {
+      "id" : "A07EC166-5292-4818-9140-C64F9AF3DC57",
+      "kind" : "note",
+      "message" : "LiDAR scene reconstruction enabled (meshWithClassification, depth semantics)",
+      "payload" : {
+
+      },
+      "timestamp" : "2026-06-10T18:24:47Z"
+    },
+    {
+      "id" : "7F772871-7723-43FF-83CB-EAF6B0C946C6",
+      "kind" : "note",
+      "message" : "B45 environment probe anchor added (4m³)",
+      "payload" : {
+
+      },
+      "timestamp" : "2026-06-10T18:24:47Z"
+    },
+    {
+      "id" : "C7193470-A095-4DD6-80F9-919FD5E9F2A9",
+      "kind" : "sessionStart",
+      "message" : "Slice 2 placement view opened",
+      "payload" : {
+
+      },
+      "timestamp" : "2026-06-10T18:24:47Z"
+    },
+    {
+      "id" : "D3E14E80-ED48-4746-881B-7A20076F8863",
+      "kind" : "deviceInfo",
+      "message" : "device info",
+      "payload" : {
+        "device_model" : "iPhone14,3",
+        "device_name" : "iPhone",
+        "ios_version" : "18.7.8",
+        "lidar_mesh_supported" : "true",
+        "person_segmentation_supported" : "true",
+        "user_interface_idiom" : "phone"
+      },
+      "timestamp" : "2026-06-10T18:24:47Z"
+    },
+    {
+      "id" : "2434EC22-DD8A-424E-B642-78CCE0726F20",
+      "kind" : "note",
+      "message" : "LiDAR available — mesh scan active",
+      "payload" : {
+
+      },
+      "timestamp" : "2026-06-10T18:24:50Z"
+    },
+    {
+      "id" : "1D44BBCB-60E0-45A7-BB8C-F2D8A69E595C",
+      "kind" : "note",
+      "message" : "Calibration profile loaded at onAppear",
+      "payload" : {
+        "bias_deg" : "-7.834",
+        "bias_rad" : "-0.1367",
+        "kind" : "calibrationProfileLoaded",
+        "speed_factor" : "14.183"
+      },
+      "timestamp" : "2026-06-10T18:24:50Z"
+    },
+    {
+      "id" : "410086BB-B195-4C0F-B68F-E25B36B211A8",
+      "kind" : "note",
+      "message" : "Auto-recording on session open",
+      "payload" : {
+
+      },
+      "timestamp" : "2026-06-10T18:24:50Z"
+    },
+    {
+      "id" : "F3CCEAB4-F1F2-48B6-8E07-B383E986E725",
+      "kind" : "note",
+      "message" : "auto-compact HUD on (recording active)",
+      "payload" : {
+        "hud_compact" : "true",
+        "trigger" : "auto_record_start"
+      },
+      "timestamp" : "2026-06-10T18:24:50Z"
+    },
+    {
+      "id" : "F46CAFB3-6E0B-48B4-A295-1CF9CF99F127",
+      "kind" : "trackingState",
+      "message" : "Normal",
+      "payload" : {
+
+      },
+      "timestamp" : "2026-06-10T18:24:50Z"
+    },
+    {
+      "id" : "D23A5E82-F08E-4C6F-A5B8-BCAC4AB5E788",
+      "kind" : "lightEstimate",
+      "message" : "light intensity=938 temp=5969K",
+      "payload" : {
+        "ambient_color_temperature" : "5968.77",
+        "ambient_intensity" : "937.54"
+      },
+      "timestamp" : "2026-06-10T18:24:50Z"
+    },
+    {
+      "id" : "5493BCB6-9F67-493E-9B29-46851685A2C4",
+      "kind" : "meshStats",
+      "message" : "mesh stats — floor=0.00 m² triangles=0",
+      "payload" : {
+        "anchor_count" : "0",
+        "class_ceiling" : "0",
+        "class_door" : "0",
+        "class_floor" : "0",
+        "class_none" : "0",
+        "class_seat" : "0",
+        "class_table" : "0",
+        "class_wall" : "0",
+        "class_window" : "0",
+        "floor_area_m2" : "0.000",
+        "lidar_active" : "true",
+        "triangle_count_floor" : "0"
+      },
+      "timestamp" : "2026-06-10T18:24:50Z"
+    },
+    {
+      "id" : "35794C25-943B-4D4D-A641-E45AD2B2BBFA",
+      "kind" : "trackingState",
+      "message" : "Limited (initializing)",
+      "payload" : {
+
+      },
+      "timestamp" : "2026-06-10T18:24:50Z"
+    },
+    {
+      "id" : "F801E299-5629-4DE6-9E88-4290FCC4F958",
+      "kind" : "note",
+      "message" : "LiveImpactDetector warm-up forced after IMU stabilisation",
+      "payload" : {
+        "delay_ms" : "200",
+        "kind" : "liveImpactWarmedUpEagerly"
+      },
+      "timestamp" : "2026-06-10T18:24:50Z"
+    },
+    {
+      "id" : "11D045EF-D9F6-4F9E-87EE-5D399C0B87FC",
+      "kind" : "trackingState",
+      "message" : "Normal",
+      "payload" : {
+
+      },
+      "timestamp" : "2026-06-10T18:24:51Z"
+    },
+    {
+      "id" : "6D3AE411-D233-472D-84B8-D3F82DFD8EC8",
+      "kind" : "planeAdded",
+      "message" : "plane EDDDAF ext=1.17×2.87m",
+      "payload" : {
+        "alignment" : "horizontal",
+        "height" : "2.869",
+        "id" : "EDDDAF11-ACA8-4A23-86B8-DB79F4A09FC9",
+        "width" : "1.172"
+      },
+      "timestamp" : "2026-06-10T18:24:51Z"
+    },
+    {
+      "id" : "7B26E875-5642-47A5-8CD3-D5A423CFA14D",
+      "kind" : "planeUpdated",
+      "message" : "plane EDDDAF ext=1.33×2.95m",
+      "payload" : {
+        "height" : "2.950",
+        "id" : "EDDDAF11-ACA8-4A23-86B8-DB79F4A09FC9",
+        "width" : "1.333"
+      },
+      "timestamp" : "2026-06-10T18:24:52Z"
+    },
+    {
+      "id" : "60B46ABB-CE49-4132-ADEB-99D6DF5F5285",
+      "kind" : "planeUpdated",
+      "message" : "plane EDDDAF ext=1.71×3.07m",
+      "payload" : {
+        "height" : "3.073",
+        "id" : "EDDDAF11-ACA8-4A23-86B8-DB79F4A09FC9",
+        "width" : "1.707"
+      },
+      "timestamp" : "2026-06-10T18:24:53Z"
+    },
+    {
+      "id" : "A1A2865E-1235-4563-BA49-ADD99784401C",
+      "kind" : "planeAdded",
+      "message" : "plane 410B59 ext=0.30×0.50m",
+      "payload" : {
+        "alignment" : "horizontal",
+        "height" : "0.500",
+        "id" : "410B5903-7FA6-4137-9A9A-1DB717F9485F",
+        "width" : "0.300"
+      },
+      "timestamp" : "2026-06-10T18:24:53Z"
+    },
+    {
+      "id" : "2F8F1E81-2C9D-4FE3-BD4E-783BAA470D95",
+      "kind" : "planeUpdated",
+      "message" : "plane 410B59 ext=0.28×0.57m",
+      "payload" : {
+        "height" : "0.569",
+        "id" : "410B5903-7FA6-4137-9A9A-1DB717F9485F",
+        "width" : "0.285"
+      },
+      "timestamp" : "2026-06-10T18:24:53Z"
+    },
+    {
+      "id" : "5FAE747D-5FFC-4504-AEE4-5E127E3647F8",
+      "kind" : "planeUpdated",
+      "message" : "plane EDDDAF ext=1.74×3.12m",
+      "payload" : {
+        "height" : "3.122",
+        "id" : "EDDDAF11-ACA8-4A23-86B8-DB79F4A09FC9",
+        "width" : "1.743"
+      },
+      "timestamp" : "2026-06-10T18:24:54Z"
+    },
+    {
+      "id" : "F268A57F-3CD5-45CD-8B22-EED90BD23B5C",
+      "kind" : "planeUpdated",
+      "message" : "plane 410B59 ext=0.41×0.65m",
+      "payload" : {
+        "height" : "0.650",
+        "id" : "410B5903-7FA6-4137-9A9A-1DB717F9485F",
+        "width" : "0.414"
+      },
+      "timestamp" : "2026-06-10T18:24:54Z"
+    },
+    {
+      "id" : "69D1A09D-D1A3-404F-A495-E436342E11A7",
+      "kind" : "meshAdded",
+      "message" : "mesh 97375A faces=2055",
+      "payload" : {
+        "face_count" : "2055",
+        "id" : "97375A91-8B32-4FD3-83A0-322D6CBB3979"
+      },
+      "timestamp" : "2026-06-10T18:24:54Z"
+    },
+    {
+      "id" : "7EA3966F-6B06-4096-A924-47F77CB1033F",
+      "kind" : "meshAdded",
+      "message" : "mesh 39313A faces=1257",
+      "payload" : {
+        "face_count" : "1257",
+        "id" : "39313A66-BFC7-4F2E-AE2A-DC91703BF0BE"
+      },
+      "timestamp" : "2026-06-10T18:24:54Z"
+    },
+    {
+      "id" : "5FFA0472-4B46-4909-9519-516B5B2F0B50",
+      "kind" : "meshAdded",
+      "message" : "mesh 1E562A faces=1787",
+      "payload" : {
+        "face_count" : "1787",
+        "id" : "1E562A34-E4DF-438A-B2A2-BC4BE8BCF1E2"
+      },
+      "timestamp" : "2026-06-10T18:24:54Z"
+    },
+    {
+      "id" : "392870D6-2930-4848-A9AD-02FCD93C1AE0",
+      "kind" : "meshAdded",
+      "message" : "mesh F80796 faces=2625",
+      "payload" : {
+        "face_count" : "2625",
+        "id" : "F8079650-BFA2-44E1-B423-CF869F507173"
+      },
+      "timestamp" : "2026-06-10T18:24:54Z"
+    },
+    {
+      "id" : "2A76A62E-3EC5-44F5-A787-9C09C87C7F30",
+      "kind" : "note",
+      "message" : "B65 ready-to-place signal fired",
+      "payload" : {
+        "floor_area_m2" : "2.64"
+      },
+      "timestamp" : "2026-06-10T18:24:54Z"
+    },
+    {
+      "id" : "9425CFF3-3E3F-404D-93DB-B3B83743A941",
+      "kind" : "planeUpdated",
+      "message" : "plane EDDDAF ext=1.77×3.12m",
+      "payload" : {
+        "height" : "3.124",
+        "id" : "EDDDAF11-ACA8-4A23-86B8-DB79F4A09FC9",
+        "width" : "1.770"
+      },
+      "timestamp" : "2026-06-10T18:24:55Z"
+    },
+    {
+      "id" : "5EF2FFB7-DB62-4823-A64E-24E6D8B3167A",
+      "kind" : "meshUpdated",
+      "message" : "mesh 97375A faces=2023",
+      "payload" : {
+        "face_count" : "2023",
+        "id" : "97375A91-8B32-4FD3-83A0-322D6CBB3979"
+      },
+      "timestamp" : "2026-06-10T18:24:55Z"
+    },
+    {
+      "id" : "D5ECA46E-C6ED-4D02-AA25-F26F4276B9C2",
+      "kind" : "meshUpdated",
+      "message" : "mesh 39313A faces=1392",
+      "payload" : {
+        "face_count" : "1392",
+        "id" : "39313A66-BFC7-4F2E-AE2A-DC91703BF0BE"
+      },
+      "timestamp" : "2026-06-10T18:24:55Z"
+    },
+    {
+      "id" : "869D0D82-565C-4F76-AF3E-EEA647786B24",
+      "kind" : "meshUpdated",
+      "message" : "mesh 1E562A faces=1811",
+      "payload" : {
+        "face_count" : "1811",
+        "id" : "1E562A34-E4DF-438A-B2A2-BC4BE8BCF1E2"
+      },
+      "timestamp" : "2026-06-10T18:24:55Z"
+    },
+    {
+      "id" : "B840B227-4223-451E-BF02-1442A94BE1D8",
+      "kind" : "meshUpdated",
+      "message" : "mesh F80796 faces=2882",
+      "payload" : {
+        "face_count" : "2882",
+        "id" : "F8079650-BFA2-44E1-B423-CF869F507173"
+      },
+      "timestamp" : "2026-06-10T18:24:55Z"
+    },
+    {
+      "id" : "C09D422A-5686-4A33-96A0-0780CB9DD7C4",
+      "kind" : "meshStats",
+      "message" : "mesh stats — floor=2.76 m² triangles=6982",
+      "payload" : {
+        "anchor_count" : "4",
+        "class_ceiling" : "0",
+        "class_door" : "0",
+        "class_floor" : "6982",
+        "class_none" : "755",
+        "class_seat" : "347",
+        "class_table" : "0",
+        "class_wall" : "24",
+        "class_window" : "0",
+        "floor_area_m2" : "2.756",
+        "lidar_active" : "true",
+        "triangle_count_floor" : "6982"
+      },
+      "timestamp" : "2026-06-10T18:24:55Z"
+    },
+    {
+      "id" : "3FBF64C2-CB1D-4670-AE42-E5F564CD6538",
+      "kind" : "lightEstimate",
+      "message" : "light intensity=932 temp=5975K",
+      "payload" : {
+        "ambient_color_temperature" : "5974.77",
+        "ambient_intensity" : "932.12"
+      },
+      "timestamp" : "2026-06-10T18:24:55Z"
+    },
+    {
+      "id" : "5CDB52F9-8048-40D9-AC8A-831169661306",
+      "kind" : "planeUpdated",
+      "message" : "plane 410B59 ext=0.41×0.65m",
+      "payload" : {
+        "height" : "0.650",
+        "id" : "410B5903-7FA6-4137-9A9A-1DB717F9485F",
+        "width" : "0.414"
+      },
+      "timestamp" : "2026-06-10T18:24:55Z"
+    },
+    {
+      "id" : "395BA035-5381-430F-AA7D-D51265A65247",
+      "kind" : "planeUpdated",
+      "message" : "plane EDDDAF ext=2.04×3.16m",
+      "payload" : {
+        "height" : "3.158",
+        "id" : "EDDDAF11-ACA8-4A23-86B8-DB79F4A09FC9",
+        "width" : "2.041"
+      },
+      "timestamp" : "2026-06-10T18:24:56Z"
+    },
+    {
+      "id" : "A4D234FE-9B13-4B74-BC8E-118D8A2CF5DF",
+      "kind" : "planeUpdated",
+      "message" : "plane 410B59 ext=0.55×0.60m",
+      "payload" : {
+        "height" : "0.600",
+        "id" : "410B5903-7FA6-4137-9A9A-1DB717F9485F",
+        "width" : "0.550"
+      },
+      "timestamp" : "2026-06-10T18:24:56Z"
+    },
+    {
+      "id" : "D7E06059-86B9-4C34-9F46-DDF443F6CF32",
+      "kind" : "meshAdded",
+      "message" : "mesh 56CE58 faces=34",
+      "payload" : {
+        "face_count" : "34",
+        "id" : "56CE58CE-CE0E-41FA-BEEE-C6183A809144"
+      },
+      "timestamp" : "2026-06-10T18:24:56Z"
+    },
+    {
+      "id" : "3CAAF09B-D58A-46F8-8529-01F0951DDB8C",
+      "kind" : "planeUpdated",
+      "message" : "plane EDDDAF ext=2.72×3.54m",
+      "payload" : {
+        "height" : "3.536",
+        "id" : "EDDDAF11-ACA8-4A23-86B8-DB79F4A09FC9",
+        "width" : "2.718"
+      },
+      "timestamp" : "2026-06-10T18:24:57Z"
+    },
+    {
+      "id" : "5D4C99FA-C52C-4FFD-A4F4-B7C17945A0AB",
+      "kind" : "meshUpdated",
+      "message" : "mesh 56CE58 faces=196",
+      "payload" : {
+        "face_count" : "196",
+        "id" : "56CE58CE-CE0E-41FA-BEEE-C6183A809144"
+      },
+      "timestamp" : "2026-06-10T18:24:57Z"
+    },
+    {
+      "id" : "444CB740-0F97-4FF9-96ED-73872A74D3A9",
+      "kind" : "planeUpdated",
+      "message" : "plane 410B59 ext=0.55×0.60m",
+      "payload" : {
+        "height" : "0.600",
+        "id" : "410B5903-7FA6-4137-9A9A-1DB717F9485F",
+        "width" : "0.550"
+      },
+      "timestamp" : "2026-06-10T18:24:57Z"
+    },
+    {
+      "id" : "A9B22DB2-28BF-4C64-8CD1-281FBC71EC19",
+      "kind" : "meshUpdated",
+      "message" : "mesh 1E562A faces=8622",
+      "payload" : {
+        "face_count" : "8622",
+        "id" : "1E562A34-E4DF-438A-B2A2-BC4BE8BCF1E2"
+      },
+      "timestamp" : "2026-06-10T18:24:57Z"
+    },
+    {
+      "id" : "308B66E9-8E19-4B11-A671-6414D554FDA3",
+      "kind" : "planeUpdated",
+      "message" : "plane EDDDAF ext=2.72×3.96m",
+      "payload" : {
+        "height" : "3.958",
+        "id" : "EDDDAF11-ACA8-4A23-86B8-DB79F4A09FC9",
+        "width" : "2.718"
+      },
+      "timestamp" : "2026-06-10T18:24:58Z"
+    },
+    {
+      "id" : "6438C2DA-8CAB-4254-80F4-6C7C61A53330",
+      "kind" : "meshAdded",
+      "message" : "mesh D0E06B faces=1137",
+      "payload" : {
+        "face_count" : "1137",
+        "id" : "D0E06BBE-EE66-445E-9B07-397A3388B8D7"
+      },
+      "timestamp" : "2026-06-10T18:24:58Z"
+    },
+    {
+      "id" : "653F3E70-4F72-41F9-899A-24B6A95D18FB",
+      "kind" : "meshAdded",
+      "message" : "mesh B7A65B faces=858",
+      "payload" : {
+        "face_count" : "858",
+        "id" : "B7A65B2A-BA7D-45D0-858B-60626BB191B1"
+      },
+      "timestamp" : "2026-06-10T18:24:58Z"
+    },
+    {
+      "id" : "CEDFA83C-DB2E-4430-ACD2-374838F3093D",
+      "kind" : "planeUpdated",
+      "message" : "plane 410B59 ext=0.50×0.60m",
+      "payload" : {
+        "height" : "0.600",
+        "id" : "410B5903-7FA6-4137-9A9A-1DB717F9485F",
+        "width" : "0.500"
+      },
+      "timestamp" : "2026-06-10T18:24:58Z"
+    },
+    {
+      "id" : "194DC4A6-2220-4EDE-ABAA-B2FB24CFC4A3",
+      "kind" : "meshUpdated",
+      "message" : "mesh B7A65B faces=929",
+      "payload" : {
+        "face_count" : "929",
+        "id" : "B7A65B2A-BA7D-45D0-858B-60626BB191B1"
+      },
+      "timestamp" : "2026-06-10T18:24:58Z"
+    },
+    {
+      "id" : "83788456-7789-4A21-A0C5-64FC32B5A6E6",
+      "kind" : "meshUpdated",
+      "message" : "mesh D0E06B faces=1450",
+      "payload" : {
+        "face_count" : "1450",
+        "id" : "D0E06BBE-EE66-445E-9B07-397A3388B8D7"
+      },
+      "timestamp" : "2026-06-10T18:24:58Z"
+    },
+    {
+      "id" : "D4655ABA-6E41-45DB-BE48-1DF83B02338B",
+      "kind" : "planeUpdated",
+      "message" : "plane EDDDAF ext=5.50×2.74m",
+      "payload" : {
+        "height" : "2.737",
+        "id" : "EDDDAF11-ACA8-4A23-86B8-DB79F4A09FC9",
+        "width" : "5.496"
+      },
+      "timestamp" : "2026-06-10T18:24:59Z"
+    },
+    {
+      "id" : "1300D94C-E786-48F0-905C-D5112FEA2D72",
+      "kind" : "meshAdded",
+      "message" : "mesh 5DB083 faces=230",
+      "payload" : {
+        "face_count" : "230",
+        "id" : "5DB083ED-2E18-4AFF-8B20-37F88A840EE2"
+      },
+      "timestamp" : "2026-06-10T18:24:59Z"
+    },
+    {
+      "id" : "DB075AA7-9DA8-41F1-9A6D-E2853A2911C3",
+      "kind" : "meshAdded",
+      "message" : "mesh 725026 faces=14",
+      "payload" : {
+        "face_count" : "14",
+        "id" : "725026F6-9CF6-4EAA-B632-B1B1D00F786E"
+      },
+      "timestamp" : "2026-06-10T18:24:59Z"
+    },
+    {
+      "id" : "2E5AF3EE-0D53-445C-A4D3-901C28F0E4DC",
+      "kind" : "meshUpdated",
+      "message" : "mesh 56CE58 faces=6444",
+      "payload" : {
+        "face_count" : "6444",
+        "id" : "56CE58CE-CE0E-41FA-BEEE-C6183A809144"
+      },
+      "timestamp" : "2026-06-10T18:24:59Z"
+    },
+    {
+      "id" : "F777E394-8A97-4C58-9DD3-267CD569F694",
+      "kind" : "planeUpdated",
+      "message" : "plane 410B59 ext=0.50×0.60m",
+      "payload" : {
+        "height" : "0.600",
+        "id" : "410B5903-7FA6-4137-9A9A-1DB717F9485F",
+        "width" : "0.500"
+      },
+      "timestamp" : "2026-06-10T18:24:59Z"
+    },
+    {
+      "id" : "50DD835A-302C-4F84-A4CD-A54FF7D4EFC1",
+      "kind" : "meshAdded",
+      "message" : "mesh 8CA6B4 faces=52",
+      "payload" : {
+        "face_count" : "52",
+        "id" : "8CA6B49F-B009-46AD-8FC4-B7C383269D83"
+      },
+      "timestamp" : "2026-06-10T18:25:00Z"
+    },
+    {
+      "id" : "B22F4AF2-D742-4B85-9395-8B72198C2488",
+      "kind" : "meshUpdated",
+      "message" : "mesh 1E562A faces=10904",
+      "payload" : {
+        "face_count" : "10904",
+        "id" : "1E562A34-E4DF-438A-B2A2-BC4BE8BCF1E2"
+      },
+      "timestamp" : "2026-06-10T18:25:00Z"
+    },
+    {
+      "id" : "3DC888DF-7B80-4626-B429-BC2E17163FF3",
+      "kind" : "planeUpdated",
+      "message" : "plane EDDDAF ext=2.94×5.70m",
+      "payload" : {
+        "height" : "5.699",
+        "id" : "EDDDAF11-ACA8-4A23-86B8-DB79F4A09FC9",
+        "width" : "2.942"
+      },
+      "timestamp" : "2026-06-10T18:25:00Z"
+    },
+    {
+      "id" : "BA41598D-643A-4520-9234-15CD30C7C648",
+      "kind" : "meshStats",
+      "message" : "mesh stats — floor=8.09 m² triangles=20687",
+      "payload" : {
+        "anchor_count" : "10",
+        "class_ceiling" : "0",
+        "class_door" : "0",
+        "class_floor" : "20687",
+        "class_none" : "2085",
+        "class_seat" : "2938",
+        "class_table" : "766",
+        "class_wall" : "3360",
+        "class_window" : "107",
+        "floor_area_m2" : "8.092",
+        "lidar_active" : "true",
+        "triangle_count_floor" : "20687"
+      },
+      "timestamp" : "2026-06-10T18:25:00Z"
+    },
+    {
+      "id" : "55849C4B-40A4-4C16-8C4E-B6E32900F96B",
+      "kind" : "lightEstimate",
+      "message" : "light intensity=1032 temp=5927K",
+      "payload" : {
+        "ambient_color_temperature" : "5927.35",
+        "ambient_intensity" : "1031.59"
+      },
+      "timestamp" : "2026-06-10T18:25:00Z"
+    },
+    {
+      "id" : "A3740D93-0C9E-40D7-A9B7-00F0C8CD13CA",
+      "kind" : "planeUpdated",
+      "message" : "plane 410B59 ext=0.50×0.60m",
+      "payload" : {
+        "height" : "0.600",
+        "id" : "410B5903-7FA6-4137-9A9A-1DB717F9485F",
+        "width" : "0.500"
+      },
+      "timestamp" : "2026-06-10T18:25:00Z"
+    },
+    {
+      "id" : "20C8EB8D-5034-41FD-B265-AB9755921857",
+      "kind" : "meshUpdated",
+      "message" : "mesh 8CA6B4 faces=106",
+      "payload" : {
+        "face_count" : "106",
+        "id" : "8CA6B49F-B009-46AD-8FC4-B7C383269D83"
+      },
+      "timestamp" : "2026-06-10T18:25:00Z"
+    },
+    {
+      "id" : "681632FC-E917-4DFB-830F-3DDAB0F9B298",
+      "kind" : "raycastHit",
+      "message" : "place button hit (-0.81, -0.85, 0.46)",
+      "payload" : {
+        "source" : "crosshair",
+        "x" : "-0.8055",
+        "y" : "-0.8532",
+        "z" : "0.4600"
+      },
+      "timestamp" : "2026-06-10T18:25:00Z"
+    },
+    {
+      "id" : "610326BD-1E78-47A0-AF65-32C960B2FC16",
+      "kind" : "ballPlaced",
+      "message" : "ball via crosshair (-0.81, -0.85, 0.46)",
+      "payload" : {
+        "source" : "crosshair",
+        "x" : "-0.8055",
+        "y" : "-0.8532",
+        "z" : "0.4600"
+      },
+      "timestamp" : "2026-06-10T18:25:00Z"
+    },
+    {
+      "id" : "274DCBD4-E0CD-43B9-81C9-9BFB2F891C01",
+      "kind" : "materialApplied",
+      "message" : "B69 ball anchor added (deferred 1 frame)",
+      "payload" : {
+        "addAnchor_ms" : "0.6",
+        "clearcoat" : "0.5",
+        "design" : "b55_dimpled_tour_ball_no_local_probe",
+        "entity" : "ball",
+        "kind" : "ballAnchorDeferredAdd",
+        "material" : "PhysicallyBasedMaterial",
+        "metallic" : "0.0",
+        "normal_map" : "procedural_dimples_32x32_deep",
+        "radius_m" : "0.0214",
+        "roughness" : "0.22"
+      },
+      "timestamp" : "2026-06-10T18:25:00Z"
+    },
+    {
+      "id" : "B7A9669D-925F-46F0-BBB5-ACA03D674E0F",
+      "kind" : "planeUpdated",
+      "message" : "plane EDDDAF ext=2.95×5.70m",
+      "payload" : {
+        "height" : "5.699",
+        "id" : "EDDDAF11-ACA8-4A23-86B8-DB79F4A09FC9",
+        "width" : "2.946"
+      },
+      "timestamp" : "2026-06-10T18:25:01Z"
+    },
+    {
+      "id" : "94549512-E25B-4E0C-88B2-DFE7E604A8FD",
+      "kind" : "planeUpdated",
+      "message" : "plane 410B59 ext=0.50×0.60m",
+      "payload" : {
+        "height" : "0.600",
+        "id" : "410B5903-7FA6-4137-9A9A-1DB717F9485F",
+        "width" : "0.500"
+      },
+      "timestamp" : "2026-06-10T18:25:01Z"
+    },
+    {
+      "id" : "437DD601-D173-4CB4-9E50-0019F437C388",
+      "kind" : "meshUpdated",
+      "message" : "mesh F80796 faces=3510",
+      "payload" : {
+        "face_count" : "3510",
+        "id" : "F8079650-BFA2-44E1-B423-CF869F507173"
+      },
+      "timestamp" : "2026-06-10T18:25:01Z"
+    },
+    {
+      "id" : "B2DC2161-BB23-4B2A-B736-8003903FDC9C",
+      "kind" : "meshUpdated",
+      "message" : "mesh 56CE58 faces=9853",
+      "payload" : {
+        "face_count" : "9853",
+        "id" : "56CE58CE-CE0E-41FA-BEEE-C6183A809144"
+      },
+      "timestamp" : "2026-06-10T18:25:01Z"
+    },
+    {
+      "id" : "F8A51C80-A7E5-4C4E-B0CE-14DA82E35356",
+      "kind" : "raycastHit",
+      "message" : "place button hit (-0.46, -0.85, -0.53)",
+      "payload" : {
+        "source" : "crosshair",
+        "x" : "-0.4629",
+        "y" : "-0.8535",
+        "z" : "-0.5294"
+      },
+      "timestamp" : "2026-06-10T18:25:02Z"
+    },
+    {
+      "id" : "EEE9DC14-127F-41AA-B30E-D6B872364781",
+      "kind" : "materialApplied",
+      "message" : "B44 hole materials applied",
+      "payload" : {
+        "bevel" : "PBR.antique_gold.metallic90",
+        "bottom" : "SimpleMaterial.dark",
+        "contact_shadow" : "Unlit.black.alpha18",
+        "depth_m" : "0.080",
+        "design" : "b44_gold_rim_lit_white_wall",
+        "diameter_m" : "0.1080",
+        "entity" : "hole",
+        "ferrule" : "PBR.gold.metallic95",
+        "flag" : "UnlitMaterial.red.triangle",
+        "flagstick" : "PBR.matte_black",
+        "rim" : "PBR.gold.metallic95",
+        "wall" : "PBR.white.lit"
+      },
+      "timestamp" : "2026-06-10T18:25:02Z"
+    },
+    {
+      "id" : "8793F53C-48D5-4439-BDAD-1BEE1004C3C1",
+      "kind" : "holePlaced",
+      "message" : "hole via crosshair (-0.46, -0.85, -0.53) · 1.05 m",
+      "payload" : {
+        "ball_x" : "-0.8055",
+        "ball_y" : "-0.8532",
+        "ball_z" : "0.4600",
+        "distance_m" : "1.0471",
+        "source" : "crosshair",
+        "x" : "-0.4629",
+        "y" : "-0.8535",
+        "z" : "-0.5294"
+      },
+      "timestamp" : "2026-06-10T18:25:02Z"
+    },
+    {
+      "id" : "042355ED-FBF2-4465-9AC4-78471CA4035F",
+      "kind" : "materialApplied",
+      "message" : "B46 address markers applied",
+      "payload" : {
+        "aim_yaw_deg" : "160.90",
+        "design" : "b46_foot_markers",
+        "entity" : "address_markers",
+        "foot_half_spread_m" : "0.2266",
+        "material" : "PhysicallyBasedMaterial.yellow_translucent",
+        "shoulder_width_m" : "0.4532",
+        "stance_x" : "-0.8055",
+        "stance_y" : "-0.8532",
+        "stance_z" : "0.4600"
+      },
+      "timestamp" : "2026-06-10T18:25:02Z"
+    },
+    {
+      "id" : "AAD1F825-5440-496E-983A-C2A10D24B951",
+      "kind" : "materialApplied",
+      "message" : "B69 hole anchor added (deferred 1 frame)",
+      "payload" : {
+        "addAnchor_ms" : "1.0",
+        "design" : "b44_gold_rim_lit_white_wall",
+        "entity" : "hole",
+        "kind" : "holeAnchorDeferredAdd",
+        "rim" : "PBR.gold.metallic95"
+      },
+      "timestamp" : "2026-06-10T18:25:02Z"
+    },
+    {
+      "id" : "7C1347A7-34A0-415C-AE27-DF94C22412EC",
+      "kind" : "planeUpdated",
+      "message" : "plane EDDDAF ext=3.01×5.70m",
+      "payload" : {
+        "height" : "5.699",
+        "id" : "EDDDAF11-ACA8-4A23-86B8-DB79F4A09FC9",
+        "width" : "3.008"
+      },
+      "timestamp" : "2026-06-10T18:25:02Z"
+    },
+    {
+      "id" : "C3ABA36D-2587-473E-948A-FA9AFBDDFB1E",
+      "kind" : "meshUpdated",
+      "message" : "mesh 1E562A faces=11039",
+      "payload" : {
+        "face_count" : "11039",
+        "id" : "1E562A34-E4DF-438A-B2A2-BC4BE8BCF1E2"
+      },
+      "timestamp" : "2026-06-10T18:25:02Z"
+    },
+    {
+      "id" : "576A3577-4130-470B-A83B-E539BB142114",
+      "kind" : "planeUpdated",
+      "message" : "plane 410B59 ext=0.50×0.55m",
+      "payload" : {
+        "height" : "0.550",
+        "id" : "410B5903-7FA6-4137-9A9A-1DB717F9485F",
+        "width" : "0.500"
+      },
+      "timestamp" : "2026-06-10T18:25:02Z"
+    },
+    {
+      "id" : "022FA906-F79E-4959-84F8-699E0BE0D429",
+      "kind" : "meshUpdated",
+      "message" : "mesh 8CA6B4 faces=998",
+      "payload" : {
+        "face_count" : "998",
+        "id" : "8CA6B49F-B009-46AD-8FC4-B7C383269D83"
+      },
+      "timestamp" : "2026-06-10T18:25:03Z"
+    },
+    {
+      "id" : "C4D0193F-D7FE-49A6-9FA5-4AFC048A79F7",
+      "kind" : "planeUpdated",
+      "message" : "plane EDDDAF ext=3.01×5.70m",
+      "payload" : {
+        "height" : "5.699",
+        "id" : "EDDDAF11-ACA8-4A23-86B8-DB79F4A09FC9",
+        "width" : "3.008"
+      },
+      "timestamp" : "2026-06-10T18:25:03Z"
+    },
+    {
+      "id" : "A4A4CB44-6061-40D0-A068-71D38F1F1731",
+      "kind" : "planeUpdated",
+      "message" : "plane 410B59 ext=0.50×0.55m",
+      "payload" : {
+        "height" : "0.550",
+        "id" : "410B5903-7FA6-4137-9A9A-1DB717F9485F",
+        "width" : "0.500"
+      },
+      "timestamp" : "2026-06-10T18:25:03Z"
+    },
+    {
+      "id" : "3998BF78-B111-42D0-82B3-5BFE702C5A58",
+      "kind" : "planeUpdated",
+      "message" : "plane EDDDAF ext=3.01×5.70m",
+      "payload" : {
+        "height" : "5.699",
+        "id" : "EDDDAF11-ACA8-4A23-86B8-DB79F4A09FC9",
+        "width" : "3.008"
+      },
+      "timestamp" : "2026-06-10T18:25:04Z"
+    },
+    {
+      "id" : "1F1B7902-7510-4883-BA26-EC11AD5A8E40",
+      "kind" : "meshUpdated",
+      "message" : "mesh 56CE58 faces=10072",
+      "payload" : {
+        "face_count" : "10072",
+        "id" : "56CE58CE-CE0E-41FA-BEEE-C6183A809144"
+      },
+      "timestamp" : "2026-06-10T18:25:04Z"
+    },
+    {
+      "id" : "992508A0-64CC-44F4-8C31-9BD7A93BDBF1",
+      "kind" : "planeUpdated",
+      "message" : "plane 410B59 ext=0.50×0.55m",
+      "payload" : {
+        "height" : "0.550",
+        "id" : "410B5903-7FA6-4137-9A9A-1DB717F9485F",
+        "width" : "0.500"
+      },
+      "timestamp" : "2026-06-10T18:25:04Z"
+    },
+    {
+      "id" : "BE577504-8B53-4023-82FE-0298438E6AD0",
+      "kind" : "meshUpdated",
+      "message" : "mesh 1E562A faces=11149",
+      "payload" : {
+        "face_count" : "11149",
+        "id" : "1E562A34-E4DF-438A-B2A2-BC4BE8BCF1E2"
+      },
+      "timestamp" : "2026-06-10T18:25:04Z"
+    },
+    {
+      "id" : "9F790F0A-D358-42A1-BC53-99C3D39F8796",
+      "kind" : "meshUpdated",
+      "message" : "mesh 725026 faces=882",
+      "payload" : {
+        "face_count" : "882",
+        "id" : "725026F6-9CF6-4EAA-B632-B1B1D00F786E"
+      },
+      "timestamp" : "2026-06-10T18:25:04Z"
+    },
+    {
+      "id" : "CAAC7B57-DFD4-4263-8196-7001A15C168B",
+      "kind" : "planeUpdated",
+      "message" : "plane EDDDAF ext=3.56×6.60m",
+      "payload" : {
+        "height" : "6.596",
+        "id" : "EDDDAF11-ACA8-4A23-86B8-DB79F4A09FC9",
+        "width" : "3.558"
+      },
+      "timestamp" : "2026-06-10T18:25:05Z"
+    },
+    {
+      "id" : "85B0AAF6-A1FB-4DA7-B614-F6D9170133C5",
+      "kind" : "meshStats",
+      "message" : "mesh stats — floor=9.71 m² triangles=24290",
+      "payload" : {
+        "anchor_count" : "10",
+        "class_ceiling" : "0",
+        "class_door" : "0",
+        "class_floor" : "24290",
+        "class_none" : "2854",
+        "class_seat" : "4530",
+        "class_table" : "766",
+        "class_wall" : "4544",
+        "class_window" : "107",
+        "floor_area_m2" : "9.709",
+        "lidar_active" : "true",
+        "triangle_count_floor" : "24290"
+      },
+      "timestamp" : "2026-06-10T18:25:05Z"
+    },
+    {
+      "id" : "09B60623-A8EC-4F9F-928F-264B7C8E7886",
+      "kind" : "lightEstimate",
+      "message" : "light intensity=1077 temp=5941K",
+      "payload" : {
+        "ambient_color_temperature" : "5941.05",
+        "ambient_intensity" : "1077.07"
+      },
+      "timestamp" : "2026-06-10T18:25:05Z"
+    },
+    {
+      "id" : "49261563-9CF1-4630-9FB3-68BFC656023E",
+      "kind" : "meshUpdated",
+      "message" : "mesh 8CA6B4 faces=1588",
+      "payload" : {
+        "face_count" : "1588",
+        "id" : "8CA6B49F-B009-46AD-8FC4-B7C383269D83"
+      },
+      "timestamp" : "2026-06-10T18:25:05Z"
+    },
+    {
+      "id" : "D892F805-259F-4D28-A054-22790FCFC704",
+      "kind" : "meshUpdated",
+      "message" : "mesh 5DB083 faces=230",
+      "payload" : {
+        "face_count" : "230",
+        "id" : "5DB083ED-2E18-4AFF-8B20-37F88A840EE2"
+      },
+      "timestamp" : "2026-06-10T18:25:05Z"
+    },
+    {
+      "id" : "062C8149-26C8-40B6-B79A-2609931B3E42",
+      "kind" : "planeUpdated",
+      "message" : "plane 410B59 ext=0.50×0.55m",
+      "payload" : {
+        "height" : "0.550",
+        "id" : "410B5903-7FA6-4137-9A9A-1DB717F9485F",
+        "width" : "0.500"
+      },
+      "timestamp" : "2026-06-10T18:25:05Z"
+    },
+    {
+      "id" : "AC04BDAC-2AFB-4C04-AB04-223C8A32E28C",
+      "kind" : "meshAdded",
+      "message" : "mesh 24CA45 faces=928",
+      "payload" : {
+        "face_count" : "928",
+        "id" : "24CA4580-5AC6-41DA-AB39-62C8F49E6B56"
+      },
+      "timestamp" : "2026-06-10T18:25:06Z"
+    },
+    {
+      "id" : "EE130209-E0A5-4BB9-B163-9C409AC7E950",
+      "kind" : "meshAdded",
+      "message" : "mesh DD32AE faces=1464",
+      "payload" : {
+        "face_count" : "1464",
+        "id" : "DD32AE7C-7732-4E06-BCB0-5BC070C8B133"
+      },
+      "timestamp" : "2026-06-10T18:25:06Z"
+    },
+    {
+      "id" : "E7DF1230-5059-4D00-8A7B-DD3CC29354A6",
+      "kind" : "meshAdded",
+      "message" : "mesh 645BA8 faces=401",
+      "payload" : {
+        "face_count" : "401",
+        "id" : "645BA841-EEBD-4CDE-B4FA-2FD0526A1968"
+      },
+      "timestamp" : "2026-06-10T18:25:06Z"
+    },
+    {
+      "id" : "6298E840-9801-45E2-B599-EA4F68E2B147",
+      "kind" : "planeUpdated",
+      "message" : "plane EDDDAF ext=3.67×7.43m",
+      "payload" : {
+        "height" : "7.429",
+        "id" : "EDDDAF11-ACA8-4A23-86B8-DB79F4A09FC9",
+        "width" : "3.667"
+      },
+      "timestamp" : "2026-06-10T18:25:06Z"
+    },
+    {
+      "id" : "724DC943-00F2-4333-9ED8-C6E501F91908",
+      "kind" : "planeAdded",
+      "message" : "plane C8AD68 ext=0.49×0.39m",
+      "payload" : {
+        "alignment" : "horizontal",
+        "height" : "0.389",
+        "id" : "C8AD6825-B68D-49AF-9157-7D3BDF2E350A",
+        "width" : "0.495"
+      },
+      "timestamp" : "2026-06-10T18:25:06Z"
+    },
+    {
+      "id" : "9999B3C9-BDDB-4F96-B049-E346D45B044F",
+      "kind" : "planeUpdated",
+      "message" : "plane 410B59 ext=0.50×0.55m",
+      "payload" : {
+        "height" : "0.550",
+        "id" : "410B5903-7FA6-4137-9A9A-1DB717F9485F",
+        "width" : "0.500"
+      },
+      "timestamp" : "2026-06-10T18:25:06Z"
+    },
+    {
+      "id" : "DA9598BC-3B58-4CB9-97FD-13E63FA994C7",
+      "kind" : "planeUpdated",
+      "message" : "plane C8AD68 ext=0.42×0.49m",
+      "payload" : {
+        "height" : "0.495",
+        "id" : "C8AD6825-B68D-49AF-9157-7D3BDF2E350A",
+        "width" : "0.424"
+      },
+      "timestamp" : "2026-06-10T18:25:06Z"
+    },
+    {
+      "id" : "22CFF71F-604F-4D18-8DD4-F8B9D6C70753",
+      "kind" : "meshUpdated",
+      "message" : "mesh DD32AE faces=1904",
+      "payload" : {
+        "face_count" : "1904",
+        "id" : "DD32AE7C-7732-4E06-BCB0-5BC070C8B133"
+      },
+      "timestamp" : "2026-06-10T18:25:06Z"
+    },
+    {
+      "id" : "99E8E813-5220-4CFA-A6E0-4BA5437697A9",
+      "kind" : "meshUpdated",
+      "message" : "mesh 645BA8 faces=966",
+      "payload" : {
+        "face_count" : "966",
+        "id" : "645BA841-EEBD-4CDE-B4FA-2FD0526A1968"
+      },
+      "timestamp" : "2026-06-10T18:25:06Z"
+    },
+    {
+      "id" : "0541DC9D-D755-42C5-B5CD-70492B9B1738",
+      "kind" : "meshUpdated",
+      "message" : "mesh 56CE58 faces=14690",
+      "payload" : {
+        "face_count" : "14690",
+        "id" : "56CE58CE-CE0E-41FA-BEEE-C6183A809144"
+      },
+      "timestamp" : "2026-06-10T18:25:06Z"
+    },
+    {
+      "id" : "15403407-03B2-4B9B-8DC3-88062080A0CE",
+      "kind" : "meshUpdated",
+      "message" : "mesh 1E562A faces=11097",
+      "payload" : {
+        "face_count" : "11097",
+        "id" : "1E562A34-E4DF-438A-B2A2-BC4BE8BCF1E2"
+      },
+      "timestamp" : "2026-06-10T18:25:07Z"
+    },
+    {
+      "id" : "EAD8126C-0F71-4A25-930C-135D50548EA7",
+      "kind" : "meshUpdated",
+      "message" : "mesh 725026 faces=3459",
+      "payload" : {
+        "face_count" : "3459",
+        "id" : "725026F6-9CF6-4EAA-B632-B1B1D00F786E"
+      },
+      "timestamp" : "2026-06-10T18:25:07Z"
+    },
+    {
+      "id" : "BD0C8B33-2938-4FE9-BB63-0033E87B0C09",
+      "kind" : "planeUpdated",
+      "message" : "plane EDDDAF ext=3.67×7.43m",
+      "payload" : {
+        "height" : "7.429",
+        "id" : "EDDDAF11-ACA8-4A23-86B8-DB79F4A09FC9",
+        "width" : "3.667"
+      },
+      "timestamp" : "2026-06-10T18:25:07Z"
+    },
+    {
+      "id" : "2EEBDE3F-18D4-40D2-ADA5-B13FCE66B174",
+      "kind" : "planeUpdated",
+      "message" : "plane 410B59 ext=0.50×0.55m",
+      "payload" : {
+        "height" : "0.550",
+        "id" : "410B5903-7FA6-4137-9A9A-1DB717F9485F",
+        "width" : "0.500"
+      },
+      "timestamp" : "2026-06-10T18:25:07Z"
+    },
+    {
+      "id" : "B51F1221-93EE-4718-810E-FEE64E999747",
+      "kind" : "planeUpdated",
+      "message" : "plane C8AD68 ext=0.49×0.46m",
+      "payload" : {
+        "height" : "0.460",
+        "id" : "C8AD6825-B68D-49AF-9157-7D3BDF2E350A",
+        "width" : "0.495"
+      },
+      "timestamp" : "2026-06-10T18:25:07Z"
+    },
+    {
+      "id" : "942F7CB3-1314-48AE-89B9-C51975949E08",
+      "kind" : "meshAdded",
+      "message" : "mesh 48DB4A faces=52",
+      "payload" : {
+        "face_count" : "52",
+        "id" : "48DB4A9F-1DC7-43DC-82B5-02E7D4DFA946"
+      },
+      "timestamp" : "2026-06-10T18:25:08Z"
+    },
+    {
+      "id" : "038288E9-9E64-45CD-837D-6A5CD0D6BDBF",
+      "kind" : "meshUpdated",
+      "message" : "mesh 8CA6B4 faces=6620",
+      "payload" : {
+        "face_count" : "6620",
+        "id" : "8CA6B49F-B009-46AD-8FC4-B7C383269D83"
+      },
+      "timestamp" : "2026-06-10T18:25:08Z"
+    },
+    {
+      "id" : "7064ADA2-7B15-4895-ACB5-A72D0518D590",
+      "kind" : "meshUpdated",
+      "message" : "mesh 48DB4A faces=51",
+      "payload" : {
+        "face_count" : "51",
+        "id" : "48DB4A9F-1DC7-43DC-82B5-02E7D4DFA946"
+      },
+      "timestamp" : "2026-06-10T18:25:08Z"
+    },
+    {
+      "id" : "67F6F3C9-5E4A-4270-90FF-77D39B2FD84D",
+      "kind" : "planeUpdated",
+      "message" : "plane EDDDAF ext=3.67×7.43m",
+      "payload" : {
+        "height" : "7.429",
+        "id" : "EDDDAF11-ACA8-4A23-86B8-DB79F4A09FC9",
+        "width" : "3.667"
+      },
+      "timestamp" : "2026-06-10T18:25:08Z"
+    },
+    {
+      "id" : "594A82B0-B54B-44F8-9116-3BB764FB4C29",
+      "kind" : "planeUpdated",
+      "message" : "plane 410B59 ext=0.50×0.55m",
+      "payload" : {
+        "height" : "0.550",
+        "id" : "410B5903-7FA6-4137-9A9A-1DB717F9485F",
+        "width" : "0.500"
+      },
+      "timestamp" : "2026-06-10T18:25:08Z"
+    },
+    {
+      "id" : "F559CCC4-A35C-4285-A5E7-7FBE1CF2FE57",
+      "kind" : "planeUpdated",
+      "message" : "plane C8AD68 ext=0.53×0.49m",
+      "payload" : {
+        "height" : "0.490",
+        "id" : "C8AD6825-B68D-49AF-9157-7D3BDF2E350A",
+        "width" : "0.530"
+      },
+      "timestamp" : "2026-06-10T18:25:08Z"
+    },
+    {
+      "id" : "408272EE-E015-4DC9-90B0-50441281F976",
+      "kind" : "meshUpdated",
+      "message" : "mesh DD32AE faces=1906",
+      "payload" : {
+        "face_count" : "1906",
+        "id" : "DD32AE7C-7732-4E06-BCB0-5BC070C8B133"
+      },
+      "timestamp" : "2026-06-10T18:25:09Z"
+    },
+    {
+      "id" : "8394BC07-0ACB-4E4D-BDB7-C92CC62E309B",
+      "kind" : "meshUpdated",
+      "message" : "mesh 56CE58 faces=15191",
+      "payload" : {
+        "face_count" : "15191",
+        "id" : "56CE58CE-CE0E-41FA-BEEE-C6183A809144"
+      },
+      "timestamp" : "2026-06-10T18:25:09Z"
+    },
+    {
+      "id" : "691F0812-83CA-457E-8A3B-D09FCF8B6E7A",
+      "kind" : "meshUpdated",
+      "message" : "mesh 1E562A faces=11069",
+      "payload" : {
+        "face_count" : "11069",
+        "id" : "1E562A34-E4DF-438A-B2A2-BC4BE8BCF1E2"
+      },
+      "timestamp" : "2026-06-10T18:25:09Z"
+    },
+    {
+      "id" : "02909F03-6899-462A-8DE0-F69E6795E8AB",
+      "kind" : "planeUpdated",
+      "message" : "plane EDDDAF ext=3.67×7.43m",
+      "payload" : {
+        "height" : "7.429",
+        "id" : "EDDDAF11-ACA8-4A23-86B8-DB79F4A09FC9",
+        "width" : "3.667"
+      },
+      "timestamp" : "2026-06-10T18:25:09Z"
+    },
+    {
+      "id" : "243FB799-8B25-4476-ABFF-778574946702",
+      "kind" : "planeUpdated",
+      "message" : "plane 410B59 ext=0.50×0.55m",
+      "payload" : {
+        "height" : "0.550",
+        "id" : "410B5903-7FA6-4137-9A9A-1DB717F9485F",
+        "width" : "0.500"
+      },
+      "timestamp" : "2026-06-10T18:25:09Z"
+    },
+    {
+      "id" : "747AE96A-1868-47AE-8E96-D97FCACBD44E",
+      "kind" : "planeUpdated",
+      "message" : "plane C8AD68 ext=0.53×0.49m",
+      "payload" : {
+        "height" : "0.490",
+        "id" : "C8AD6825-B68D-49AF-9157-7D3BDF2E350A",
+        "width" : "0.530"
+      },
+      "timestamp" : "2026-06-10T18:25:09Z"
+    },
+    {
+      "id" : "9428229A-606D-49CC-B556-3F952FDCF47F",
+      "kind" : "meshUpdated",
+      "message" : "mesh 8CA6B4 faces=7212",
+      "payload" : {
+        "face_count" : "7212",
+        "id" : "8CA6B49F-B009-46AD-8FC4-B7C383269D83"
+      },
+      "timestamp" : "2026-06-10T18:25:10Z"
+    },
+    {
+      "id" : "2FE06759-25D8-4984-BF81-ABC24A05675D",
+      "kind" : "meshUpdated",
+      "message" : "mesh 725026 faces=3479",
+      "payload" : {
+        "face_count" : "3479",
+        "id" : "725026F6-9CF6-4EAA-B632-B1B1D00F786E"
+      },
+      "timestamp" : "2026-06-10T18:25:10Z"
+    },
+    {
+      "id" : "FA7752DB-1DC9-4EB5-BBA9-7FE84B98E8F1",
+      "kind" : "meshStats",
+      "message" : "mesh stats — floor=11.44 m² triangles=29144",
+      "payload" : {
+        "anchor_count" : "14",
+        "class_ceiling" : "0",
+        "class_door" : "0",
+        "class_floor" : "29144",
+        "class_none" : "6867",
+        "class_seat" : "6287",
+        "class_table" : "1100",
+        "class_wall" : "9433",
+        "class_window" : "107",
+        "floor_area_m2" : "11.436",
+        "lidar_active" : "true",
+        "triangle_count_floor" : "29144"
+      },
+      "timestamp" : "2026-06-10T18:25:10Z"
+    },
+    {
+      "id" : "71309FEA-3DFD-448E-8FCB-4250F00201AC",
+      "kind" : "lightEstimate",
+      "message" : "light intensity=1034 temp=5941K",
+      "payload" : {
+        "ambient_color_temperature" : "5941.05",
+        "ambient_intensity" : "1033.74"
+      },
+      "timestamp" : "2026-06-10T18:25:10Z"
+    },
+    {
+      "id" : "B13D631F-E6C9-45AE-8F20-28FA525F215B",
+      "kind" : "planeUpdated",
+      "message" : "plane EDDDAF ext=3.67×7.43m",
+      "payload" : {
+        "height" : "7.429",
+        "id" : "EDDDAF11-ACA8-4A23-86B8-DB79F4A09FC9",
+        "width" : "3.667"
+      },
+      "timestamp" : "2026-06-10T18:25:10Z"
+    },
+    {
+      "id" : "24215A3B-87FD-45E5-8313-2883B0A3E64A",
+      "kind" : "meshUpdated",
+      "message" : "mesh 48DB4A faces=55",
+      "payload" : {
+        "face_count" : "55",
+        "id" : "48DB4A9F-1DC7-43DC-82B5-02E7D4DFA946"
+      },
+      "timestamp" : "2026-06-10T18:25:10Z"
+    },
+    {
+      "id" : "68E3E6A0-3569-429C-AFD7-F7AB5ECD9CE0",
+      "kind" : "meshUpdated",
+      "message" : "mesh 645BA8 faces=1000",
+      "payload" : {
+        "face_count" : "1000",
+        "id" : "645BA841-EEBD-4CDE-B4FA-2FD0526A1968"
+      },
+      "timestamp" : "2026-06-10T18:25:10Z"
+    },
+    {
+      "id" : "843AEB4D-8D73-4BC8-A75A-434847A2494D",
+      "kind" : "planeUpdated",
+      "message" : "plane 410B59 ext=0.50×0.55m",
+      "payload" : {
+        "height" : "0.550",
+        "id" : "410B5903-7FA6-4137-9A9A-1DB717F9485F",
+        "width" : "0.500"
+      },
+      "timestamp" : "2026-06-10T18:25:11Z"
+    },
+    {
+      "id" : "47CCD9FD-63FF-4D3C-A895-133DC9EF5C69",
+      "kind" : "planeUpdated",
+      "message" : "plane C8AD68 ext=0.53×0.49m",
+      "payload" : {
+        "height" : "0.490",
+        "id" : "C8AD6825-B68D-49AF-9157-7D3BDF2E350A",
+        "width" : "0.530"
+      },
+      "timestamp" : "2026-06-10T18:25:11Z"
+    },
+    {
+      "id" : "7152CF81-0947-4D59-A110-AC359C9F36D1",
+      "kind" : "meshUpdated",
+      "message" : "mesh 56CE58 faces=15608",
+      "payload" : {
+        "face_count" : "15608",
+        "id" : "56CE58CE-CE0E-41FA-BEEE-C6183A809144"
+      },
+      "timestamp" : "2026-06-10T18:25:11Z"
+    },
+    {
+      "id" : "2A28B037-96E7-4626-B5DD-9FB6AE82CF98",
+      "kind" : "planeUpdated",
+      "message" : "plane EDDDAF ext=3.72×7.37m",
+      "payload" : {
+        "height" : "7.371",
+        "id" : "EDDDAF11-ACA8-4A23-86B8-DB79F4A09FC9",
+        "width" : "3.724"
+      },
+      "timestamp" : "2026-06-10T18:25:11Z"
+    },
+    {
+      "id" : "23CD1A5A-48C3-4264-9425-9F2C72F3E127",
+      "kind" : "planeUpdated",
+      "message" : "plane 410B59 ext=0.50×0.55m",
+      "payload" : {
+        "height" : "0.550",
+        "id" : "410B5903-7FA6-4137-9A9A-1DB717F9485F",
+        "width" : "0.500"
+      },
+      "timestamp" : "2026-06-10T18:25:12Z"
+    },
+    {
+      "id" : "913AD7DE-1A35-45D5-955B-26BC5E870A7C",
+      "kind" : "planeUpdated",
+      "message" : "plane C8AD68 ext=0.53×0.49m",
+      "payload" : {
+        "height" : "0.490",
+        "id" : "C8AD6825-B68D-49AF-9157-7D3BDF2E350A",
+        "width" : "0.530"
+      },
+      "timestamp" : "2026-06-10T18:25:12Z"
+    },
+    {
+      "id" : "8F0FCCB3-A36D-4DBD-A16D-9EB6F4C8536A",
+      "kind" : "meshUpdated",
+      "message" : "mesh DD32AE faces=1914",
+      "payload" : {
+        "face_count" : "1914",
+        "id" : "DD32AE7C-7732-4E06-BCB0-5BC070C8B133"
+      },
+      "timestamp" : "2026-06-10T18:25:12Z"
+    },
+    {
+      "id" : "BAB76FEB-7A1E-4FCC-BF0D-1E6675532999",
+      "kind" : "meshUpdated",
+      "message" : "mesh 1E562A faces=11137",
+      "payload" : {
+        "face_count" : "11137",
+        "id" : "1E562A34-E4DF-438A-B2A2-BC4BE8BCF1E2"
+      },
+      "timestamp" : "2026-06-10T18:25:12Z"
+    },
+    {
+      "id" : "F6297E99-087C-458E-AB26-98C2AC5BDA7E",
+      "kind" : "meshUpdated",
+      "message" : "mesh 8CA6B4 faces=8659",
+      "payload" : {
+        "face_count" : "8659",
+        "id" : "8CA6B49F-B009-46AD-8FC4-B7C383269D83"
+      },
+      "timestamp" : "2026-06-10T18:25:12Z"
+    },
+    {
+      "id" : "471A6B96-C99A-4ADD-AFAB-81CAD5FA3FE7",
+      "kind" : "meshUpdated",
+      "message" : "mesh 725026 faces=3613",
+      "payload" : {
+        "face_count" : "3613",
+        "id" : "725026F6-9CF6-4EAA-B632-B1B1D00F786E"
+      },
+      "timestamp" : "2026-06-10T18:25:12Z"
+    },
+    {
+      "id" : "F0FC9D8A-64E8-4AE3-849C-B697B2FA4D0B",
+      "kind" : "meshUpdated",
+      "message" : "mesh D0E06B faces=1799",
+      "payload" : {
+        "face_count" : "1799",
+        "id" : "D0E06BBE-EE66-445E-9B07-397A3388B8D7"
+      },
+      "timestamp" : "2026-06-10T18:25:12Z"
+    },
+    {
+      "id" : "9330B413-5C32-4727-A188-F106FEE4B758",
+      "kind" : "planeUpdated",
+      "message" : "plane EDDDAF ext=3.72×7.37m",
+      "payload" : {
+        "height" : "7.371",
+        "id" : "EDDDAF11-ACA8-4A23-86B8-DB79F4A09FC9",
+        "width" : "3.724"
+      },
+      "timestamp" : "2026-06-10T18:25:13Z"
+    },
+    {
+      "id" : "417157D7-67A1-449D-826F-08CD6DDAA921",
+      "kind" : "planeUpdated",
+      "message" : "plane 410B59 ext=0.50×0.55m",
+      "payload" : {
+        "height" : "0.550",
+        "id" : "410B5903-7FA6-4137-9A9A-1DB717F9485F",
+        "width" : "0.500"
+      },
+      "timestamp" : "2026-06-10T18:25:13Z"
+    },
+    {
+      "id" : "AC2D5160-E948-4581-8155-8B5FF242EAA1",
+      "kind" : "planeUpdated",
+      "message" : "plane C8AD68 ext=0.53×0.49m",
+      "payload" : {
+        "height" : "0.490",
+        "id" : "C8AD6825-B68D-49AF-9157-7D3BDF2E350A",
+        "width" : "0.530"
+      },
+      "timestamp" : "2026-06-10T18:25:13Z"
+    },
+    {
+      "id" : "369A7C91-CFBA-416C-963E-B6426DB3FE2F",
+      "kind" : "meshUpdated",
+      "message" : "mesh F80796 faces=5205",
+      "payload" : {
+        "face_count" : "5205",
+        "id" : "F8079650-BFA2-44E1-B423-CF869F507173"
+      },
+      "timestamp" : "2026-06-10T18:25:13Z"
+    },
+    {
+      "id" : "B2B9E2D2-C3B9-43E5-A3AE-74896389FBE4",
+      "kind" : "meshUpdated",
+      "message" : "mesh 56CE58 faces=16107",
+      "payload" : {
+        "face_count" : "16107",
+        "id" : "56CE58CE-CE0E-41FA-BEEE-C6183A809144"
+      },
+      "timestamp" : "2026-06-10T18:25:13Z"
+    },
+    {
+      "id" : "84A90EF2-6F64-49CE-86BC-C2338A25B466",
+      "kind" : "planeUpdated",
+      "message" : "plane EDDDAF ext=3.72×7.37m",
+      "payload" : {
+        "height" : "7.371",
+        "id" : "EDDDAF11-ACA8-4A23-86B8-DB79F4A09FC9",
+        "width" : "3.724"
+      },
+      "timestamp" : "2026-06-10T18:25:14Z"
+    },
+    {
+      "id" : "8A4A9B73-9694-4AAB-84A9-F107D0CB396C",
+      "kind" : "planeUpdated",
+      "message" : "plane 410B59 ext=0.50×0.55m",
+      "payload" : {
+        "height" : "0.550",
+        "id" : "410B5903-7FA6-4137-9A9A-1DB717F9485F",
+        "width" : "0.500"
+      },
+      "timestamp" : "2026-06-10T18:25:14Z"
+    },
+    {
+      "id" : "7BF538BB-2C96-4A6A-8193-5F2E7A85AD40",
+      "kind" : "planeUpdated",
+      "message" : "plane C8AD68 ext=0.49×0.49m",
+      "payload" : {
+        "height" : "0.495",
+        "id" : "C8AD6825-B68D-49AF-9157-7D3BDF2E350A",
+        "width" : "0.495"
+      },
+      "timestamp" : "2026-06-10T18:25:14Z"
+    },
+    {
+      "id" : "1D93BEFF-542E-4420-8669-39A1809A5B91",
+      "kind" : "meshUpdated",
+      "message" : "mesh 1E562A faces=11551",
+      "payload" : {
+        "face_count" : "11551",
+        "id" : "1E562A34-E4DF-438A-B2A2-BC4BE8BCF1E2"
+      },
+      "timestamp" : "2026-06-10T18:25:14Z"
+    },
+    {
+      "id" : "A9CF8A44-4DDE-4ADB-8921-1B86C763431A",
+      "kind" : "meshUpdated",
+      "message" : "mesh DD32AE faces=1914",
+      "payload" : {
+        "face_count" : "1914",
+        "id" : "DD32AE7C-7732-4E06-BCB0-5BC070C8B133"
+      },
+      "timestamp" : "2026-06-10T18:25:14Z"
+    },
+    {
+      "id" : "E54A1BD5-32DA-43C9-A1D2-D115D42B572F",
+      "kind" : "meshUpdated",
+      "message" : "mesh B7A65B faces=911",
+      "payload" : {
+        "face_count" : "911",
+        "id" : "B7A65B2A-BA7D-45D0-858B-60626BB191B1"
+      },
+      "timestamp" : "2026-06-10T18:25:15Z"
+    },
+    {
+      "id" : "BDB82CEC-5E34-402E-9F5E-2FFE1DE923F3",
+      "kind" : "planeUpdated",
+      "message" : "plane EDDDAF ext=3.72×7.37m",
+      "payload" : {
+        "height" : "7.371",
+        "id" : "EDDDAF11-ACA8-4A23-86B8-DB79F4A09FC9",
+        "width" : "3.724"
+      },
+      "timestamp" : "2026-06-10T18:25:15Z"
+    },
+    {
+      "id" : "51DD4493-A229-4329-AE36-7E9CAFEAB09E",
+      "kind" : "planeUpdated",
+      "message" : "plane 410B59 ext=0.50×0.55m",
+      "payload" : {
+        "height" : "0.550",
+        "id" : "410B5903-7FA6-4137-9A9A-1DB717F9485F",
+        "width" : "0.500"
+      },
+      "timestamp" : "2026-06-10T18:25:15Z"
+    },
+    {
+      "id" : "67781D86-8803-4885-93B7-491AA7953EDB",
+      "kind" : "planeUpdated",
+      "message" : "plane C8AD68 ext=0.49×0.49m",
+      "payload" : {
+        "height" : "0.495",
+        "id" : "C8AD6825-B68D-49AF-9157-7D3BDF2E350A",
+        "width" : "0.495"
+      },
+      "timestamp" : "2026-06-10T18:25:15Z"
+    },
+    {
+      "id" : "21E07765-6068-4FA1-B93E-00B8E4E595B8",
+      "kind" : "note",
+      "message" : "touchDown — address lock captured",
+      "payload" : {
+        "compass_yaw_rad" : "1.2840",
+        "gravity_x" : "-0.0119",
+        "gravity_y" : "0.7774",
+        "gravity_z" : "-0.6288",
+        "phone_to_ball_m" : "0.7244"
+      },
+      "timestamp" : "2026-06-10T18:25:15Z"
+    },
+    {
+      "id" : "99A40E55-A476-44FD-954F-9F7879DDDFF8",
+      "kind" : "meshStats",
+      "message" : "mesh stats — floor=11.71 m² triangles=30470",
+      "payload" : {
+        "anchor_count" : "14",
+        "class_ceiling" : "0",
+        "class_door" : "0",
+        "class_floor" : "30470",
+        "class_none" : "7428",
+        "class_seat" : "6417",
+        "class_table" : "1090",
+        "class_wall" : "10399",
+        "class_window" : "107",
+        "floor_area_m2" : "11.707",
+        "lidar_active" : "true",
+        "triangle_count_floor" : "30470"
+      },
+      "timestamp" : "2026-06-10T18:25:15Z"
+    },
+    {
+      "id" : "F9ED657A-7880-4BE3-BDB3-8A14DBB90AC4",
+      "kind" : "lightEstimate",
+      "message" : "light intensity=958 temp=5959K",
+      "payload" : {
+        "ambient_color_temperature" : "5959.22",
+        "ambient_intensity" : "958.47"
+      },
+      "timestamp" : "2026-06-10T18:25:15Z"
+    },
+    {
+      "id" : "7315FAA7-4971-4B9E-BAF7-D0EC74435ADC",
+      "kind" : "planeUpdated",
+      "message" : "plane 410B59 ext=0.50×0.55m",
+      "payload" : {
+        "height" : "0.550",
+        "id" : "410B5903-7FA6-4137-9A9A-1DB717F9485F",
+        "width" : "0.500"
+      },
+      "timestamp" : "2026-06-10T18:25:16Z"
+    },
+    {
+      "id" : "B57D7521-A7E1-41B0-B4D3-145F33D05C85",
+      "kind" : "planeUpdated",
+      "message" : "plane EDDDAF ext=3.72×7.37m",
+      "payload" : {
+        "height" : "7.371",
+        "id" : "EDDDAF11-ACA8-4A23-86B8-DB79F4A09FC9",
+        "width" : "3.724"
+      },
+      "timestamp" : "2026-06-10T18:25:16Z"
+    },
+    {
+      "id" : "C166088C-6CC9-45F0-B528-2F309000BF4A",
+      "kind" : "planeUpdated",
+      "message" : "plane C8AD68 ext=0.49×0.49m",
+      "payload" : {
+        "height" : "0.495",
+        "id" : "C8AD6825-B68D-49AF-9157-7D3BDF2E350A",
+        "width" : "0.495"
+      },
+      "timestamp" : "2026-06-10T18:25:16Z"
+    },
+    {
+      "id" : "75A5BC4D-1513-450E-A36E-279DCA9472BB",
+      "kind" : "meshUpdated",
+      "message" : "mesh D0E06B faces=1799",
+      "payload" : {
+        "face_count" : "1799",
+        "id" : "D0E06BBE-EE66-445E-9B07-397A3388B8D7"
+      },
+      "timestamp" : "2026-06-10T18:25:16Z"
+    },
+    {
+      "id" : "B7A7D830-28F2-4BE3-B1A5-AE3D89788F8B",
+      "kind" : "meshUpdated",
+      "message" : "mesh 56CE58 faces=16355",
+      "payload" : {
+        "face_count" : "16355",
+        "id" : "56CE58CE-CE0E-41FA-BEEE-C6183A809144"
+      },
+      "timestamp" : "2026-06-10T18:25:16Z"
+    },
+    {
+      "id" : "56EC6341-7D11-4130-B6AC-904C56E518CE",
+      "kind" : "meshUpdated",
+      "message" : "mesh 1E562A faces=11884",
+      "payload" : {
+        "face_count" : "11884",
+        "id" : "1E562A34-E4DF-438A-B2A2-BC4BE8BCF1E2"
+      },
+      "timestamp" : "2026-06-10T18:25:16Z"
+    },
+    {
+      "id" : "512AB543-0AE9-4DD3-B3F6-1BAFA16DE20B",
+      "kind" : "peakImpact",
+      "message" : "Peak impact computed",
+      "payload" : {
+        "attitude_at_impact_yaw_deg" : "55.67",
+        "attitude_at_press_yaw_deg" : "73.57",
+        "calibrated" : "true",
+        "confidence" : "1.000",
+        "face_angle_deg" : "-17.90",
+        "face_angle_pipeline" : "v2_press_attitude_delta",
+        "face_angle_raw_deg" : "-17.90",
+        "live_haptic_fires" : "1",
+        "press_to_impact_delta_yaw_deg" : "-17.90",
+        "samples" : "169",
+        "snap_reason" : "",
+        "snapped_to_square" : "false",
+        "timestamp" : "25128.5696",
+        "velocity_mps" : "0.1383",
+        "window_duration_s" : "1.6709"
+      },
+      "timestamp" : "2026-06-10T18:25:17Z"
+    },
+    {
+      "id" : "F918D73F-36A2-4E61-8DF0-C3561D1CD685",
+      "kind" : "strokeEnded",
+      "message" : "Stroke window closed",
+      "payload" : {
+        "window_duration_s" : "1.6709",
+        "window_end" : "25129.4034",
+        "window_start" : "25127.7324"
+      },
+      "timestamp" : "2026-06-10T18:25:17Z"
+    },
+    {
+      "id" : "58A6BFC3-4272-412B-88CF-21D6F6E33C0A",
+      "kind" : "planeUpdated",
+      "message" : "plane 410B59 ext=0.50×0.55m",
+      "payload" : {
+        "height" : "0.550",
+        "id" : "410B5903-7FA6-4137-9A9A-1DB717F9485F",
+        "width" : "0.500"
+      },
+      "timestamp" : "2026-06-10T18:25:17Z"
+    },
+    {
+      "id" : "743B27FA-25FC-4004-99D7-27C3845633BC",
+      "kind" : "planeUpdated",
+      "message" : "plane EDDDAF ext=3.72×7.37m",
+      "payload" : {
+        "height" : "7.371",
+        "id" : "EDDDAF11-ACA8-4A23-86B8-DB79F4A09FC9",
+        "width" : "3.724"
+      },
+      "timestamp" : "2026-06-10T18:25:17Z"
+    },
+    {
+      "id" : "38CB243B-E1AA-45E5-B4F9-F8A8EEE292A5",
+      "kind" : "planeUpdated",
+      "message" : "plane C8AD68 ext=0.49×0.49m",
+      "payload" : {
+        "height" : "0.495",
+        "id" : "C8AD6825-B68D-49AF-9157-7D3BDF2E350A",
+        "width" : "0.495"
+      },
+      "timestamp" : "2026-06-10T18:25:17Z"
+    },
+    {
+      "id" : "E8049FE3-9AC4-4327-AE3C-E5287D42E94E",
+      "kind" : "meshAdded",
+      "message" : "mesh EE64CC faces=14",
+      "payload" : {
+        "face_count" : "14",
+        "id" : "EE64CC27-A003-4430-8EC6-EF5348AF8BB4"
+      },
+      "timestamp" : "2026-06-10T18:25:17Z"
+    },
+    {
+      "id" : "B177F196-C97F-436F-8E1C-1222A632285D",
+      "kind" : "meshUpdated",
+      "message" : "mesh 39313A faces=1704",
+      "payload" : {
+        "face_count" : "1704",
+        "id" : "39313A66-BFC7-4F2E-AE2A-DC91703BF0BE"
+      },
+      "timestamp" : "2026-06-10T18:25:17Z"
+    },
+    {
+      "id" : "A719C9D6-BC4B-452D-9998-07EC4A53F242",
+      "kind" : "note",
+      "message" : "Stillness wait — phone steady",
+      "payload" : {
+        "elapsed_s" : "0.829",
+        "mag_rad_per_s" : "0.596"
+      },
+      "timestamp" : "2026-06-10T18:25:18Z"
+    },
+    {
+      "id" : "2042FD91-A85C-4D00-AE3A-7D26FF275674",
+      "kind" : "meshUpdated",
+      "message" : "mesh 97375A faces=2321",
+      "payload" : {
+        "face_count" : "2321",
+        "id" : "97375A91-8B32-4FD3-83A0-322D6CBB3979"
+      },
+      "timestamp" : "2026-06-10T18:25:18Z"
+    },
+    {
+      "id" : "7FCD96F6-0A3A-419D-8FAC-6F51475DD6B7",
+      "kind" : "meshUpdated",
+      "message" : "mesh 8CA6B4 faces=8741",
+      "payload" : {
+        "face_count" : "8741",
+        "id" : "8CA6B49F-B009-46AD-8FC4-B7C383269D83"
+      },
+      "timestamp" : "2026-06-10T18:25:18Z"
+    },
+    {
+      "id" : "B5D83BF3-B05C-4140-86A2-6CA82700F87E",
+      "kind" : "meshUpdated",
+      "message" : "mesh F80796 faces=5208",
+      "payload" : {
+        "face_count" : "5208",
+        "id" : "F8079650-BFA2-44E1-B423-CF869F507173"
+      },
+      "timestamp" : "2026-06-10T18:25:18Z"
+    },
+    {
+      "id" : "4D3A55F6-4FD6-43CA-B9BE-74982AB1E2D9",
+      "kind" : "planeUpdated",
+      "message" : "plane 410B59 ext=0.50×0.55m",
+      "payload" : {
+        "height" : "0.550",
+        "id" : "410B5903-7FA6-4137-9A9A-1DB717F9485F",
+        "width" : "0.500"
+      },
+      "timestamp" : "2026-06-10T18:25:18Z"
+    },
+    {
+      "id" : "D7587DDA-4C44-4CD7-ABC8-E4890DCEB4B7",
+      "kind" : "planeUpdated",
+      "message" : "plane EDDDAF ext=3.72×7.37m",
+      "payload" : {
+        "height" : "7.371",
+        "id" : "EDDDAF11-ACA8-4A23-86B8-DB79F4A09FC9",
+        "width" : "3.724"
+      },
+      "timestamp" : "2026-06-10T18:25:18Z"
+    },
+    {
+      "id" : "75D02F98-1E6A-452B-8BAC-F9376253F677",
+      "kind" : "planeUpdated",
+      "message" : "plane C8AD68 ext=0.49×0.49m",
+      "payload" : {
+        "height" : "0.495",
+        "id" : "C8AD6825-B68D-49AF-9157-7D3BDF2E350A",
+        "width" : "0.495"
+      },
+      "timestamp" : "2026-06-10T18:25:18Z"
+    },
+    {
+      "id" : "A9CFE2B7-6AA5-4C34-82B7-578A43E4E255",
+      "kind" : "meshAdded",
+      "message" : "mesh F0CDCA faces=64",
+      "payload" : {
+        "face_count" : "64",
+        "id" : "F0CDCA71-DF6A-414D-8A08-9437881D2761"
+      },
+      "timestamp" : "2026-06-10T18:25:18Z"
+    },
+    {
+      "id" : "F31C4BF7-50AD-4F8D-B2D5-54BB86E9A759",
+      "kind" : "meshUpdated",
+      "message" : "mesh 56CE58 faces=16291",
+      "payload" : {
+        "face_count" : "16291",
+        "id" : "56CE58CE-CE0E-41FA-BEEE-C6183A809144"
+      },
+      "timestamp" : "2026-06-10T18:25:18Z"
+    },
+    {
+      "id" : "C5BFE7AE-7A85-4C5B-9C26-7C40AA6DE2E0",
+      "kind" : "meshAdded",
+      "message" : "mesh 9C25ED faces=107",
+      "payload" : {
+        "face_count" : "107",
+        "id" : "9C25ED82-C5E7-4C2B-B270-2904C346D7CF"
+      },
+      "timestamp" : "2026-06-10T18:25:19Z"
+    },
+    {
+      "id" : "D867633C-0346-48D3-915E-6D44CA65DCE7",
+      "kind" : "meshAdded",
+      "message" : "mesh 0DA1D7 faces=78",
+      "payload" : {
+        "face_count" : "78",
+        "id" : "0DA1D7AF-6C43-439F-A01E-FF055C9D82CE"
+      },
+      "timestamp" : "2026-06-10T18:25:19Z"
+    },
+    {
+      "id" : "67FFFE9B-A1FB-44FD-8AFC-78A7049EAA24",
+      "kind" : "meshUpdated",
+      "message" : "mesh 1E562A faces=13325",
+      "payload" : {
+        "face_count" : "13325",
+        "id" : "1E562A34-E4DF-438A-B2A2-BC4BE8BCF1E2"
+      },
+      "timestamp" : "2026-06-10T18:25:19Z"
+    },
+    {
+      "id" : "A4266AF8-51E0-4F79-9B75-61866EE385BD",
+      "kind" : "meshUpdated",
+      "message" : "mesh F0CDCA faces=81",
+      "payload" : {
+        "face_count" : "81",
+        "id" : "F0CDCA71-DF6A-414D-8A08-9437881D2761"
+      },
+      "timestamp" : "2026-06-10T18:25:19Z"
+    },
+    {
+      "id" : "AC34FD7E-2349-4EFB-B2A1-A91E71E8B1FE",
+      "kind" : "planeUpdated",
+      "message" : "plane 410B59 ext=0.50×0.55m",
+      "payload" : {
+        "height" : "0.550",
+        "id" : "410B5903-7FA6-4137-9A9A-1DB717F9485F",
+        "width" : "0.500"
+      },
+      "timestamp" : "2026-06-10T18:25:19Z"
+    },
+    {
+      "id" : "9A6931CE-F9B7-4B72-BA5E-64C1A1E42D72",
+      "kind" : "planeUpdated",
+      "message" : "plane EDDDAF ext=3.72×7.58m",
+      "payload" : {
+        "height" : "7.576",
+        "id" : "EDDDAF11-ACA8-4A23-86B8-DB79F4A09FC9",
+        "width" : "3.724"
+      },
+      "timestamp" : "2026-06-10T18:25:19Z"
+    },
+    {
+      "id" : "38AABAC7-67CF-4FF0-9759-6EE52DE74AE0",
+      "kind" : "planeUpdated",
+      "message" : "plane C8AD68 ext=0.49×0.49m",
+      "payload" : {
+        "height" : "0.495",
+        "id" : "C8AD6825-B68D-49AF-9157-7D3BDF2E350A",
+        "width" : "0.495"
+      },
+      "timestamp" : "2026-06-10T18:25:19Z"
+    },
+    {
+      "id" : "69F735FF-A5DB-4D8E-8D53-47DFEAAEB77C",
+      "kind" : "meshUpdated",
+      "message" : "mesh 9C25ED faces=193",
+      "payload" : {
+        "face_count" : "193",
+        "id" : "9C25ED82-C5E7-4C2B-B270-2904C346D7CF"
+      },
+      "timestamp" : "2026-06-10T18:25:20Z"
+    },
+    {
+      "id" : "F0D5684B-C9A9-4D9E-AD0C-B561D4A863D6",
+      "kind" : "meshUpdated",
+      "message" : "mesh 0DA1D7 faces=361",
+      "payload" : {
+        "face_count" : "361",
+        "id" : "0DA1D7AF-6C43-439F-A01E-FF055C9D82CE"
+      },
+      "timestamp" : "2026-06-10T18:25:20Z"
+    },
+    {
+      "id" : "B8E5B3CA-59B3-449E-A680-93CAEEB59A24",
+      "kind" : "planeUpdated",
+      "message" : "plane 410B59 ext=0.50×0.55m",
+      "payload" : {
+        "height" : "0.550",
+        "id" : "410B5903-7FA6-4137-9A9A-1DB717F9485F",
+        "width" : "0.500"
+      },
+      "timestamp" : "2026-06-10T18:25:20Z"
+    },
+    {
+      "id" : "1198C048-BEC3-49D3-B608-0899916255ED",
+      "kind" : "planeUpdated",
+      "message" : "plane EDDDAF ext=3.72×7.62m",
+      "payload" : {
+        "height" : "7.617",
+        "id" : "EDDDAF11-ACA8-4A23-86B8-DB79F4A09FC9",
+        "width" : "3.724"
+      },
+      "timestamp" : "2026-06-10T18:25:20Z"
+    },
+    {
+      "id" : "1474FE28-AA91-47E0-924B-AD769ED9C571",
+      "kind" : "planeUpdated",
+      "message" : "plane C8AD68 ext=0.49×0.49m",
+      "payload" : {
+        "height" : "0.495",
+        "id" : "C8AD6825-B68D-49AF-9157-7D3BDF2E350A",
+        "width" : "0.495"
+      },
+      "timestamp" : "2026-06-10T18:25:20Z"
+    },
+    {
+      "id" : "774F51FB-4A2A-4A6F-B70A-0E60D274950B",
+      "kind" : "meshStats",
+      "message" : "mesh stats — floor=13.39 m² triangles=35753",
+      "payload" : {
+        "anchor_count" : "18",
+        "class_ceiling" : "0",
+        "class_door" : "47",
+        "class_floor" : "35753",
+        "class_none" : "10958",
+        "class_seat" : "7394",
+        "class_table" : "2024",
+        "class_wall" : "10665",
+        "class_window" : "2790",
+        "floor_area_m2" : "13.386",
+        "lidar_active" : "true",
+        "triangle_count_floor" : "35753"
+      },
+      "timestamp" : "2026-06-10T18:25:20Z"
+    },
+    {
+      "id" : "16E963A9-61BD-4D3D-B198-D5C5945CB969",
+      "kind" : "meshUpdated",
+      "message" : "mesh 97375A faces=6730",
+      "payload" : {
+        "face_count" : "6730",
+        "id" : "97375A91-8B32-4FD3-83A0-322D6CBB3979"
+      },
+      "timestamp" : "2026-06-10T18:25:20Z"
+    },
+    {
+      "id" : "659A55B6-1332-4B80-B329-A12BFFA9C6BC",
+      "kind" : "meshUpdated",
+      "message" : "mesh 8CA6B4 faces=8704",
+      "payload" : {
+        "face_count" : "8704",
+        "id" : "8CA6B49F-B009-46AD-8FC4-B7C383269D83"
+      },
+      "timestamp" : "2026-06-10T18:25:20Z"
+    },
+    {
+      "id" : "C7DCE9C5-2121-4606-AC68-CC77E9A1DCB2",
+      "kind" : "meshUpdated",
+      "message" : "mesh F80796 faces=11284",
+      "payload" : {
+        "face_count" : "11284",
+        "id" : "F8079650-BFA2-44E1-B423-CF869F507173"
+      },
+      "timestamp" : "2026-06-10T18:25:20Z"
+    },
+    {
+      "id" : "4CF487F8-5E35-4606-B622-7AEF8EF86CDD",
+      "kind" : "lightEstimate",
+      "message" : "light intensity=853 temp=5980K",
+      "payload" : {
+        "ambient_color_temperature" : "5979.91",
+        "ambient_intensity" : "853.44"
+      },
+      "timestamp" : "2026-06-10T18:25:20Z"
+    },
+    {
+      "id" : "61A063A2-D9AD-47D1-A403-1B479198FA4A",
+      "kind" : "strokeResult",
+      "message" : "Ball stopped — outcome=stopped bucket=pull",
+      "payload" : {
+        "bucket" : "pull",
+        "bucket_cause" : "Face closed at impact — ball goes left of the line.",
+        "bucket_display_deg" : "-17.90",
+        "bucket_label" : "Pull",
+        "bucket_snapped_to_square" : "false",
+        "duration_s" : "2.800",
+        "face_angle_deg" : "-17.90",
+        "outcome" : "stopped",
+        "velocity_mps" : "0.1383"
+      },
+      "timestamp" : "2026-06-10T18:25:20Z"
+    },
+    {
+      "id" : "B21F1B2B-2337-467C-96E8-50C67084B0E2",
+      "kind" : "meshUpdated",
+      "message" : "mesh 56CE58 faces=16013",
+      "payload" : {
+        "face_count" : "16013",
+        "id" : "56CE58CE-CE0E-41FA-BEEE-C6183A809144"
+      },
+      "timestamp" : "2026-06-10T18:25:21Z"
+    },
+    {
+      "id" : "ED46A771-DFC0-4B3F-92BD-9FCC1D7836FC",
+      "kind" : "planeUpdated",
+      "message" : "plane 410B59 ext=0.50×0.55m",
+      "payload" : {
+        "height" : "0.550",
+        "id" : "410B5903-7FA6-4137-9A9A-1DB717F9485F",
+        "width" : "0.500"
+      },
+      "timestamp" : "2026-06-10T18:25:21Z"
+    },
+    {
+      "id" : "9F80D355-81CA-4220-A726-9235E30C9C8A",
+      "kind" : "planeUpdated",
+      "message" : "plane EDDDAF ext=3.72×7.62m",
+      "payload" : {
+        "height" : "7.617",
+        "id" : "EDDDAF11-ACA8-4A23-86B8-DB79F4A09FC9",
+        "width" : "3.724"
+      },
+      "timestamp" : "2026-06-10T18:25:21Z"
+    },
+    {
+      "id" : "7675272C-ECC2-459B-8BA3-3EFFCE669CDB",
+      "kind" : "planeUpdated",
+      "message" : "plane C8AD68 ext=0.49×0.49m",
+      "payload" : {
+        "height" : "0.495",
+        "id" : "C8AD6825-B68D-49AF-9157-7D3BDF2E350A",
+        "width" : "0.495"
+      },
+      "timestamp" : "2026-06-10T18:25:21Z"
+    },
+    {
+      "id" : "3B3E1D7A-B09B-4FA8-84FA-DC4A4DB45C9F",
+      "kind" : "meshUpdated",
+      "message" : "mesh 1E562A faces=13042",
+      "payload" : {
+        "face_count" : "13042",
+        "id" : "1E562A34-E4DF-438A-B2A2-BC4BE8BCF1E2"
+      },
+      "timestamp" : "2026-06-10T18:25:21Z"
+    },
+    {
+      "id" : "A3BDD9A1-B770-4242-9480-1436B71B200B",
+      "kind" : "planeUpdated",
+      "message" : "plane 410B59 ext=0.50×0.55m",
+      "payload" : {
+        "height" : "0.550",
+        "id" : "410B5903-7FA6-4137-9A9A-1DB717F9485F",
+        "width" : "0.500"
+      },
+      "timestamp" : "2026-06-10T18:25:22Z"
+    },
+    {
+      "id" : "D6D11D07-8531-4935-945A-1EFC2E827CC8",
+      "kind" : "planeUpdated",
+      "message" : "plane EDDDAF ext=3.72×7.62m",
+      "payload" : {
+        "height" : "7.617",
+        "id" : "EDDDAF11-ACA8-4A23-86B8-DB79F4A09FC9",
+        "width" : "3.724"
+      },
+      "timestamp" : "2026-06-10T18:25:22Z"
+    },
+    {
+      "id" : "2D07CDE5-0AA5-4A6A-A888-3AFEA889548C",
+      "kind" : "planeUpdated",
+      "message" : "plane C8AD68 ext=0.49×0.49m",
+      "payload" : {
+        "height" : "0.495",
+        "id" : "C8AD6825-B68D-49AF-9157-7D3BDF2E350A",
+        "width" : "0.495"
+      },
+      "timestamp" : "2026-06-10T18:25:22Z"
+    },
+    {
+      "id" : "99827F3A-CFE0-4CE1-A583-C765BC2524C0",
+      "kind" : "meshUpdated",
+      "message" : "mesh B7A65B faces=1386",
+      "payload" : {
+        "face_count" : "1386",
+        "id" : "B7A65B2A-BA7D-45D0-858B-60626BB191B1"
+      },
+      "timestamp" : "2026-06-10T18:25:22Z"
+    },
+    {
+      "id" : "68F8D26F-A4E6-440B-9901-1C5A1F4D98D0",
+      "kind" : "meshUpdated",
+      "message" : "mesh D0E06B faces=1835",
+      "payload" : {
+        "face_count" : "1835",
+        "id" : "D0E06BBE-EE66-445E-9B07-397A3388B8D7"
+      },
+      "timestamp" : "2026-06-10T18:25:22Z"
+    },
+    {
+      "id" : "9FD96E30-86FF-41BD-A75E-6AC51AFEFB2D",
+      "kind" : "note",
+      "message" : "touchDown — address lock captured",
+      "payload" : {
+        "compass_yaw_rad" : "1.2686",
+        "gravity_x" : "-0.0110",
+        "gravity_y" : "0.6680",
+        "gravity_z" : "-0.7441",
+        "phone_to_ball_m" : "0.7923"
+      },
+      "timestamp" : "2026-06-10T18:25:23Z"
+    },
+    {
+      "id" : "72C6227C-BD3E-42AC-B92D-271151B259A8",
+      "kind" : "meshUpdated",
+      "message" : "mesh 56CE58 faces=16629",
+      "payload" : {
+        "face_count" : "16629",
+        "id" : "56CE58CE-CE0E-41FA-BEEE-C6183A809144"
+      },
+      "timestamp" : "2026-06-10T18:25:23Z"
+    },
+    {
+      "id" : "389497C7-EA7F-42DB-9E93-05A5FE8A77BD",
+      "kind" : "planeUpdated",
+      "message" : "plane 410B59 ext=0.50×0.55m",
+      "payload" : {
+        "height" : "0.550",
+        "id" : "410B5903-7FA6-4137-9A9A-1DB717F9485F",
+        "width" : "0.500"
+      },
+      "timestamp" : "2026-06-10T18:25:23Z"
+    },
+    {
+      "id" : "A1308B1A-F788-460A-98D3-E8D14082A63A",
+      "kind" : "planeUpdated",
+      "message" : "plane EDDDAF ext=3.72×7.62m",
+      "payload" : {
+        "height" : "7.617",
+        "id" : "EDDDAF11-ACA8-4A23-86B8-DB79F4A09FC9",
+        "width" : "3.724"
+      },
+      "timestamp" : "2026-06-10T18:25:23Z"
+    },
+    {
+      "id" : "8DC85182-60E4-4F9A-BF47-F4EB9D1EDE25",
+      "kind" : "planeUpdated",
+      "message" : "plane C8AD68 ext=0.49×0.49m",
+      "payload" : {
+        "height" : "0.495",
+        "id" : "C8AD6825-B68D-49AF-9157-7D3BDF2E350A",
+        "width" : "0.495"
+      },
+      "timestamp" : "2026-06-10T18:25:23Z"
+    },
+    {
+      "id" : "268160D6-1B9B-40AF-BE2E-434936165EFE",
+      "kind" : "meshUpdated",
+      "message" : "mesh 1E562A faces=13272",
+      "payload" : {
+        "face_count" : "13272",
+        "id" : "1E562A34-E4DF-438A-B2A2-BC4BE8BCF1E2"
+      },
+      "timestamp" : "2026-06-10T18:25:24Z"
+    },
+    {
+      "id" : "755621BF-5E17-457B-98AF-076D799CEDE1",
+      "kind" : "peakImpact",
+      "message" : "Peak impact computed",
+      "payload" : {
+        "attitude_at_impact_yaw_deg" : "61.77",
+        "attitude_at_press_yaw_deg" : "72.69",
+        "calibrated" : "true",
+        "confidence" : "1.000",
+        "face_angle_deg" : "-10.92",
+        "face_angle_pipeline" : "v2_press_attitude_delta",
+        "face_angle_raw_deg" : "-10.92",
+        "live_haptic_fires" : "1",
+        "press_to_impact_delta_yaw_deg" : "-10.92",
+        "samples" : "175",
+        "snap_reason" : "",
+        "snapped_to_square" : "false",
+        "timestamp" : "25136.8665",
+        "velocity_mps" : "0.0691",
+        "window_duration_s" : "1.7306"
+      },
+      "timestamp" : "2026-06-10T18:25:24Z"
+    },
+    {
+      "id" : "248EA1D7-8A21-4AE4-9DF2-1BD2546A3561",
+      "kind" : "strokeEnded",
+      "message" : "Stroke window closed",
+      "payload" : {
+        "window_duration_s" : "1.7306",
+        "window_end" : "25137.1185",
+        "window_start" : "25135.3878"
+      },
+      "timestamp" : "2026-06-10T18:25:24Z"
+    },
+    {
+      "id" : "6880CA81-F536-499C-BEF2-70CDA4C39F08",
+      "kind" : "planeUpdated",
+      "message" : "plane 410B59 ext=0.50×0.55m",
+      "payload" : {
+        "height" : "0.550",
+        "id" : "410B5903-7FA6-4137-9A9A-1DB717F9485F",
+        "width" : "0.500"
+      },
+      "timestamp" : "2026-06-10T18:25:24Z"
+    },
+    {
+      "id" : "CFFD7979-69EA-4E0B-BBA9-D0D0B7D186D6",
+      "kind" : "planeUpdated",
+      "message" : "plane EDDDAF ext=3.83×7.62m",
+      "payload" : {
+        "height" : "7.617",
+        "id" : "EDDDAF11-ACA8-4A23-86B8-DB79F4A09FC9",
+        "width" : "3.830"
+      },
+      "timestamp" : "2026-06-10T18:25:24Z"
+    },
+    {
+      "id" : "D0A6E6AB-F5F7-416F-97C8-4128AB63E668",
+      "kind" : "planeUpdated",
+      "message" : "plane C8AD68 ext=0.49×0.49m",
+      "payload" : {
+        "height" : "0.495",
+        "id" : "C8AD6825-B68D-49AF-9157-7D3BDF2E350A",
+        "width" : "0.495"
+      },
+      "timestamp" : "2026-06-10T18:25:24Z"
+    },
+    {
+      "id" : "97BBD9E1-7F74-45A5-86CD-A4134FE4F12F",
+      "kind" : "meshUpdated",
+      "message" : "mesh EE64CC faces=14",
+      "payload" : {
+        "face_count" : "14",
+        "id" : "EE64CC27-A003-4430-8EC6-EF5348AF8BB4"
+      },
+      "timestamp" : "2026-06-10T18:25:25Z"
+    },
+    {
+      "id" : "6F9D6842-0126-4D79-BE0A-20F14B2D38AC",
+      "kind" : "meshUpdated",
+      "message" : "mesh B7A65B faces=1695",
+      "payload" : {
+        "face_count" : "1695",
+        "id" : "B7A65B2A-BA7D-45D0-858B-60626BB191B1"
+      },
+      "timestamp" : "2026-06-10T18:25:25Z"
+    },
+    {
+      "id" : "DC9938B9-BFF0-4F0C-A043-E67021B95393",
+      "kind" : "meshStats",
+      "message" : "mesh stats — floor=13.34 m² triangles=36452",
+      "payload" : {
+        "anchor_count" : "18",
+        "class_ceiling" : "0",
+        "class_door" : "76",
+        "class_floor" : "36452",
+        "class_none" : "11819",
+        "class_seat" : "7523",
+        "class_table" : "2217",
+        "class_wall" : "10874",
+        "class_window" : "3520",
+        "floor_area_m2" : "13.339",
+        "lidar_active" : "true",
+        "triangle_count_floor" : "36452"
+      },
+      "timestamp" : "2026-06-10T18:25:25Z"
+    },
+    {
+      "id" : "BEB888D9-D553-4026-9AE8-88675D318726",
+      "kind" : "lightEstimate",
+      "message" : "light intensity=1271 temp=5967K",
+      "payload" : {
+        "ambient_color_temperature" : "5967.28",
+        "ambient_intensity" : "1270.80"
+      },
+      "timestamp" : "2026-06-10T18:25:25Z"
+    },
+    {
+      "id" : "6C0CA2AF-DB28-4ED8-A578-33C9B350F8AD",
+      "kind" : "note",
+      "message" : "Stillness wait — phone steady",
+      "payload" : {
+        "elapsed_s" : "0.935",
+        "mag_rad_per_s" : "0.397"
+      },
+      "timestamp" : "2026-06-10T18:25:25Z"
+    },
+    {
+      "id" : "E87DAE69-0057-4FBF-89D9-18FB9A2DBC21",
+      "kind" : "planeUpdated",
+      "message" : "plane 410B59 ext=0.50×0.55m",
+      "payload" : {
+        "height" : "0.550",
+        "id" : "410B5903-7FA6-4137-9A9A-1DB717F9485F",
+        "width" : "0.500"
+      },
+      "timestamp" : "2026-06-10T18:25:25Z"
+    },
+    {
+      "id" : "BBFA24F4-4AE0-4E06-AF8C-152BD68DD86D",
+      "kind" : "planeUpdated",
+      "message" : "plane EDDDAF ext=3.83×7.62m",
+      "payload" : {
+        "height" : "7.617",
+        "id" : "EDDDAF11-ACA8-4A23-86B8-DB79F4A09FC9",
+        "width" : "3.830"
+      },
+      "timestamp" : "2026-06-10T18:25:25Z"
+    },
+    {
+      "id" : "68ED2485-4196-4D26-BBA9-7BAE8444AE7B",
+      "kind" : "planeUpdated",
+      "message" : "plane C8AD68 ext=0.49×0.49m",
+      "payload" : {
+        "height" : "0.495",
+        "id" : "C8AD6825-B68D-49AF-9157-7D3BDF2E350A",
+        "width" : "0.495"
+      },
+      "timestamp" : "2026-06-10T18:25:25Z"
+    },
+    {
+      "id" : "DD15FC85-799A-49B9-BA56-904B57D618AD",
+      "kind" : "meshUpdated",
+      "message" : "mesh F0CDCA faces=1968",
+      "payload" : {
+        "face_count" : "1968",
+        "id" : "F0CDCA71-DF6A-414D-8A08-9437881D2761"
+      },
+      "timestamp" : "2026-06-10T18:25:26Z"
+    },
+    {
+      "id" : "CA25C648-4E3F-433F-8ADE-2987FDBA9617",
+      "kind" : "meshUpdated",
+      "message" : "mesh 97375A faces=6498",
+      "payload" : {
+        "face_count" : "6498",
+        "id" : "97375A91-8B32-4FD3-83A0-322D6CBB3979"
+      },
+      "timestamp" : "2026-06-10T18:25:26Z"
+    },
+    {
+      "id" : "1C9FB5F9-3AA9-4971-83FB-86803C2843F4",
+      "kind" : "meshUpdated",
+      "message" : "mesh F80796 faces=10789",
+      "payload" : {
+        "face_count" : "10789",
+        "id" : "F8079650-BFA2-44E1-B423-CF869F507173"
+      },
+      "timestamp" : "2026-06-10T18:25:26Z"
+    },
+    {
+      "id" : "32372D14-C99F-4E04-A7A8-7432FEF72E15",
+      "kind" : "meshUpdated",
+      "message" : "mesh 8CA6B4 faces=8716",
+      "payload" : {
+        "face_count" : "8716",
+        "id" : "8CA6B49F-B009-46AD-8FC4-B7C383269D83"
+      },
+      "timestamp" : "2026-06-10T18:25:26Z"
+    },
+    {
+      "id" : "915E743E-576A-4DA0-B0EF-D00D56EE08E7",
+      "kind" : "meshUpdated",
+      "message" : "mesh 0DA1D7 faces=435",
+      "payload" : {
+        "face_count" : "435",
+        "id" : "0DA1D7AF-6C43-439F-A01E-FF055C9D82CE"
+      },
+      "timestamp" : "2026-06-10T18:25:26Z"
+    },
+    {
+      "id" : "A75A6251-F12D-4568-80D0-49F036EC707D",
+      "kind" : "meshUpdated",
+      "message" : "mesh 56CE58 faces=16775",
+      "payload" : {
+        "face_count" : "16775",
+        "id" : "56CE58CE-CE0E-41FA-BEEE-C6183A809144"
+      },
+      "timestamp" : "2026-06-10T18:25:26Z"
+    },
+    {
+      "id" : "DF2109F0-DAF2-4735-BA44-DEC658A1CDFF",
+      "kind" : "meshUpdated",
+      "message" : "mesh 39313A faces=1676",
+      "payload" : {
+        "face_count" : "1676",
+        "id" : "39313A66-BFC7-4F2E-AE2A-DC91703BF0BE"
+      },
+      "timestamp" : "2026-06-10T18:25:26Z"
+    },
+    {
+      "id" : "581DF106-85DF-4A1C-9D3F-9DD474D98E54",
+      "kind" : "meshUpdated",
+      "message" : "mesh 9C25ED faces=328",
+      "payload" : {
+        "face_count" : "328",
+        "id" : "9C25ED82-C5E7-4C2B-B270-2904C346D7CF"
+      },
+      "timestamp" : "2026-06-10T18:25:26Z"
+    },
+    {
+      "id" : "303520A3-7482-4973-A7B5-B5FF61173D84",
+      "kind" : "meshUpdated",
+      "message" : "mesh 1E562A faces=13131",
+      "payload" : {
+        "face_count" : "13131",
+        "id" : "1E562A34-E4DF-438A-B2A2-BC4BE8BCF1E2"
+      },
+      "timestamp" : "2026-06-10T18:25:26Z"
+    },
+    {
+      "id" : "DB46A3C4-8B64-406F-BF8E-44A9F6CAB3CC",
+      "kind" : "planeUpdated",
+      "message" : "plane 410B59 ext=0.50×0.55m",
+      "payload" : {
+        "height" : "0.550",
+        "id" : "410B5903-7FA6-4137-9A9A-1DB717F9485F",
+        "width" : "0.500"
+      },
+      "timestamp" : "2026-06-10T18:25:27Z"
+    },
+    {
+      "id" : "10BF34C2-7215-4E93-95CB-A895BA7CB51B",
+      "kind" : "planeUpdated",
+      "message" : "plane EDDDAF ext=3.83×7.64m",
+      "payload" : {
+        "height" : "7.635",
+        "id" : "EDDDAF11-ACA8-4A23-86B8-DB79F4A09FC9",
+        "width" : "3.830"
+      },
+      "timestamp" : "2026-06-10T18:25:27Z"
+    },
+    {
+      "id" : "4A2950FE-AB8E-4F7E-B579-9078CF28AE83",
+      "kind" : "planeUpdated",
+      "message" : "plane C8AD68 ext=0.49×0.49m",
+      "payload" : {
+        "height" : "0.495",
+        "id" : "C8AD6825-B68D-49AF-9157-7D3BDF2E350A",
+        "width" : "0.495"
+      },
+      "timestamp" : "2026-06-10T18:25:27Z"
+    },
+    {
+      "id" : "FC97A8B7-1817-4041-BB81-AD1539A5482D",
+      "kind" : "strokeResult",
+      "message" : "Ball stopped — outcome=stopped bucket=slightPull",
+      "payload" : {
+        "bucket" : "slightPull",
+        "bucket_cause" : "Face closed a touch — toe of the putter led.",
+        "bucket_display_deg" : "-10.92",
+        "bucket_label" : "Slight pull",
+        "bucket_snapped_to_square" : "false",
+        "duration_s" : "1.367",
+        "face_angle_deg" : "-10.92",
+        "outcome" : "stopped",
+        "velocity_mps" : "0.0691"
+      },
+      "timestamp" : "2026-06-10T18:25:27Z"
+    },
+    {
+      "id" : "6C1E9962-B27D-4509-BF13-097023E8D176",
+      "kind" : "meshUpdated",
+      "message" : "mesh 645BA8 faces=1007",
+      "payload" : {
+        "face_count" : "1007",
+        "id" : "645BA841-EEBD-4CDE-B4FA-2FD0526A1968"
+      },
+      "timestamp" : "2026-06-10T18:25:27Z"
+    },
+    {
+      "id" : "29FA163F-A5AB-43A1-9A1B-EDD5C73B2DE9",
+      "kind" : "planeUpdated",
+      "message" : "plane 410B59 ext=0.50×0.55m",
+      "payload" : {
+        "height" : "0.550",
+        "id" : "410B5903-7FA6-4137-9A9A-1DB717F9485F",
+        "width" : "0.500"
+      },
+      "timestamp" : "2026-06-10T18:25:28Z"
+    },
+    {
+      "id" : "56CB45ED-A615-4DAC-8868-0203DFE8E005",
+      "kind" : "planeUpdated",
+      "message" : "plane EDDDAF ext=3.83×7.65m",
+      "payload" : {
+        "height" : "7.646",
+        "id" : "EDDDAF11-ACA8-4A23-86B8-DB79F4A09FC9",
+        "width" : "3.830"
+      },
+      "timestamp" : "2026-06-10T18:25:28Z"
+    },
+    {
+      "id" : "9A243D56-6D1F-4EEC-A2B0-4155C0561209",
+      "kind" : "planeUpdated",
+      "message" : "plane C8AD68 ext=0.49×0.49m",
+      "payload" : {
+        "height" : "0.495",
+        "id" : "C8AD6825-B68D-49AF-9157-7D3BDF2E350A",
+        "width" : "0.495"
+      },
+      "timestamp" : "2026-06-10T18:25:28Z"
+    },
+    {
+      "id" : "0F5AA811-4153-40DF-8F61-586CF6DDC262",
+      "kind" : "meshUpdated",
+      "message" : "mesh 8CA6B4 faces=9341",
+      "payload" : {
+        "face_count" : "9341",
+        "id" : "8CA6B49F-B009-46AD-8FC4-B7C383269D83"
+      },
+      "timestamp" : "2026-06-10T18:25:28Z"
+    },
+    {
+      "id" : "FACFFF1C-15E1-433D-AA23-9EDFA1A4DBDD",
+      "kind" : "meshUpdated",
+      "message" : "mesh F80796 faces=11637",
+      "payload" : {
+        "face_count" : "11637",
+        "id" : "F8079650-BFA2-44E1-B423-CF869F507173"
+      },
+      "timestamp" : "2026-06-10T18:25:28Z"
+    },
+    {
+      "id" : "5E765BB1-1B64-4ACE-8573-F3A8B0721D18",
+      "kind" : "meshUpdated",
+      "message" : "mesh 56CE58 faces=16400",
+      "payload" : {
+        "face_count" : "16400",
+        "id" : "56CE58CE-CE0E-41FA-BEEE-C6183A809144"
+      },
+      "timestamp" : "2026-06-10T18:25:28Z"
+    },
+    {
+      "id" : "A8A42F8F-F4B5-4745-91EE-30BCACAF1B80",
+      "kind" : "meshUpdated",
+      "message" : "mesh 1E562A faces=12857",
+      "payload" : {
+        "face_count" : "12857",
+        "id" : "1E562A34-E4DF-438A-B2A2-BC4BE8BCF1E2"
+      },
+      "timestamp" : "2026-06-10T18:25:28Z"
+    },
+    {
+      "id" : "B162D21F-D467-401D-9FD0-36F58F7EB4B1",
+      "kind" : "planeUpdated",
+      "message" : "plane 410B59 ext=0.50×0.55m",
+      "payload" : {
+        "height" : "0.550",
+        "id" : "410B5903-7FA6-4137-9A9A-1DB717F9485F",
+        "width" : "0.500"
+      },
+      "timestamp" : "2026-06-10T18:25:29Z"
+    },
+    {
+      "id" : "CEF83ECA-713A-41A3-8FF4-DE7C92140404",
+      "kind" : "planeUpdated",
+      "message" : "plane EDDDAF ext=3.83×7.65m",
+      "payload" : {
+        "height" : "7.646",
+        "id" : "EDDDAF11-ACA8-4A23-86B8-DB79F4A09FC9",
+        "width" : "3.830"
+      },
+      "timestamp" : "2026-06-10T18:25:29Z"
+    },
+    {
+      "id" : "CB9C1FF8-B982-4FB5-81B2-8EC0B03FFAE0",
+      "kind" : "planeUpdated",
+      "message" : "plane C8AD68 ext=0.51×0.48m",
+      "payload" : {
+        "height" : "0.480",
+        "id" : "C8AD6825-B68D-49AF-9157-7D3BDF2E350A",
+        "width" : "0.510"
+      },
+      "timestamp" : "2026-06-10T18:25:29Z"
+    },
+    {
+      "id" : "05C1DEFE-0F2D-4F00-B0DD-990BC13C2F4B",
+      "kind" : "meshUpdated",
+      "message" : "mesh B7A65B faces=1691",
+      "payload" : {
+        "face_count" : "1691",
+        "id" : "B7A65B2A-BA7D-45D0-858B-60626BB191B1"
+      },
+      "timestamp" : "2026-06-10T18:25:30Z"
+    },
+    {
+      "id" : "76D22BA5-B8D9-4446-A653-47831B5C8B22",
+      "kind" : "planeUpdated",
+      "message" : "plane 410B59 ext=0.50×0.55m",
+      "payload" : {
+        "height" : "0.550",
+        "id" : "410B5903-7FA6-4137-9A9A-1DB717F9485F",
+        "width" : "0.500"
+      },
+      "timestamp" : "2026-06-10T18:25:30Z"
+    },
+    {
+      "id" : "08F54DA7-971D-4064-B238-8796D70CDFF5",
+      "kind" : "planeUpdated",
+      "message" : "plane EDDDAF ext=3.83×7.65m",
+      "payload" : {
+        "height" : "7.646",
+        "id" : "EDDDAF11-ACA8-4A23-86B8-DB79F4A09FC9",
+        "width" : "3.830"
+      },
+      "timestamp" : "2026-06-10T18:25:30Z"
+    },
+    {
+      "id" : "1ECF14AC-C4EA-41DD-84BA-1DF5ACC00398",
+      "kind" : "planeUpdated",
+      "message" : "plane C8AD68 ext=0.51×0.48m",
+      "payload" : {
+        "height" : "0.480",
+        "id" : "C8AD6825-B68D-49AF-9157-7D3BDF2E350A",
+        "width" : "0.510"
+      },
+      "timestamp" : "2026-06-10T18:25:30Z"
+    },
+    {
+      "id" : "D24240C6-E096-4325-BA0F-C8F91AAE3BCB",
+      "kind" : "note",
+      "message" : "touchDown — address lock captured",
+      "payload" : {
+        "compass_yaw_rad" : "1.3247",
+        "gravity_x" : "-0.0047",
+        "gravity_y" : "0.8740",
+        "gravity_z" : "-0.4859",
+        "phone_to_ball_m" : "0.6448"
+      },
+      "timestamp" : "2026-06-10T18:25:30Z"
+    },
+    {
+      "id" : "04EA9EE4-4FE2-41F7-88DC-86AD30C800F5",
+      "kind" : "meshStats",
+      "message" : "mesh stats — floor=13.67 m² triangles=35747",
+      "payload" : {
+        "anchor_count" : "18",
+        "class_ceiling" : "0",
+        "class_door" : "76",
+        "class_floor" : "35747",
+        "class_none" : "12068",
+        "class_seat" : "7658",
+        "class_table" : "2715",
+        "class_wall" : "10904",
+        "class_window" : "4134",
+        "floor_area_m2" : "13.667",
+        "lidar_active" : "true",
+        "triangle_count_floor" : "35747"
+      },
+      "timestamp" : "2026-06-10T18:25:30Z"
+    },
+    {
+      "id" : "F771850A-190B-40B2-A764-CA732FCE8D40",
+      "kind" : "meshUpdated",
+      "message" : "mesh 56CE58 faces=16604",
+      "payload" : {
+        "face_count" : "16604",
+        "id" : "56CE58CE-CE0E-41FA-BEEE-C6183A809144"
+      },
+      "timestamp" : "2026-06-10T18:25:30Z"
+    },
+    {
+      "id" : "AD2B9E4E-616C-414C-8C4C-AE3840BEBA7B",
+      "kind" : "lightEstimate",
+      "message" : "light intensity=907 temp=5965K",
+      "payload" : {
+        "ambient_color_temperature" : "5965.20",
+        "ambient_intensity" : "907.27"
+      },
+      "timestamp" : "2026-06-10T18:25:30Z"
+    },
+    {
+      "id" : "ACE22768-350A-49D5-9591-A8A99C87292F",
+      "kind" : "planeUpdated",
+      "message" : "plane 410B59 ext=0.50×0.55m",
+      "payload" : {
+        "height" : "0.550",
+        "id" : "410B5903-7FA6-4137-9A9A-1DB717F9485F",
+        "width" : "0.500"
+      },
+      "timestamp" : "2026-06-10T18:25:31Z"
+    },
+    {
+      "id" : "15AF411C-166A-46DC-A9CF-51B43012FB92",
+      "kind" : "planeUpdated",
+      "message" : "plane EDDDAF ext=3.83×7.65m",
+      "payload" : {
+        "height" : "7.646",
+        "id" : "EDDDAF11-ACA8-4A23-86B8-DB79F4A09FC9",
+        "width" : "3.830"
+      },
+      "timestamp" : "2026-06-10T18:25:31Z"
+    },
+    {
+      "id" : "946908DE-7250-46AF-8955-3725B0525F45",
+      "kind" : "planeUpdated",
+      "message" : "plane C8AD68 ext=0.51×0.48m",
+      "payload" : {
+        "height" : "0.480",
+        "id" : "C8AD6825-B68D-49AF-9157-7D3BDF2E350A",
+        "width" : "0.510"
+      },
+      "timestamp" : "2026-06-10T18:25:31Z"
+    },
+    {
+      "id" : "C1279E10-1A80-4443-B2F3-2C3CEAD32A3B",
+      "kind" : "meshAdded",
+      "message" : "mesh 601825 faces=395",
+      "payload" : {
+        "face_count" : "395",
+        "id" : "6018252A-2165-48FF-97F7-83E05588AAB1"
+      },
+      "timestamp" : "2026-06-10T18:25:31Z"
+    },
+    {
+      "id" : "450C5D6B-EC66-44C7-9492-566AF1BC9446",
+      "kind" : "meshAdded",
+      "message" : "mesh 2BD975 faces=749",
+      "payload" : {
+        "face_count" : "749",
+        "id" : "2BD97527-2877-41D3-A9FF-3CA6425DB5F0"
+      },
+      "timestamp" : "2026-06-10T18:25:31Z"
+    },
+    {
+      "id" : "B4EEDD83-B6B1-476A-90C4-CAEC4DF89EB4",
+      "kind" : "meshAdded",
+      "message" : "mesh 357EAA faces=404",
+      "payload" : {
+        "face_count" : "404",
+        "id" : "357EAADA-5F3D-4A36-AF08-F85E3D55E3D3"
+      },
+      "timestamp" : "2026-06-10T18:25:31Z"
+    },
+    {
+      "id" : "560F0C2D-947A-4F73-B16C-3476B28B383D",
+      "kind" : "meshAdded",
+      "message" : "mesh EA15FF faces=4",
+      "payload" : {
+        "face_count" : "4",
+        "id" : "EA15FFD1-4335-4810-8EFE-496350612711"
+      },
+      "timestamp" : "2026-06-10T18:25:31Z"
+    },
+    {
+      "id" : "55C0C524-8ACF-4352-9F3C-70E33BA93CFF",
+      "kind" : "meshUpdated",
+      "message" : "mesh 1E562A faces=13149",
+      "payload" : {
+        "face_count" : "13149",
+        "id" : "1E562A34-E4DF-438A-B2A2-BC4BE8BCF1E2"
+      },
+      "timestamp" : "2026-06-10T18:25:31Z"
+    },
+    {
+      "id" : "2622249D-254A-4E56-86DF-A20F605A351D",
+      "kind" : "meshUpdated",
+      "message" : "mesh D0E06B faces=1866",
+      "payload" : {
+        "face_count" : "1866",
+        "id" : "D0E06BBE-EE66-445E-9B07-397A3388B8D7"
+      },
+      "timestamp" : "2026-06-10T18:25:31Z"
+    },
+    {
+      "id" : "2247B388-8390-466C-A0B6-3C6963BBA0AE",
+      "kind" : "peakImpact",
+      "message" : "Peak impact computed",
+      "payload" : {
+        "attitude_at_impact_yaw_deg" : "63.59",
+        "attitude_at_press_yaw_deg" : "75.90",
+        "calibrated" : "true",
+        "confidence" : "1.000",
+        "face_angle_deg" : "-12.31",
+        "face_angle_pipeline" : "v2_press_attitude_delta",
+        "face_angle_raw_deg" : "-12.31",
+        "live_haptic_fires" : "1",
+        "press_to_impact_delta_yaw_deg" : "-12.31",
+        "samples" : "134",
+        "snap_reason" : "",
+        "snapped_to_square" : "false",
+        "timestamp" : "25143.2565",
+        "velocity_mps" : "0.1477",
+        "window_duration_s" : "1.3219"
+      },
+      "timestamp" : "2026-06-10T18:25:31Z"
+    },
+    {
+      "id" : "23E05A7D-0545-410E-AA7B-4ABCBF758D38",
+      "kind" : "strokeEnded",
+      "message" : "Stroke window closed",
+      "payload" : {
+        "window_duration_s" : "1.3219",
+        "window_end" : "25143.9281",
+        "window_start" : "25142.6061"
+      },
+      "timestamp" : "2026-06-10T18:25:31Z"
+    },
+    {
+      "id" : "F1D55A72-CD01-44B1-96CA-932D74A73173",
+      "kind" : "meshUpdated",
+      "message" : "mesh EE64CC faces=71",
+      "payload" : {
+        "face_count" : "71",
+        "id" : "EE64CC27-A003-4430-8EC6-EF5348AF8BB4"
+      },
+      "timestamp" : "2026-06-10T18:25:31Z"
+    },
+    {
+      "id" : "E8B2B5C5-0E75-499C-A3BF-686317E81228",
+      "kind" : "planeUpdated",
+      "message" : "plane 410B59 ext=0.50×0.55m",
+      "payload" : {
+        "height" : "0.550",
+        "id" : "410B5903-7FA6-4137-9A9A-1DB717F9485F",
+        "width" : "0.500"
+      },
+      "timestamp" : "2026-06-10T18:25:32Z"
+    },
+    {
+      "id" : "79270E93-4983-42DB-88C5-5280C1E5B623",
+      "kind" : "planeUpdated",
+      "message" : "plane EDDDAF ext=3.87×7.65m",
+      "payload" : {
+        "height" : "7.646",
+        "id" : "EDDDAF11-ACA8-4A23-86B8-DB79F4A09FC9",
+        "width" : "3.871"
+      },
+      "timestamp" : "2026-06-10T18:25:32Z"
+    },
+    {
+      "id" : "0058A3BC-58D2-4202-B128-B41C767DCA85",
+      "kind" : "planeUpdated",
+      "message" : "plane C8AD68 ext=0.51×0.48m",
+      "payload" : {
+        "height" : "0.480",
+        "id" : "C8AD6825-B68D-49AF-9157-7D3BDF2E350A",
+        "width" : "0.510"
+      },
+      "timestamp" : "2026-06-10T18:25:32Z"
+    },
+    {
+      "id" : "0F7045BA-764E-4209-972E-6147BC2D300A",
+      "kind" : "meshUpdated",
+      "message" : "mesh 8CA6B4 faces=9341",
+      "payload" : {
+        "face_count" : "9341",
+        "id" : "8CA6B49F-B009-46AD-8FC4-B7C383269D83"
+      },
+      "timestamp" : "2026-06-10T18:25:32Z"
+    },
+    {
+      "id" : "F8FE23BA-B9C6-402C-BA64-907C9836DAC1",
+      "kind" : "meshUpdated",
+      "message" : "mesh F80796 faces=11643",
+      "payload" : {
+        "face_count" : "11643",
+        "id" : "F8079650-BFA2-44E1-B423-CF869F507173"
+      },
+      "timestamp" : "2026-06-10T18:25:32Z"
+    },
+    {
+      "id" : "59264E4E-44FD-4304-B352-BC806195C084",
+      "kind" : "note",
+      "message" : "Stillness wait — phone steady",
+      "payload" : {
+        "elapsed_s" : "0.991",
+        "mag_rad_per_s" : "0.635"
+      },
+      "timestamp" : "2026-06-10T18:25:32Z"
+    },
+    {
+      "id" : "760AF112-B85E-4882-8279-2D9499A1E86A",
+      "kind" : "meshUpdated",
+      "message" : "mesh 39313A faces=1676",
+      "payload" : {
+        "face_count" : "1676",
+        "id" : "39313A66-BFC7-4F2E-AE2A-DC91703BF0BE"
+      },
+      "timestamp" : "2026-06-10T18:25:33Z"
+    },
+    {
+      "id" : "FE06B490-EC60-4074-A779-97C71316F896",
+      "kind" : "meshUpdated",
+      "message" : "mesh 97375A faces=6590",
+      "payload" : {
+        "face_count" : "6590",
+        "id" : "97375A91-8B32-4FD3-83A0-322D6CBB3979"
+      },
+      "timestamp" : "2026-06-10T18:25:33Z"
+    },
+    {
+      "id" : "0A761778-6E4F-4782-B4E9-11DEC0E96E3A",
+      "kind" : "meshUpdated",
+      "message" : "mesh 56CE58 faces=16484",
+      "payload" : {
+        "face_count" : "16484",
+        "id" : "56CE58CE-CE0E-41FA-BEEE-C6183A809144"
+      },
+      "timestamp" : "2026-06-10T18:25:33Z"
+    },
+    {
+      "id" : "94F2AE38-0EE1-447A-AE15-7D0DF94D026A",
+      "kind" : "planeUpdated",
+      "message" : "plane 410B59 ext=0.55×0.55m",
+      "payload" : {
+        "height" : "0.550",
+        "id" : "410B5903-7FA6-4137-9A9A-1DB717F9485F",
+        "width" : "0.550"
+      },
+      "timestamp" : "2026-06-10T18:25:33Z"
+    },
+    {
+      "id" : "4C2371DC-5BB7-4897-80A9-80CD870A68BC",
+      "kind" : "planeUpdated",
+      "message" : "plane EDDDAF ext=3.87×7.65m",
+      "payload" : {
+        "height" : "7.646",
+        "id" : "EDDDAF11-ACA8-4A23-86B8-DB79F4A09FC9",
+        "width" : "3.871"
+      },
+      "timestamp" : "2026-06-10T18:25:33Z"
+    },
+    {
+      "id" : "16F9A707-9EAB-4042-BC8D-BF89F480D6AE",
+      "kind" : "planeUpdated",
+      "message" : "plane C8AD68 ext=0.51×0.48m",
+      "payload" : {
+        "height" : "0.480",
+        "id" : "C8AD6825-B68D-49AF-9157-7D3BDF2E350A",
+        "width" : "0.510"
+      },
+      "timestamp" : "2026-06-10T18:25:33Z"
+    },
+    {
+      "id" : "56457846-449D-4474-8EA4-4D15D7F6C1F9",
+      "kind" : "meshUpdated",
+      "message" : "mesh F0CDCA faces=2223",
+      "payload" : {
+        "face_count" : "2223",
+        "id" : "F0CDCA71-DF6A-414D-8A08-9437881D2761"
+      },
+      "timestamp" : "2026-06-10T18:25:33Z"
+    },
+    {
+      "id" : "632202AD-CBB3-4E1B-9595-3446096A3D40",
+      "kind" : "meshUpdated",
+      "message" : "mesh 1E562A faces=13437",
+      "payload" : {
+        "face_count" : "13437",
+        "id" : "1E562A34-E4DF-438A-B2A2-BC4BE8BCF1E2"
+      },
+      "timestamp" : "2026-06-10T18:25:33Z"
+    },
+    {
+      "id" : "EF51A253-F727-444A-8461-2F896A962126",
+      "kind" : "meshUpdated",
+      "message" : "mesh 0DA1D7 faces=480",
+      "payload" : {
+        "face_count" : "480",
+        "id" : "0DA1D7AF-6C43-439F-A01E-FF055C9D82CE"
+      },
+      "timestamp" : "2026-06-10T18:25:34Z"
+    },
+    {
+      "id" : "C55DCE3B-90EA-48A9-B821-3D14AA92675D",
+      "kind" : "meshUpdated",
+      "message" : "mesh 9C25ED faces=937",
+      "payload" : {
+        "face_count" : "937",
+        "id" : "9C25ED82-C5E7-4C2B-B270-2904C346D7CF"
+      },
+      "timestamp" : "2026-06-10T18:25:34Z"
+    },
+    {
+      "id" : "8F7391A2-BB68-4BAC-8F6B-7960162D6F64",
+      "kind" : "planeUpdated",
+      "message" : "plane 410B59 ext=0.55×0.55m",
+      "payload" : {
+        "height" : "0.550",
+        "id" : "410B5903-7FA6-4137-9A9A-1DB717F9485F",
+        "width" : "0.550"
+      },
+      "timestamp" : "2026-06-10T18:25:34Z"
+    },
+    {
+      "id" : "EF231D3C-69FC-44F3-AA5C-F2A761409BFC",
+      "kind" : "planeUpdated",
+      "message" : "plane EDDDAF ext=3.87×7.65m",
+      "payload" : {
+        "height" : "7.646",
+        "id" : "EDDDAF11-ACA8-4A23-86B8-DB79F4A09FC9",
+        "width" : "3.871"
+      },
+      "timestamp" : "2026-06-10T18:25:34Z"
+    },
+    {
+      "id" : "7F98CBA1-A6A2-4E49-AA74-4C5DF87687E4",
+      "kind" : "planeUpdated",
+      "message" : "plane C8AD68 ext=0.50×0.48m",
+      "payload" : {
+        "height" : "0.480",
+        "id" : "C8AD6825-B68D-49AF-9157-7D3BDF2E350A",
+        "width" : "0.500"
+      },
+      "timestamp" : "2026-06-10T18:25:34Z"
+    },
+    {
+      "id" : "11D9601C-D513-41F1-B0F4-211C4370C34B",
+      "kind" : "meshUpdated",
+      "message" : "mesh 8CA6B4 faces=9345",
+      "payload" : {
+        "face_count" : "9345",
+        "id" : "8CA6B49F-B009-46AD-8FC4-B7C383269D83"
+      },
+      "timestamp" : "2026-06-10T18:25:35Z"
+    },
+    {
+      "id" : "D5BEC674-FA63-4E84-ACC8-3D387CF3B127",
+      "kind" : "meshUpdated",
+      "message" : "mesh F80796 faces=12231",
+      "payload" : {
+        "face_count" : "12231",
+        "id" : "F8079650-BFA2-44E1-B423-CF869F507173"
+      },
+      "timestamp" : "2026-06-10T18:25:35Z"
+    },
+    {
+      "id" : "16F9D956-3170-443B-99F4-746C40DD5D86",
+      "kind" : "planeUpdated",
+      "message" : "plane 410B59 ext=0.55×0.55m",
+      "payload" : {
+        "height" : "0.550",
+        "id" : "410B5903-7FA6-4137-9A9A-1DB717F9485F",
+        "width" : "0.550"
+      },
+      "timestamp" : "2026-06-10T18:25:35Z"
+    },
+    {
+      "id" : "9ABFED66-7397-4837-AB6A-955F799DE6F0",
+      "kind" : "planeUpdated",
+      "message" : "plane EDDDAF ext=3.87×7.65m",
+      "payload" : {
+        "height" : "7.646",
+        "id" : "EDDDAF11-ACA8-4A23-86B8-DB79F4A09FC9",
+        "width" : "3.871"
+      },
+      "timestamp" : "2026-06-10T18:25:35Z"
+    },
+    {
+      "id" : "2BD9DBD4-C187-48C5-8902-F9C3A9D83A5F",
+      "kind" : "planeUpdated",
+      "message" : "plane C8AD68 ext=0.50×0.48m",
+      "payload" : {
+        "height" : "0.480",
+        "id" : "C8AD6825-B68D-49AF-9157-7D3BDF2E350A",
+        "width" : "0.500"
+      },
+      "timestamp" : "2026-06-10T18:25:35Z"
+    },
+    {
+      "id" : "623150F0-0763-4F63-B37B-F890AA3ED8F4",
+      "kind" : "meshUpdated",
+      "message" : "mesh 97375A faces=6919",
+      "payload" : {
+        "face_count" : "6919",
+        "id" : "97375A91-8B32-4FD3-83A0-322D6CBB3979"
+      },
+      "timestamp" : "2026-06-10T18:25:35Z"
+    },
+    {
+      "id" : "C8E81B35-BE6C-4C66-BFC1-6B3A58D0875E",
+      "kind" : "meshUpdated",
+      "message" : "mesh 39313A faces=1618",
+      "payload" : {
+        "face_count" : "1618",
+        "id" : "39313A66-BFC7-4F2E-AE2A-DC91703BF0BE"
+      },
+      "timestamp" : "2026-06-10T18:25:35Z"
+    },
+    {
+      "id" : "806371E5-003B-45AE-BC8D-51C4C5BE5E34",
+      "kind" : "meshUpdated",
+      "message" : "mesh 56CE58 faces=16519",
+      "payload" : {
+        "face_count" : "16519",
+        "id" : "56CE58CE-CE0E-41FA-BEEE-C6183A809144"
+      },
+      "timestamp" : "2026-06-10T18:25:35Z"
+    },
+    {
+      "id" : "BED95FF9-742C-4744-BC05-07F7B8E30C11",
+      "kind" : "strokeResult",
+      "message" : "Ball stopped — outcome=stopped bucket=pull",
+      "payload" : {
+        "bucket" : "pull",
+        "bucket_cause" : "Face closed at impact — ball goes left of the line.",
+        "bucket_display_deg" : "-12.31",
+        "bucket_label" : "Pull",
+        "bucket_snapped_to_square" : "false",
+        "duration_s" : "2.983",
+        "face_angle_deg" : "-12.31",
+        "outcome" : "stopped",
+        "velocity_mps" : "0.1477"
+      },
+      "timestamp" : "2026-06-10T18:25:35Z"
+    },
+    {
+      "id" : "62DB5ABD-D6E2-4083-BAB4-BDB3DD3ACFFF",
+      "kind" : "meshStats",
+      "message" : "mesh stats — floor=14.01 m² triangles=36099",
+      "payload" : {
+        "anchor_count" : "22",
+        "class_ceiling" : "0",
+        "class_door" : "91",
+        "class_floor" : "36099",
+        "class_none" : "14508",
+        "class_seat" : "7948",
+        "class_table" : "2863",
+        "class_wall" : "11721",
+        "class_window" : "4801",
+        "floor_area_m2" : "14.014",
+        "lidar_active" : "true",
+        "triangle_count_floor" : "36099"
+      },
+      "timestamp" : "2026-06-10T18:25:35Z"
+    },
+    {
+      "id" : "A18CBD7D-2AED-4DC8-AC50-E6117BD70CCC",
+      "kind" : "lightEstimate",
+      "message" : "light intensity=1053 temp=5988K",
+      "payload" : {
+        "ambient_color_temperature" : "5987.73",
+        "ambient_intensity" : "1053.08"
+      },
+      "timestamp" : "2026-06-10T18:25:35Z"
+    },
+    {
+      "id" : "EDF02EEA-400A-4C32-A5F7-1D3F85710E46",
+      "kind" : "meshUpdated",
+      "message" : "mesh F0CDCA faces=2684",
+      "payload" : {
+        "face_count" : "2684",
+        "id" : "F0CDCA71-DF6A-414D-8A08-9437881D2761"
+      },
+      "timestamp" : "2026-06-10T18:25:36Z"
+    },
+    {
+      "id" : "1EE6D004-9E7D-4112-ACB0-46EF423A3042",
+      "kind" : "meshUpdated",
+      "message" : "mesh 1E562A faces=13541",
+      "payload" : {
+        "face_count" : "13541",
+        "id" : "1E562A34-E4DF-438A-B2A2-BC4BE8BCF1E2"
+      },
+      "timestamp" : "2026-06-10T18:25:36Z"
+    },
+    {
+      "id" : "C0D4DDA9-B377-4F57-A138-646A4F814C44",
+      "kind" : "planeUpdated",
+      "message" : "plane 410B59 ext=0.55×0.55m",
+      "payload" : {
+        "height" : "0.550",
+        "id" : "410B5903-7FA6-4137-9A9A-1DB717F9485F",
+        "width" : "0.550"
+      },
+      "timestamp" : "2026-06-10T18:25:36Z"
+    },
+    {
+      "id" : "2271EA7D-C2D5-4F42-BE87-6C7D8A6245DB",
+      "kind" : "planeUpdated",
+      "message" : "plane EDDDAF ext=3.87×7.65m",
+      "payload" : {
+        "height" : "7.646",
+        "id" : "EDDDAF11-ACA8-4A23-86B8-DB79F4A09FC9",
+        "width" : "3.871"
+      },
+      "timestamp" : "2026-06-10T18:25:36Z"
+    },
+    {
+      "id" : "AA1EB9FC-FB71-4969-A57A-EC18BCBCC483",
+      "kind" : "planeUpdated",
+      "message" : "plane C8AD68 ext=0.50×0.48m",
+      "payload" : {
+        "height" : "0.480",
+        "id" : "C8AD6825-B68D-49AF-9157-7D3BDF2E350A",
+        "width" : "0.500"
+      },
+      "timestamp" : "2026-06-10T18:25:36Z"
+    },
+    {
+      "id" : "A7DB1C0F-A3E6-4EDA-BFCF-1822CFB85CCA",
+      "kind" : "meshUpdated",
+      "message" : "mesh DD32AE faces=1914",
+      "payload" : {
+        "face_count" : "1914",
+        "id" : "DD32AE7C-7732-4E06-BCB0-5BC070C8B133"
+      },
+      "timestamp" : "2026-06-10T18:25:37Z"
+    },
+    {
+      "id" : "BC15D26B-F4DB-425B-8633-E62CD6871455",
+      "kind" : "planeUpdated",
+      "message" : "plane 410B59 ext=0.55×0.55m",
+      "payload" : {
+        "height" : "0.550",
+        "id" : "410B5903-7FA6-4137-9A9A-1DB717F9485F",
+        "width" : "0.550"
+      },
+      "timestamp" : "2026-06-10T18:25:37Z"
+    },
+    {
+      "id" : "6803F41F-5F28-42D2-A31D-262185A13987",
+      "kind" : "planeUpdated",
+      "message" : "plane EDDDAF ext=3.87×7.65m",
+      "payload" : {
+        "height" : "7.646",
+        "id" : "EDDDAF11-ACA8-4A23-86B8-DB79F4A09FC9",
+        "width" : "3.871"
+      },
+      "timestamp" : "2026-06-10T18:25:37Z"
+    },
+    {
+      "id" : "835E5679-0F6A-4681-A352-A292CF0ED0F9",
+      "kind" : "planeUpdated",
+      "message" : "plane C8AD68 ext=0.50×0.48m",
+      "payload" : {
+        "height" : "0.480",
+        "id" : "C8AD6825-B68D-49AF-9157-7D3BDF2E350A",
+        "width" : "0.500"
+      },
+      "timestamp" : "2026-06-10T18:25:37Z"
+    },
+    {
+      "id" : "3B5FC42F-EBA6-4F8A-A162-6F0E5693C0B6",
+      "kind" : "meshUpdated",
+      "message" : "mesh 56CE58 faces=16430",
+      "payload" : {
+        "face_count" : "16430",
+        "id" : "56CE58CE-CE0E-41FA-BEEE-C6183A809144"
+      },
+      "timestamp" : "2026-06-10T18:25:37Z"
+    },
+    {
+      "id" : "FC518463-AE22-4FDD-ACC8-A6394033AA9F",
+      "kind" : "planeUpdated",
+      "message" : "plane 410B59 ext=0.55×0.55m",
+      "payload" : {
+        "height" : "0.550",
+        "id" : "410B5903-7FA6-4137-9A9A-1DB717F9485F",
+        "width" : "0.550"
+      },
+      "timestamp" : "2026-06-10T18:25:38Z"
+    },
+    {
+      "id" : "5C0FA739-738F-4BDE-8CC9-0B37E7D50CDE",
+      "kind" : "planeUpdated",
+      "message" : "plane EDDDAF ext=3.87×7.65m",
+      "payload" : {
+        "height" : "7.646",
+        "id" : "EDDDAF11-ACA8-4A23-86B8-DB79F4A09FC9",
+        "width" : "3.871"
+      },
+      "timestamp" : "2026-06-10T18:25:38Z"
+    },
+    {
+      "id" : "25475FAF-A702-40AF-A3C5-8775465F4F60",
+      "kind" : "planeUpdated",
+      "message" : "plane C8AD68 ext=0.50×0.48m",
+      "payload" : {
+        "height" : "0.480",
+        "id" : "C8AD6825-B68D-49AF-9157-7D3BDF2E350A",
+        "width" : "0.500"
+      },
+      "timestamp" : "2026-06-10T18:25:38Z"
+    },
+    {
+      "id" : "18A1C1C9-53F7-4F00-84A8-2B667755A0A6",
+      "kind" : "meshUpdated",
+      "message" : "mesh 8CA6B4 faces=9520",
+      "payload" : {
+        "face_count" : "9520",
+        "id" : "8CA6B49F-B009-46AD-8FC4-B7C383269D83"
+      },
+      "timestamp" : "2026-06-10T18:25:38Z"
+    },
+    {
+      "id" : "D2FCE331-CE0F-4578-B7BF-A4C08D87F978",
+      "kind" : "meshUpdated",
+      "message" : "mesh 1E562A faces=13444",
+      "payload" : {
+        "face_count" : "13444",
+        "id" : "1E562A34-E4DF-438A-B2A2-BC4BE8BCF1E2"
+      },
+      "timestamp" : "2026-06-10T18:25:38Z"
+    },
+    {
+      "id" : "E252F173-7C74-4033-B282-45D9F7B2B898",
+      "kind" : "meshUpdated",
+      "message" : "mesh F80796 faces=12541",
+      "payload" : {
+        "face_count" : "12541",
+        "id" : "F8079650-BFA2-44E1-B423-CF869F507173"
+      },
+      "timestamp" : "2026-06-10T18:25:38Z"
+    },
+    {
+      "id" : "110E8B85-F5A5-4D81-86C4-3EC1288ADECB",
+      "kind" : "meshUpdated",
+      "message" : "mesh 97375A faces=7116",
+      "payload" : {
+        "face_count" : "7116",
+        "id" : "97375A91-8B32-4FD3-83A0-322D6CBB3979"
+      },
+      "timestamp" : "2026-06-10T18:25:39Z"
+    },
+    {
+      "id" : "C5370E20-3C5F-458F-A5F4-670719AA7F20",
+      "kind" : "meshUpdated",
+      "message" : "mesh 0DA1D7 faces=689",
+      "payload" : {
+        "face_count" : "689",
+        "id" : "0DA1D7AF-6C43-439F-A01E-FF055C9D82CE"
+      },
+      "timestamp" : "2026-06-10T18:25:39Z"
+    },
+    {
+      "id" : "49692F9D-5968-4ADB-AD30-29AFC4D24A77",
+      "kind" : "planeUpdated",
+      "message" : "plane 410B59 ext=0.55×0.55m",
+      "payload" : {
+        "height" : "0.550",
+        "id" : "410B5903-7FA6-4137-9A9A-1DB717F9485F",
+        "width" : "0.550"
+      },
+      "timestamp" : "2026-06-10T18:25:39Z"
+    },
+    {
+      "id" : "2B9B546F-203D-46BE-BE10-3718C2CE2658",
+      "kind" : "planeUpdated",
+      "message" : "plane EDDDAF ext=3.87×7.65m",
+      "payload" : {
+        "height" : "7.646",
+        "id" : "EDDDAF11-ACA8-4A23-86B8-DB79F4A09FC9",
+        "width" : "3.871"
+      },
+      "timestamp" : "2026-06-10T18:25:39Z"
+    },
+    {
+      "id" : "51306CD7-E2EA-44BE-B7E0-66991D75B03D",
+      "kind" : "planeUpdated",
+      "message" : "plane C8AD68 ext=0.49×0.49m",
+      "payload" : {
+        "height" : "0.495",
+        "id" : "C8AD6825-B68D-49AF-9157-7D3BDF2E350A",
+        "width" : "0.495"
+      },
+      "timestamp" : "2026-06-10T18:25:39Z"
+    },
+    {
+      "id" : "6EF92F61-BE9A-43D0-8CC5-5B8FD3F1F941",
+      "kind" : "meshUpdated",
+      "message" : "mesh 39313A faces=1607",
+      "payload" : {
+        "face_count" : "1607",
+        "id" : "39313A66-BFC7-4F2E-AE2A-DC91703BF0BE"
+      },
+      "timestamp" : "2026-06-10T18:25:39Z"
+    },
+    {
+      "id" : "88EFCF42-2DB9-4A92-BF04-AAC6AB946869",
+      "kind" : "note",
+      "message" : "Bundle-this requested (B68 single-zip path)",
+      "payload" : {
+        "kind" : "bundleThisRequested"
+      },
+      "timestamp" : "2026-06-10T18:25:40Z"
+    },
+    {
+      "id" : "A0F49C59-2F49-4664-9929-82A808277DA4",
+      "kind" : "meshUpdated",
+      "message" : "mesh 56CE58 faces=16425",
+      "payload" : {
+        "face_count" : "16425",
+        "id" : "56CE58CE-CE0E-41FA-BEEE-C6183A809144"
+      },
+      "timestamp" : "2026-06-10T18:25:40Z"
+    },
+    {
+      "id" : "1A20F43D-D238-488C-AB6A-15B8BE08B5BC",
+      "kind" : "planeUpdated",
+      "message" : "plane 410B59 ext=0.55×0.55m",
+      "payload" : {
+        "height" : "0.550",
+        "id" : "410B5903-7FA6-4137-9A9A-1DB717F9485F",
+        "width" : "0.550"
+      },
+      "timestamp" : "2026-06-10T18:25:40Z"
+    },
+    {
+      "id" : "59A78EEB-AF7B-4C7F-98DA-2FEA84EB4B11",
+      "kind" : "planeUpdated",
+      "message" : "plane EDDDAF ext=3.87×7.65m",
+      "payload" : {
+        "height" : "7.646",
+        "id" : "EDDDAF11-ACA8-4A23-86B8-DB79F4A09FC9",
+        "width" : "3.871"
+      },
+      "timestamp" : "2026-06-10T18:25:40Z"
+    },
+    {
+      "id" : "96F0E0C6-6F47-4607-BA25-CD9AE0C69FA9",
+      "kind" : "planeUpdated",
+      "message" : "plane C8AD68 ext=0.49×0.49m",
+      "payload" : {
+        "height" : "0.495",
+        "id" : "C8AD6825-B68D-49AF-9157-7D3BDF2E350A",
+        "width" : "0.495"
+      },
+      "timestamp" : "2026-06-10T18:25:40Z"
+    },
+    {
+      "id" : "7A87A56F-27C0-4421-AAB1-58B489916CEE",
+      "kind" : "meshStats",
+      "message" : "mesh stats — floor=14.00 m² triangles=36453",
+      "payload" : {
+        "anchor_count" : "22",
+        "class_ceiling" : "0",
+        "class_door" : "91",
+        "class_floor" : "36453",
+        "class_none" : "14655",
+        "class_seat" : "8080",
+        "class_table" : "2924",
+        "class_wall" : "11771",
+        "class_window" : "5168",
+        "floor_area_m2" : "13.998",
+        "lidar_active" : "true",
+        "triangle_count_floor" : "36453"
+      },
+      "timestamp" : "2026-06-10T18:25:40Z"
+    },
+    {
+      "id" : "9AD0530A-2A77-42E9-AD4A-84DD34D86A40",
+      "kind" : "lightEstimate",
+      "message" : "light intensity=808 temp=5966K",
+      "payload" : {
+        "ambient_color_temperature" : "5966.22",
+        "ambient_intensity" : "808.16"
+      },
+      "timestamp" : "2026-06-10T18:25:40Z"
+    },
+    {
+      "id" : "F8B6B5AB-6C98-48E6-8BCE-6020428415B9",
+      "kind" : "meshUpdated",
+      "message" : "mesh 1E562A faces=13492",
+      "payload" : {
+        "face_count" : "13492",
+        "id" : "1E562A34-E4DF-438A-B2A2-BC4BE8BCF1E2"
+      },
+      "timestamp" : "2026-06-10T18:25:40Z"
+    },
+    {
+      "id" : "5AA2C281-877E-4E03-890F-5215480298BF",
+      "kind" : "meshUpdated",
+      "message" : "mesh F80796 faces=12625",
+      "payload" : {
+        "face_count" : "12625",
+        "id" : "F8079650-BFA2-44E1-B423-CF869F507173"
+      },
+      "timestamp" : "2026-06-10T18:25:40Z"
+    },
+    {
+      "id" : "3FAE2D73-8AB6-4970-B051-68C56AA13B06",
+      "kind" : "note",
+      "message" : "Recording stopped for send: ar-slice2-placement-2026-06-10T18-24-46.894Z-FF8883.mp4",
+      "payload" : {
+
+      },
+      "timestamp" : "2026-06-10T18:25:41Z"
+    }
+  ],
+  "sessionId" : "ar-slice2-placement-2026-06-10T18-24-46.894Z-FF8883",
+  "startedAt" : "2026-06-10T18:24:46Z"
+}

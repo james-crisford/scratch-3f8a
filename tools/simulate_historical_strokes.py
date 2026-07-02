@@ -1,3 +1,15 @@
+"""DEPRECATED (2026-07-02) — use the plab harness instead: harness/run.sh replay data/raw/by-build
+
+This B55-era Python port of BallPhysics has VERIFIED drift bugs vs HEAD:
+  1. Sign bug: applies the B80 flip psi0 = -faceAngleRaw to ALL strokes without
+     checking faceAngleRawMeaning — every one of the 192 historical strokes
+     carries the pre-B80 inverted sign, so every simulated lateral miss
+     direction in tools/output/historical-stroke-sim.csv is MIRRORED.
+  2. Lip-out kick is stubbed (Swift: 0.6*v_entry radial kick + 1cm snap-clear).
+  3. Constants frozen at B55; 13+ builds behind.
+The plab harness compiles the app's own Swift sources (zero drift possible).
+"""
+# Original docstring preserved below (historical):
 """
 B55 — replay the 192-stroke historical dataset through the current
 BallPhysics.simulatePutt model to see where each putt would have ended
@@ -27,6 +39,7 @@ Usage:
   py -3.12 tools/simulate_historical_strokes.py
 Output: tools/output/historical-stroke-sim.csv + .md summary
 """
+
 
 import json
 import math

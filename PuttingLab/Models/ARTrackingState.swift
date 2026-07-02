@@ -1,11 +1,14 @@
 import Foundation
+#if canImport(ARKit)
 import ARKit
+#endif
 
 enum ARTrackingState: Sendable, Equatable {
     case notAvailable
     case limited(ARTrackingLimitReason)
     case normal
 
+#if canImport(ARKit)
     init(_ state: ARCamera.TrackingState) {
         switch state {
         case .notAvailable:
@@ -16,6 +19,7 @@ enum ARTrackingState: Sendable, Equatable {
             self = .normal
         }
     }
+#endif
 
     var isNormal: Bool {
         if case .normal = self { return true }
@@ -30,6 +34,7 @@ enum ARTrackingLimitReason: Sendable, Equatable {
     case relocalizing
     case unknown
 
+#if canImport(ARKit)
     init(_ reason: ARCamera.TrackingState.Reason) {
         switch reason {
         case .initializing: self = .initializing
@@ -39,4 +44,5 @@ enum ARTrackingLimitReason: Sendable, Equatable {
         @unknown default: self = .unknown
         }
     }
+#endif
 }
