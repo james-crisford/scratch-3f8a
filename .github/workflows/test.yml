@@ -493,7 +493,13 @@ jobs:
             exit 1
           fi
           echo "Uploading $IPA to TestFlight..."
+          # Xcode 26 altool regression: the rewritten tool fails to resolve
+          # the ASC app record from the bundle ID ("Cannot determine the
+          # Apple ID from Bundle ID", error 19 — fastlane#29820, Apple
+          # forums thread 803105). --use-old-altool selects the legacy
+          # upload path that B78/B79 shipped with.
           xcrun altool --upload-app \
+            --use-old-altool \
             --type ios \
             --file "$IPA" \
             --apiKey "$KEY_ID" \
