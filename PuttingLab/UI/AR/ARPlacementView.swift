@@ -2567,8 +2567,19 @@ struct ARPlacementView: View {
                        payload: ["samples": "\(window.samples.count)",
                                  "ar_poses": "\(posesDuringRecording.count)",
                                  "schema": "\(replay.schemaVersion)"])
-            Task.detached(priority: .utility) {
-                _ = try? StrokeReplayStore.shared.save(replay)
+            Task.detached(priority: .utility) { [logger] in
+                do {
+                    _ = try StrokeReplayStore.shared.save(replay)
+                } catch {
+                    // A silently failing save loses the whole data session
+                    // invisibly (unverified-but-plausible finding, diff
+                    // review 2026-07-03). Surface every failure in the
+                    // session log so the export manifest tells the truth.
+                    await MainActor.run {
+                        logger.log(.failed, "b81 replay save FAILED",
+                                   payload: ["error": "\(error)"])
+                    }
+                }
             }
             // Build an AddressPose for downstream consumers (e.g. the
             // roll animator + result panel). v0.2.0 didn't need one

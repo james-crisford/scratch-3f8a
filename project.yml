@@ -31,8 +31,8 @@ targets:
       path: PuttingLab/Info.plist
       properties:
         CFBundleDisplayName: PuttingLab
-        CFBundleShortVersionString: "0.7.16"
-        CFBundleVersion: "81"
+        CFBundleShortVersionString: "0.7.17"
+        CFBundleVersion: "82"
         # B80 — declare export-compliance here, in the XcodeGen source of
         # truth. It was only in the hand-written Info.plist, which XcodeGen
         # OVERWRITES on every `xcodegen generate`, so the flag could be

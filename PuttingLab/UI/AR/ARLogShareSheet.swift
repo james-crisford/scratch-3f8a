@@ -250,17 +250,28 @@ enum ARLogExport {
     /// Inventory the staged files for the manifest. Cheap directory
     /// walk; runs after stageBundleSnapshot writes the files.
     static func inventoryStagedFiles(stagingURL: URL) -> [BundleManifest.FileEntry] {
-        guard let items = try? FileManager.default.contentsOfDirectory(at: stagingURL,
-                                                                        includingPropertiesForKeys: [.fileSizeKey]) else {
+        // Recursive: B81 bundles carry a StrokeReplays/ subdirectory — a
+        // shallow listing reported it as one bytes:0 "other" entry, so the
+        // manifest no longer described the bundle's actual contents.
+        guard let subpaths = try? FileManager.default.subpathsOfDirectory(atPath: stagingURL.path) else {
             return []
         }
+        let items = subpaths
+            .map { stagingURL.appendingPathComponent($0) }
+            .filter { url in
+                var isDir: ObjCBool = false
+                FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir)
+                return !isDir.boolValue
+            }
         return items
             .filter { $0.lastPathComponent != "manifest.json" }
             .map { url in
                 let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize).map(Int64.init) ?? 0
                 let kind: String = {
                     switch url.pathExtension.lowercased() {
-                    case "json": return "session_json"
+                    case "json":
+                        return url.lastPathComponent.hasPrefix("stroke-")
+                            ? "stroke_replay_json" : "session_json"
                     case "mp4":  return "recording_mp4"
                     case "jpg":  return "keyframe_jpg"
                     default:     return "other"
